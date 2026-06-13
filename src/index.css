@@ -1,0 +1,35 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-canvas text-slate-800 antialiased;
+    font-family: 'Montserrat', 'Inter', system-ui, sans-serif;
+  }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.15); border-radius: 6px; }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-card shadow-card border border-slate-200/60;
+  }
+  .label-uppercase {
+    @apply text-[11px] font-semibold uppercase tracking-wider text-slate-500;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg
+           bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium
+           transition-colors;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg
+           bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium
+           border border-slate-200 transition-colors;
+  }
+}
