@@ -11,9 +11,13 @@ import DonutCategoryCard  from "../components/charts/DonutCategoryCard";
 import DataTable, { RowActionsButton } from "../components/ui/DataTable";
 
 import {
-  revenueMetrics, revenueEvolution, revenueByCategory, revenueList,
+  revenueMetrics    as mockRevenueMetrics,
+  revenueEvolution  as mockRevenueEvolution,
+  revenueByCategory as mockRevenueByCategory,
+  revenueList       as mockRevenueList,
 } from "../data/mockData";
 import { formatEUR, formatEURCompact } from "../lib/format";
+import { useFinerData } from "../context/FinerDataContext";
 
 // ── Tooltip do gráfico de evolução ──────────────────────────
 function EvTooltip({ active, payload, label }) {
@@ -40,6 +44,13 @@ const STATUS_LABEL = {
 
 // ── Tela ────────────────────────────────────────────────────
 export default function Receitas() {
+  // Fonte de dados: vendas reais (quando há API) ou fallback ao mock.
+  const { sales } = useFinerData();
+  const revenueMetrics    = sales?.receitas?.metrics    ?? mockRevenueMetrics;
+  const revenueEvolution  = sales?.receitas?.evolution  ?? mockRevenueEvolution;
+  const revenueByCategory = sales?.receitas?.byCategory ?? mockRevenueByCategory;
+  const revenueList       = sales?.receitas?.list       ?? mockRevenueList;
+
   // Definição das colunas da tabela
   const columns = [
     { key: "data", header: "Data" },

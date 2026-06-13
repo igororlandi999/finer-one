@@ -1,6 +1,7 @@
 import { PlanProvider, usePlan }    from "./context/PlanContext";
 import { SCREENS, SCREEN_CATALOG }  from "./config/planConfig";
 import AppShell                      from "./layouts/AppShell";
+import { FinerDataProvider }         from "./context/FinerDataContext";
 import Resumo                        from "./pages/Resumo";
 import DiagnosticoFinanceiro         from "./pages/DiagnosticoFinanceiro";
 import Receitas                      from "./pages/Receitas";
@@ -54,9 +55,11 @@ function Router() {
 export default function App() {
   return (
     <PlanProvider>
-      <AppShell>
-        <Router />
-      </AppShell>
+      <FinerDataProvider>
+        <AppShell>
+          <Router />
+        </AppShell>
+      </FinerDataProvider>
     </PlanProvider>
   );
 }

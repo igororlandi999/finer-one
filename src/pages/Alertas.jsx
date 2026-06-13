@@ -5,7 +5,20 @@ import {
 
 import PageHeader from "../layouts/PageHeader";
 
-import { alertsMetrics, alertsList } from "../data/mockData";
+import { alertsMetrics as mockAlertsMetrics, alertsList as mockAlertsList } from "../data/mockData";
+import { useFinerData } from "../context/FinerDataContext";
+
+// Categorias que NÃO derivam de vendas — mantêm-se sempre em mock.
+const NON_SALES_CATEGORIES = ["Liquidez", "Despesas", "Margem", "Recebimentos", "Tesouraria", "Fiscal", "Documentos"];
+function composeAlerts(salesList, mockList) {
+  if (!salesList) return mockList;
+  return [...salesList, ...mockList.filter((a) => NON_SALES_CATEGORIES.includes(a.category))];
+}
+function countSeverities(list, resolvidosFallback) {
+  const c = { danger: 0, warning: 0, info: 0, success: 0 };
+  for (const a of list) c[a.severity] = (c[a.severity] || 0) + 1;
+  return { criticos: c.danger, atencao: c.warning, informativos: c.info, resolvidos: resolvidosFallback };
+}
 
 // ── Metadata por severidade ─────────────────────────────────
 const SEV = {
@@ -85,9 +98,17 @@ const FILTERS = [
 export default function Alertas() {
   const [filter, setFilter] = useState("todos");
 
+  // Alertas de vendas (quando há API) somados aos não-comerciais em mock.
+  const { sales } = useFinerData();
+  const salesList = sales?.alertas?.list ?? null;
+  const alertsList = composeAlerts(salesList, mockAlertsList);
+  const alertsMetrics = salesList
+    ? countSeverities(alertsList, mockAlertsMetrics.resolvidos)
+    : mockAlertsMetrics;
+
   const filtered = useMemo(
     () => filter === "todos" ? alertsList : alertsList.filter((a) => a.severity === filter),
-    [filter]
+    [filter, alertsList]
   );
 
   return (

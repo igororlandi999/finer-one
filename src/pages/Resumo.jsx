@@ -15,11 +15,14 @@ import StatusBadge  from "../components/ui/StatusBadge";
 import { usePlan }     from "../context/PlanContext";
 import { SCREENS }     from "../config/planConfig";
 import {
-  currentUser, monthMetrics, diagnostic,
-  cashflowForecast, alerts, overdueInvoices,
+  currentUser, diagnostic,
+  cashflowForecast, overdueInvoices,
   recentDocuments, bankSync, chatSuggestions,
+  monthMetrics as mockMonthMetrics,
+  alerts       as mockAlerts,
 } from "../data/mockData";
 import { formatEUR, formatEURCompact } from "../lib/format";
+import { useFinerData } from "../context/FinerDataContext";
 
 // ── Tooltip do gráfico de cashflow ──────────────────────────
 function CashflowTooltip({ active, payload, label }) {
@@ -89,6 +92,11 @@ function DiagnosticHighlight({ onOpen }) {
 // ── Tela principal ───────────────────────────────────────────
 export default function Resumo() {
   const { navigateTo } = usePlan();
+
+  // Apenas receita/faturação e alertas comerciais vêm de vendas; o resto fica mock.
+  const { sales } = useFinerData();
+  const monthMetrics = { ...mockMonthMetrics, ...(sales?.resumo?.metrics ?? {}) };
+  const alerts = sales?.alertas?.list ?? mockAlerts;
 
   return (
     <>

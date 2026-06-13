@@ -8,10 +8,12 @@ import MetricCard from "../components/ui/MetricCard";
 import AlertCard  from "../components/ui/AlertCard";
 
 import {
-  customersSuppliersMetrics, topCustomers, topSuppliers,
-  openCustomerInvoices, openSupplierInvoices,
+  customersSuppliersMetrics as mockCustomersSuppliersMetrics,
+  topCustomers as mockTopCustomers,
+  topSuppliers, openCustomerInvoices, openSupplierInvoices,
 } from "../data/mockData";
 import { formatEUR } from "../lib/format";
+import { useFinerData } from "../context/FinerDataContext";
 
 // ── Tabs internas ────────────────────────────────────────────
 const TABS = [
@@ -85,6 +87,11 @@ function OpenInvoicesTable({ rows, partyHeader, partyKey }) {
 // ── Tela ────────────────────────────────────────────────────
 export default function ClientesFornecedores() {
   const [tab, setTab] = useState("geral");
+
+  // Lado clientes a partir de vendas; restante (fornecedores, saldos a receber) fica mock.
+  const { sales } = useFinerData();
+  const customersSuppliersMetrics = { ...mockCustomersSuppliersMetrics, ...(sales?.clientes?.metrics ?? {}) };
+  const topCustomers = sales?.clientes?.top ?? mockTopCustomers;
 
   return (
     <>
