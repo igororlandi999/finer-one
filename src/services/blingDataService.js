@@ -31,7 +31,10 @@ import { buildSalesDiagnostics } from "../utils/diagnosticsEngine.js";
 const STATUS_MAP = { 9: "recebida", 1: "em_aberto", 12: "cancelada" };
 
 function mapStatus(situacao) {
-  const v = situacao?.valor ?? situacao?.id;
+  // Prioriza situacao.id (situação real do pedido no Bling). O campo valor é
+  // genérico e na conta da Overcel vem fixo (ex.: {id:9, valor:1}), o que fazia
+  // todos os pedidos caírem em em_aberto. Mantém valor como fallback.
+  const v = situacao?.id ?? situacao?.valor;
   return STATUS_MAP[v] || "em_aberto";
 }
 
