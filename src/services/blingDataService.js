@@ -40,19 +40,87 @@ function mapStatus(situacao) {
 
 // Categoria Finer One a partir do produto (código). Cores iguais ao mock.
 const CATEGORY_COLORS = {
-  "Vendas de Produtos": "#10B981",
-  "Prestação de Serviços": "#2563eb",
-  "Outros Rendimentos": "#7C3AED",
-  "Alugueres": "#f59e0b",
+  "Células 18650": "#10B981",
+  "Células 21700": "#2563eb",
+  "Packs / Baterias": "#7C3AED",
+  "Termo Retrátil / PVC": "#F59E0B",
+  "Fitas de Níquel": "#0ea5e9",
+  "Fitas e Adesivos": "#ec4899",
+  "Acessórios": "#14b8a6",
+  "Outros Produtos": "#94a3b8",
 };
 
+// Palavras-chave dos produtos da Overcel (baterias, células, termo retrátil,
+// níquel, fitas, packs...). Variantes com e sem acento, pois os dados reais
+// chegam em maiúsculas e sem acento.
 function categoryForItem(item) {
   const code = String(item.code || "").toUpperCase();
-  const name = String(item.name || "").toLowerCase();
-  if (name.includes("aluguer")) return "Alugueres";
-  if (code.startsWith("S")) return "Prestação de Serviços";
-  if (code.startsWith("P")) return "Vendas de Produtos";
-  return "Outros Rendimentos";
+  const desc = String(item.name || "").toLowerCase();
+  const all = (code + " " + desc).toLowerCase();
+
+  // Famílias comerciais da Overcel (a ordem importa).
+  if (all.includes("18650")) return "Células 18650";
+  if (all.includes("21700")) return "Células 21700";
+
+  // Packs / Baterias — "pack" só como palavra inteira (evita "packing" do PVC).
+  if (code.includes("PACK") || code.includes("EN40PL") || code.includes("EN35V") ||
+      /\bpack\b/.test(desc) || desc.includes("bateria de pilhas") || desc.includes("li-ion")) {
+    return "Packs / Baterias";
+  }
+
+  // Termo Retrátil / PVC — "TR" pelo início do código (evita "tr" no meio de palavras).
+  if (code.includes("PVC") || code.startsWith("TR") ||
+      desc.includes("termo retrátil") || desc.includes("termo retratil")) {
+    return "Termo Retrátil / PVC";
+  }
+
+  // Fitas de Níquel — "FN" pelo início do código.
+  if (code.startsWith("FN") || code.includes("NIQUEL") || code.includes("NÍQUEL") ||
+      desc.includes("fita níquel") || desc.includes("fita de níquel") ||
+      desc.includes("fita niquel") || desc.includes("fita de niquel")) {
+    return "Fitas de Níquel";
+  }
+
+  // Fitas e Adesivos
+  if (code.includes("TAPE") || code.includes("ADESIVA") ||
+      desc.includes("fita adesiva") || desc.includes("adesiv")) {
+    return "Fitas e Adesivos";
+  }
+
+  // Produto físico sem regra específica.
+  return "Outros Produtos";
+}
+
+// Agrega itens por categoria -> [{ name, value, color }] ordenado por valor desc.
+// Recebe pedidos JÁ filtrados (faturáveis e/ou por período).
+function aggregateByCategory(orders) {
+  const catMap = new Map();
+  for (const o of orders) {
+    for (const it of o.items || []) {
+      const cat = categoryForItem(it);
+      catMap.set(cat, (catMap.get(cat) || 0) + (Number(it.total) || 0));
+    }
+  }
+  return [...catMap.entries()]
+    .map(([name, value]) => ({ name, value: round2(value), color: CATEGORY_COLORS[name] || "#94a3b8" }))
+    .sort((a, b) => b.value - a.value);
+}
+
+// Receitas por categoria a partir dos pedidos reais, filtrando por período.
+// period: 'mes' | 'trimestre' | 'ano'. Devolve [{ name, value, color }] (forma do donut).
+// Usa a data do pedido contra o mês/trimestre/ano ATUAIS e exclui cancelados (billable).
+export function buildRevenueByCategoryFromOrders(orders, period = "mes") {
+  const now = new Date();
+  const quarterOf = (d) => Math.floor(d.getMonth() / 3);
+  const inPeriod = (o) => {
+    const d = new Date(o.date);
+    if (isNaN(d.getTime())) return false;
+    if (d.getFullYear() !== now.getFullYear()) return false;
+    if (period === "mes") return d.getMonth() === now.getMonth();
+    if (period === "trimestre") return quarterOf(d) === quarterOf(now);
+    return true; // 'ano'
+  };
+  return aggregateByCategory(billable(orders || []).filter(inPeriod));
 }
 
 function pad(n) { return String(n).padStart(2, "0"); }
@@ -120,17 +188,10 @@ function buildReceitas(orders) {
     clientesPagos, clientesDelta, emAtraso, emAtrasoQtd,
   };
 
-  // Distribuição por categoria
-  const catMap = new Map();
-  for (const o of billable(orders)) {
-    for (const it of o.items || []) {
-      const cat = categoryForItem(it);
-      catMap.set(cat, (catMap.get(cat) || 0) + (Number(it.total) || 0));
-    }
-  }
-  const byCategory = [...catMap.entries()]
-    .map(([name, value]) => ({ name, value: round2(value), color: CATEGORY_COLORS[name] || "#94a3b8" }))
-    .sort((a, b) => b.value - a.value);
+  // Distribuição por categoria (todo o período disponível no snapshot).
+  // O card por período recalcula a partir de sales.orders via
+  // buildRevenueByCategoryFromOrders (função pura exportada acima).
+  const byCategory = aggregateByCategory(billable(orders));
 
   // Lista de receitas (exclui cancelados)
   const list = (orders || [])
@@ -191,6 +252,7 @@ export function buildSalesDataset({ orders }) {
     resumo: buildResumo(orders),
     alertas: buildAlertas(orders),
     diagnostics: buildSalesDiagnostics(orders), // não ligado às telas nesta etapa
+    orders, // exposto para recálculos por período no front (ex.: donut de categorias)
   };
 }
 

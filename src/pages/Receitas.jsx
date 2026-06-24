@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid,
 } from "recharts";
@@ -18,6 +19,7 @@ import {
 } from "../data/mockData";
 import { formatEUR, formatEURCompact } from "../lib/format";
 import { useFinerData } from "../context/FinerDataContext";
+import { buildRevenueByCategoryFromOrders } from "../services/blingDataService";
 
 // ── Tooltip do gráfico de evolução ──────────────────────────
 function EvTooltip({ active, payload, label }) {
@@ -48,8 +50,15 @@ export default function Receitas() {
   const { sales } = useFinerData();
   const revenueMetrics    = sales?.receitas?.metrics    ?? mockRevenueMetrics;
   const revenueEvolution  = sales?.receitas?.evolution  ?? mockRevenueEvolution;
-  const revenueByCategory = sales?.receitas?.byCategory ?? mockRevenueByCategory;
   const revenueList       = sales?.receitas?.list       ?? mockRevenueList;
+
+  // Período do card "Receitas por Categoria" (mês / trimestre / ano).
+  const [catPeriod, setCatPeriod] = useState("mes");
+  // Com dados reais, recalcula por família a partir dos pedidos reais (com itens).
+  // Sem dados reais (mock), mantém o comportamento atual.
+  const revenueByCategory = sales?.orders
+    ? buildRevenueByCategoryFromOrders(sales.orders, catPeriod)
+    : mockRevenueByCategory;
 
   // Definição das colunas da tabela
   const columns = [
@@ -171,10 +180,14 @@ export default function Receitas() {
             title="Receitas por Categoria"
             data={revenueByCategory}
             action={
-              <select className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-600 bg-white">
-                <option>Este mês</option>
-                <option>Este trimestre</option>
-                <option>Este ano</option>
+              <select
+                value={catPeriod}
+                onChange={(e) => setCatPeriod(e.target.value)}
+                className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-600 bg-white"
+              >
+                <option value="mes">Este mês</option>
+                <option value="trimestre">Este trimestre</option>
+                <option value="ano">Este ano</option>
               </select>
             }
           />
