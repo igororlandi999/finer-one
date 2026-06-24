@@ -229,6 +229,7 @@ function buildClientes(orders) {
     metrics: { clientesAtivos: distinctClients(orders) },
     top,
     byClient: revenueByClient(orders),
+    concentracao: clientConcentration(orders),
   };
 }
 

@@ -23,12 +23,12 @@ const TABS = [
 ];
 
 // ── Linha simples para "Top" ────────────────────────────────
-function TopRow({ name, openCount, balance, tone }) {
+function TopRow({ name, openCount, balance, tone, unitLabel = "faturas em aberto" }) {
   return (
     <div className="flex items-center justify-between gap-3 py-2.5 border-b border-slate-100 last:border-0">
       <div className="min-w-0">
         <p className="text-sm font-medium text-slate-800 truncate">{name}</p>
-        <p className="text-xs text-slate-500">{openCount} faturas em aberto</p>
+        <p className="text-xs text-slate-500">{openCount} {unitLabel}</p>
       </div>
       <div className={`text-sm font-semibold shrink-0 ${tone === "in" ? "text-brand-700" : "text-rose-600"}`}>
         {formatEUR(balance)}
@@ -167,11 +167,11 @@ export default function ClientesFornecedores() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:divide-x divide-slate-200">
             {/* Top clientes */}
             <div className="p-5">
-              <h3 className="text-sm font-semibold text-slate-800 mb-1">Top Clientes (saldo a receber)</h3>
-              <p className="text-xs text-slate-500 mb-3">Clientes com maior valor em aberto</p>
+              <h3 className="text-sm font-semibold text-slate-800 mb-1">Top Clientes por faturação</h3>
+              <p className="text-xs text-slate-500 mb-3">Maior faturação no período</p>
               <div>
                 {topCustomers.map((c) => (
-                  <TopRow key={c.id} name={c.nome} openCount={c.faturasAbertas} balance={c.saldo} tone="in" />
+                  <TopRow key={c.id} name={c.nome} openCount={c.faturasAbertas} balance={c.saldo} tone="in" unitLabel="pedidos" />
                 ))}
               </div>
             </div>
