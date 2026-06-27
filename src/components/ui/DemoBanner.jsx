@@ -1,11 +1,16 @@
 import { useState } from "react";
 import { Sparkles, X } from "lucide-react";
+import { useFinerData } from "../../context/FinerDataContext";
 
 // Banner discreto que reforça o contexto de demo/protótipo.
+// A mensagem reflete a fonte dos dados: API real (Bling) vs mock/fallback.
 // O utilizador pode fechar — o estado vive na sessão.
 export default function DemoBanner() {
   const [open, setOpen] = useState(true);
+  const { source } = useFinerData();
   if (!open) return null;
+
+  const isReal = source === "api";
 
   return (
     <div className="mb-5 flex items-start gap-3 rounded-lg border border-brand-200 bg-brand-50/70 px-4 py-2.5">
@@ -14,8 +19,17 @@ export default function DemoBanner() {
       </span>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-slate-700">
-          <span className="font-semibold text-brand-700">Modo demonstração.</span>{" "}
-          Dados fictícios da empresa Overcel para fins de apresentação. Pode alternar entre planos no rodapé da barra lateral.
+          {isReal ? (
+            <>
+              <span className="font-semibold text-brand-700">Dados reais conectados ao Bling.</span>{" "}
+              Algumas secções ainda usam dados demonstrativos enquanto os módulos financeiros não forem integrados.
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-brand-700">Modo demonstração.</span>{" "}
+              Dados fictícios da empresa Overcel para fins de apresentação. Pode alternar entre planos no rodapé da barra lateral.
+            </>
+          )}
         </p>
       </div>
       <button
