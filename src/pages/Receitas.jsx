@@ -88,8 +88,7 @@ export default function Receitas() {
   const tabs = [
     { id: "todas",    label: "Todas" },
     { id: "recebidas",label: "Recebidas", filter: (r) => r.status === "recebida" },
-    { id: "atraso",   label: "Em atraso", filter: (r) => r.status === "atraso"   },
-    { id: "pendentes",label: "Pendentes", filter: (r) => r.status === "pendente" },
+    { id: "aberto",   label: "Em aberto", filter: (r) => r.status === "pendente" },
   ];
 
   return (
@@ -131,11 +130,11 @@ export default function Receitas() {
           iconBg="bg-sky-50 text-sky-600"
         />
         <MetricCard
-          label="Receitas em Atraso"
+          label="Receitas em Aberto"
           value={formatEUR(revenueMetrics.emAtraso)}
           icon={Clock}
           iconBg="bg-amber-50 text-amber-600"
-          helper={`${revenueMetrics.emAtrasoQtd} clientes com faturas em atraso`}
+          helper={`${revenueMetrics.emAtrasoQtd} clientes com faturas em aberto`}
           tone="warning"
         />
       </div>
