@@ -37,6 +37,7 @@ import {
   expenseDailySeries,
   topPayable,
   pendingPayables,
+  expenseByCategory,
 } from "../utils/expenseCalculations.js";
 
 import { buildSalesAlerts, severityCounts } from "../utils/alertsEngine.js";
@@ -187,6 +188,7 @@ export function normalizePayable(raw) {
     historico: (raw.historico != null) ? raw.historico : null,
     saldo: (raw.saldo != null) ? Number(raw.saldo) : null,
     categoriaId: (raw.categoriaId != null) ? raw.categoriaId : (raw.categoria && raw.categoria.id != null ? raw.categoria.id : null),
+    categoriaNome: raw.categoriaNome || null,
     contato: { id: raw.contato && raw.contato.id != null ? raw.contato.id : null, nome: raw.contato && raw.contato.nome ? raw.contato.nome : null },
     formaPagamento: { id: raw.formaPagamento && raw.formaPagamento.id != null ? raw.formaPagamento.id : null, nome: raw.formaPagamento && raw.formaPagamento.nome ? raw.formaPagamento.nome : null },
   };
@@ -296,7 +298,7 @@ function buildDespesas(payables) {
       data: formatPtDate(payableDate(p)),
       descricao: p.historico || (p.numeroDocumento ? ("Documento " + p.numeroDocumento) : "Conta a pagar"),
       fornecedor: (p.contato && p.contato.nome) || "—",
-      categoria: "Sem categoria",
+      categoria: p.categoriaNome || "Sem categoria",
       valor: Number(p.valor) || 0,
       vencimento: formatPtDate(p.vencimento),
       status: payableStatus(p),
@@ -325,7 +327,7 @@ function buildDespesas(payables) {
   return {
     metrics,
     evolution: expenseDailySeries(payables, latest),
-    byCategory: [{ name: "Sem categoria", value: metrics.totalMes, color: "#94a3b8" }],
+    byCategory: expenseByCategory(inMonth),
     list,
   };
 }

@@ -125,3 +125,27 @@ export function pendingPayables(payables) {
     qtd: open.length,
   };
 }
+
+// Paleta para o donut de categorias (mesma família visual da app).
+const EXPENSE_PALETTE = [
+  "#10B981", "#3B82F6", "#7C3AED", "#F59E0B", "#EF4444",
+  "#14B8A6", "#6366F1", "#F472B6", "#84CC16", "#0EA5E9",
+];
+
+// Agrupa despesas por categoriaNome -> [{ name, value, color }], maior primeiro.
+// "Sem categoria" recebe cinza neutro; o resto cicla a paleta.
+export function expenseByCategory(payables) {
+  const map = new Map();
+  for (const p of billablePayables(payables)) {
+    const name = (p && p.categoriaNome) || "Sem categoria";
+    map.set(name, (map.get(name) || 0) + (Number(p.valor) || 0));
+  }
+  let ci = 0;
+  return [...map.entries()]
+    .map(([name, value]) => ({ name, value: round2(value) }))
+    .sort((a, b) => b.value - a.value)
+    .map((e) => ({
+      ...e,
+      color: e.name === "Sem categoria" ? "#94a3b8" : EXPENSE_PALETTE[ci++ % EXPENSE_PALETTE.length],
+    }));
+}
