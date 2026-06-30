@@ -5,6 +5,7 @@ import {
 
 import PageHeader from "../layouts/PageHeader";
 import MetricCard from "../components/ui/MetricCard";
+import DemoTag   from "../components/ui/DemoTag";
 import AlertCard  from "../components/ui/AlertCard";
 
 import {
@@ -38,13 +39,13 @@ function TopRow({ name, openCount, balance, tone, unitLabel = "faturas em aberto
 }
 
 // ── Tabela simples de faturas em aberto ─────────────────────
-function OpenInvoicesTable({ rows, partyHeader, partyKey }) {
+function OpenInvoicesTable({ rows, partyHeader, partyKey, demo = false }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead>
           <tr className="border-y border-slate-200 bg-slate-50/50">
-            <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">{partyHeader}</th>
+            <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500"><span className="inline-flex items-center gap-1.5">{partyHeader}{demo && <DemoTag />}</span></th>
             <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">Nº Fatura</th>
             <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">Emissão</th>
             <th className="px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">Vencimento</th>
@@ -89,7 +90,7 @@ export default function ClientesFornecedores() {
   const [tab, setTab] = useState("geral");
 
   // Lado clientes a partir de vendas; restante (fornecedores, saldos a receber) fica mock.
-  const { sales } = useFinerData();
+  const { sales, source } = useFinerData();
   const customersSuppliersMetrics = { ...mockCustomersSuppliersMetrics, ...(sales?.clientes?.metrics ?? {}) };
   const topCustomers = sales?.clientes?.top ?? mockTopCustomers;
 
@@ -115,6 +116,7 @@ export default function ClientesFornecedores() {
           icon={Users}
           iconBg="bg-brand-50 text-brand-600"
           tone="success"
+        demo={source === "api"}
         />
         <MetricCard
           label="Saldo a Pagar"
@@ -122,6 +124,7 @@ export default function ClientesFornecedores() {
           delta={customersSuppliersMetrics.saldoPagarDelta}
           icon={Users2}
           iconBg="bg-purple-50 text-purple-600"
+        demo={source === "api"}
         />
         <MetricCard
           label="Faturas em Aberto (Receber)"
@@ -129,6 +132,7 @@ export default function ClientesFornecedores() {
           icon={FileText}
           iconBg="bg-amber-50 text-amber-600"
           helper={`${customersSuppliersMetrics.faturasAbertasReceberVencer7} vencem nos próximos 7 dias`}
+        demo={source === "api"}
         />
         <MetricCard
           label="Faturas em Aberto (Pagar)"
@@ -136,6 +140,7 @@ export default function ClientesFornecedores() {
           icon={FileText}
           iconBg="bg-amber-50 text-amber-600"
           helper={`${customersSuppliersMetrics.faturasAbertasPagarVencer7} vencem nos próximos 7 dias`}
+        demo={source === "api"}
         />
       </div>
 
@@ -177,7 +182,7 @@ export default function ClientesFornecedores() {
             </div>
             {/* Top fornecedores */}
             <div className="p-5">
-              <h3 className="text-sm font-semibold text-slate-800 mb-1">Top Fornecedores (saldo a pagar)</h3>
+              <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Top Fornecedores (saldo a pagar){source === "api" && <DemoTag />}</h3>
               <p className="text-xs text-slate-500 mb-3">Fornecedores com maior valor em aberto</p>
               <div>
                 {topSuppliers.map((s) => (
@@ -188,13 +193,13 @@ export default function ClientesFornecedores() {
           </div>
         )}
 
-        {tab === "clientes"     && <OpenInvoicesTable rows={openCustomerInvoices} partyHeader="Cliente"     partyKey="cliente"    />}
-        {tab === "fornecedores" && <OpenInvoicesTable rows={openSupplierInvoices} partyHeader="Fornecedor" partyKey="fornecedor" />}
+        {tab === "clientes"     && <OpenInvoicesTable rows={openCustomerInvoices} partyHeader="Cliente"     partyKey="cliente"    demo={source === "api"} />}
+        {tab === "fornecedores" && <OpenInvoicesTable rows={openSupplierInvoices} partyHeader="Fornecedor" partyKey="fornecedor" demo={source === "api"} />}
       </div>
 
       {/* Alertas operacionais */}
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-slate-800 mb-3">Alertas operacionais</h3>
+        <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1.5">Alertas operacionais{source === "api" && <DemoTag />}</h3>
         <div className="divide-y divide-slate-100 -mx-1">
           <AlertCard severity="danger"  title="Fatura vencida"      description="Norte Industrial tem fatura FT 2026/119 vencida há 34 dias." timestamp="Hoje" />
           <AlertCard severity="warning" title="A vencer em breve"   description="3 faturas de clientes vencem nos próximos 7 dias." timestamp="Hoje" />

@@ -94,7 +94,7 @@ export default function Resumo() {
   const { navigateTo } = usePlan();
 
   // Apenas receita/faturação e alertas comerciais vêm de vendas; o resto fica mock.
-  const { sales } = useFinerData();
+  const { sales, source } = useFinerData();
   const monthMetrics = { ...mockMonthMetrics, ...(sales?.resumo?.metrics ?? {}) };
   const alerts = sales?.alertas?.list ?? mockAlerts;
 
@@ -124,6 +124,7 @@ export default function Resumo() {
           icon={Wallet}
           iconBg="bg-brand-50 text-brand-600"
           helper={`Atualizado ${monthMetrics.lastSync}`}
+          demo={source === "api"}
         />
         <MetricCard
           label="Receitas (Mês)"
@@ -138,6 +139,7 @@ export default function Resumo() {
           delta={monthMetrics.despesasDelta}
           icon={TrendingDown}
           iconBg="bg-rose-50 text-rose-500"
+          demo={source === "api"}
         />
         <MetricCard
           label="Resultado (Mês)"
@@ -146,6 +148,7 @@ export default function Resumo() {
           icon={BarChart3}
           iconBg="bg-sky-50 text-sky-600"
           tone="success"
+          demo={source === "api"}
         />
       </div>
 

@@ -4,6 +4,7 @@ import {
 } from "lucide-react";
 
 import PageHeader from "../layouts/PageHeader";
+import DemoTag  from "../components/ui/DemoTag";
 
 import { alertsMetrics as mockAlertsMetrics, alertsList as mockAlertsList } from "../data/mockData";
 import { useFinerData } from "../context/FinerDataContext";
@@ -29,7 +30,7 @@ const SEV = {
 };
 
 // Card resumo por severidade (no topo)
-function SeverityCard({ severity, count, description }) {
+function SeverityCard({ severity, count, description, demo = false }) {
   const cfg = SEV[severity];
   const Icon = cfg.icon;
   return (
@@ -38,7 +39,7 @@ function SeverityCard({ severity, count, description }) {
         <Icon size={20} />
       </span>
       <div className="flex-1 min-w-0">
-        <div className={`text-xs font-semibold uppercase tracking-wider ${cfg.color}`}>{cfg.label}</div>
+        <div className={`text-xs font-semibold uppercase tracking-wider ${cfg.color} flex items-center gap-1.5`}>{cfg.label}{demo && <DemoTag />}</div>
         <div className="text-[26px] font-semibold text-slate-900 leading-tight mt-0.5">{count}</div>
         <div className="text-xs text-slate-500 mt-1">{description}</div>
       </div>
@@ -99,7 +100,7 @@ export default function Alertas() {
   const [filter, setFilter] = useState("todos");
 
   // Alertas de vendas (quando há API) somados aos não-comerciais em mock.
-  const { sales } = useFinerData();
+  const { sales, source } = useFinerData();
   const salesList = sales?.alertas?.list ?? null;
   const alertsList = composeAlerts(salesList, mockAlertsList);
   const alertsMetrics = salesList
@@ -126,10 +127,10 @@ export default function Alertas() {
 
       {/* Resumo por severidade */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <SeverityCard severity="danger"  count={alertsMetrics.criticos}    description="Requerem ação imediata"      />
-        <SeverityCard severity="warning" count={alertsMetrics.atencao}     description="Devem ser monitorizados"    />
-        <SeverityCard severity="info"    count={alertsMetrics.informativos} description="Informações relevantes"     />
-        <SeverityCard severity="success" count={alertsMetrics.resolvidos}  description="Indicadores positivos"      />
+        <SeverityCard severity="danger"  count={alertsMetrics.criticos}    description="Requerem ação imediata" demo={source === "api"} />
+        <SeverityCard severity="warning" count={alertsMetrics.atencao}     description="Devem ser monitorizados" demo={source === "api"} />
+        <SeverityCard severity="info"    count={alertsMetrics.informativos} description="Informações relevantes" demo={source === "api"} />
+        <SeverityCard severity="success" count={alertsMetrics.resolvidos}  description="Indicadores positivos" demo={source === "api"} />
       </div>
 
       {/* Lista de alertas */}

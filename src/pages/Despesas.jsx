@@ -7,6 +7,7 @@ import {
 
 import PageHeader         from "../layouts/PageHeader";
 import MetricCard         from "../components/ui/MetricCard";
+import DemoTag           from "../components/ui/DemoTag";
 import StatusBadge        from "../components/ui/StatusBadge";
 import ChartCard          from "../components/charts/ChartCard";
 import DonutCategoryCard  from "../components/charts/DonutCategoryCard";
@@ -47,7 +48,8 @@ const STATUS_LABEL = {
 // ── Tela ────────────────────────────────────────────────────
 export default function Despesas() {
   // Lado real (contas a pagar) com fallback ao mock; sem alterar layout.
-  const { sales } = useFinerData();
+  const { sales, source } = useFinerData();
+  const despesasDemo = source === "api" && !sales?.despesas;
   const expenseMetrics    = { ...mockExpenseMetrics, ...(sales?.despesas?.metrics ?? {}) };
   const expenseEvolution  = sales?.despesas?.evolution ?? mockExpenseEvolution;
   const expenseByCategory = sales?.despesas?.byCategory ?? mockExpenseByCategory;
@@ -104,6 +106,7 @@ export default function Despesas() {
           delta={expenseMetrics.totalDelta}
           icon={TrendingDown}
           iconBg="bg-rose-50 text-rose-500"
+        demo={despesasDemo}
         />
         <MetricCard
           label="Despesa Média Diária"
@@ -111,10 +114,11 @@ export default function Despesas() {
           delta={expenseMetrics.mediaDelta}
           icon={CalendarDays}
           iconBg="bg-amber-50 text-amber-600"
+        demo={despesasDemo}
         />
         <div className="card p-5 flex flex-col gap-3">
           <div className="flex items-start justify-between gap-3">
-            <span className="label-uppercase">Maior Despesa</span>
+            <span className="label-uppercase flex items-center gap-1.5">Maior Despesa{despesasDemo && <DemoTag />}</span>
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-50 text-rose-500">
               <AlertCircle size={18} />
             </span>
@@ -133,6 +137,7 @@ export default function Despesas() {
           iconBg="bg-amber-50 text-amber-600"
           helper={`${expenseMetrics.pendentesQtd} faturas por pagar`}
           tone="warning"
+        demo={despesasDemo}
         />
       </div>
 
