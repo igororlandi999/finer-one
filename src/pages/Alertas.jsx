@@ -11,7 +11,7 @@ import { useFinerData } from "../context/FinerDataContext";
 import { severityCounts } from "../utils/alertsEngine";
 
 // Categorias que NÃO derivam de vendas — mantêm-se sempre em mock.
-const NON_SALES_CATEGORIES = ["Liquidez", "Despesas", "Margem", "Recebimentos", "Tesouraria", "Fiscal", "Documentos"];
+const NON_SALES_CATEGORIES = ["Liquidez", "Margem", "Recebimentos", "Tesouraria", "Fiscal", "Documentos"];
 function composeAlerts(salesList, mockList) {
   if (!salesList) return mockList;
   return [...salesList, ...mockList.filter((a) => NON_SALES_CATEGORIES.includes(a.category))];

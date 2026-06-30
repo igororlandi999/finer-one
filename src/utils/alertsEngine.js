@@ -11,7 +11,19 @@ import {
   revenueByMonth,
   revenueByProduct,
   billable,
+  round2,
+  toDate,
 } from "./financialCalculations.js";
+
+import {
+  billablePayables,
+  totalPayables,
+  latestPayableMonth,
+  payablesInMonth,
+  payableMoM,
+  expenseByCategory,
+  pendingPayables,
+} from "./expenseCalculations.js";
 
 function mk(id, severity, category, title, description, acao = "—") {
   return { id, severity, category, title, description, timestamp: "Hoje", acao };
@@ -90,6 +102,106 @@ export function severityCounts(list, resolvidosFallback = 0) {
     resolvidos: c.success || resolvidosFallback,
   };
 }
+
+// Alertas reais derivados de contas a pagar (sales.despesas). Mesmo formato dos de vendas.
+// Sem payables billable => nenhum alerta (nao inventar).
+export function buildExpenseAlerts(payables) {
+  const out = [];
+  const billables = billablePayables(payables);
+  if (!billables.length) return out;
+
+  const today = startOfDay(new Date());
+  const in7 = new Date(today);
+  in7.setDate(in7.getDate() + 7);
+
+  // Apenas titulos em aberto (situacao 1).
+  const open = (payables || []).filter((p) => Number(p && p.situacao) === 1);
+
+  // A. Contas a pagar vencidas (aberto + vencimento < hoje).
+  const overdue = open.filter((p) => { const v = toDate(p.vencimento); return v && v < today; });
+  if (overdue.length) {
+    const total = round2(overdue.reduce((a, p) => a + (Number(p.valor) || 0), 0));
+    out.push(mk("d-vencidas", "danger", "Despesas",
+      "Contas a pagar vencidas",
+      `${overdue.length} ${overdue.length === 1 ? "conta vencida" : "contas vencidas"} no total de ${eur(total)}.`,
+      "Regularizar pagamentos em atraso"));
+  }
+
+  // B. Pagamentos a vencer nos proximos 7 dias.
+  const soon = open.filter((p) => { const v = toDate(p.vencimento); return v && v >= today && v <= in7; });
+  if (soon.length) {
+    const total = round2(soon.reduce((a, p) => a + (Number(p.valor) || 0), 0));
+    out.push(mk("d-proximos7", "warning", "Despesas",
+      "Pagamentos a vencer em breve",
+      `${soon.length} ${soon.length === 1 ? "conta vence" : "contas vencem"} nos proximos 7 dias (${eur(total)}).`,
+      "Garantir tesouraria para os pagamentos"));
+  }
+
+  // C. Despesa mensal a subir forte vs mes anterior.
+  const mom = payableMoM(payables);
+  if (mom !== null && mom >= 20) {
+    out.push(mk("d-subida-mes", "warning", "Despesas",
+      "Despesas em forte subida",
+      `As despesas subiram ${mom}% face ao mes anterior.`,
+      "Rever custos e pagamentos do mes"));
+  }
+
+  // D. Muitas contas pendentes.
+  const pend = pendingPayables(payables);
+  if (pend.qtd >= 10) {
+    out.push(mk("d-pendentes", "info", "Despesas",
+      "Muitas contas pendentes",
+      `Existem ${pend.qtd} contas por pagar, no total de ${eur(pend.valor)}.`,
+      "Planear a ordem de pagamentos"));
+  }
+
+  // Base do mes corrente para concentracao (categoria/fornecedor).
+  const latest = latestPayableMonth(payables);
+  const monthTotal = totalPayables(payablesInMonth(payables, latest));
+
+  // E. Categoria concentrada no mes (exclui "Sem categoria").
+  if (monthTotal > 0) {
+    const cats = expenseByCategory(payablesInMonth(payables, latest))
+      .filter((c) => c.name !== "Sem categoria");
+    const topCat = cats[0];
+    if (topCat) {
+      const share = Math.round((topCat.value / monthTotal) * 1000) / 10;
+      if (share >= 40) {
+        out.push(mk("d-cat-conc", "warning", "Despesas",
+          "Categoria de despesa concentrada",
+          `${share}% das despesas do mes estao em ${topCat.name}.`,
+          "Avaliar dependencia desta categoria"));
+      }
+    }
+  }
+
+  // F. Fornecedor com gasto alto no mes.
+  if (monthTotal > 0) {
+    const inMonth = billablePayables(payablesInMonth(payables, latest));
+    const bySupplier = new Map();
+    for (const p of inMonth) {
+      const nome = (p.contato && p.contato.nome) || null;
+      if (!nome) continue;
+      bySupplier.set(nome, (bySupplier.get(nome) || 0) + (Number(p.valor) || 0));
+    }
+    let topSup = null;
+    for (const [nome, val] of bySupplier) if (!topSup || val > topSup.val) topSup = { nome, val };
+    if (topSup) {
+      const share = Math.round((topSup.val / monthTotal) * 1000) / 10;
+      if (share >= 40) {
+        out.push(mk("d-forn-alto", "info", "Despesas",
+          "Concentracao num fornecedor",
+          `${share}% das despesas do mes sao para ${topSup.nome}.`,
+          "Diversificar ou renegociar com o fornecedor"));
+      }
+    }
+  }
+
+  return out;
+}
+
+function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
+function eur(n) { return (Number(n) || 0).toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"; }
 
 // ── auxiliares internos ───────────────────────────────────────
 
