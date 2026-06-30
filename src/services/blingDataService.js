@@ -21,7 +21,23 @@ import {
   dailySeries,
   billable,
   round2,
+  toDate,
 } from "../utils/financialCalculations.js";
+
+import {
+  billablePayables,
+  payableDate,
+  payableStatus,
+  totalPayables,
+  latestPayableMonth,
+  payablesInMonth,
+  payableMoM,
+  avgDailyForMonth,
+  avgDailyMoM,
+  expenseDailySeries,
+  topPayable,
+  pendingPayables,
+} from "../utils/expenseCalculations.js";
 
 import { buildSalesAlerts, severityCounts } from "../utils/alertsEngine.js";
 import { buildSalesDiagnostics } from "../utils/diagnosticsEngine.js";
@@ -156,6 +172,26 @@ export function normalizeOrder(raw) {
 export const normalizeClient = (raw) => ({ id: raw.id, name: raw.nome, taxId: raw.numeroDocumento || null });
 export const normalizeProduct = (raw) => ({ id: raw.id, code: raw.codigo, name: raw.nome, price: Number(raw.preco) || 0 });
 
+// Conta a pagar (Bling) -> modelo interno de despesa. Apps Script ja resolve nomes;
+// aqui garantimos defaults para o fallback ao vivo (que vem sem detalhe/nomes).
+export function normalizePayable(raw) {
+  if (!raw) return null;
+  return {
+    id: (raw.id != null) ? raw.id : null,
+    situacao: (raw.situacao != null) ? raw.situacao : null,
+    vencimento: raw.vencimento || null,
+    valor: Number(raw.valor) || 0,
+    dataEmissao: raw.dataEmissao || null,
+    vencimentoOriginal: raw.vencimentoOriginal || null,
+    numeroDocumento: (raw.numeroDocumento != null) ? raw.numeroDocumento : null,
+    historico: (raw.historico != null) ? raw.historico : null,
+    saldo: (raw.saldo != null) ? Number(raw.saldo) : null,
+    categoriaId: (raw.categoriaId != null) ? raw.categoriaId : (raw.categoria && raw.categoria.id != null ? raw.categoria.id : null),
+    contato: { id: raw.contato && raw.contato.id != null ? raw.contato.id : null, nome: raw.contato && raw.contato.nome ? raw.contato.nome : null },
+    formaPagamento: { id: raw.formaPagamento && raw.formaPagamento.id != null ? raw.formaPagamento.id : null, nome: raw.formaPagamento && raw.formaPagamento.nome ? raw.formaPagamento.nome : null },
+  };
+}
+
 // ── Adaptadores por tela (formas iguais às do mockData) ───────
 
 function buildReceitas(orders) {
@@ -245,13 +281,63 @@ function buildAlertas(orders) {
   return { list, metrics: severityCounts(list) };
 }
 
+// Despesas a partir de contas a pagar (Bling). Formas iguais aos mocks de Despesas.
+// categoria fica "Sem categoria" no MVP-1 (a listagem/detalhe so trazem categoria.id).
+function buildDespesas(payables) {
+  const list = billablePayables(payables)
+    .slice()
+    .sort((a, b) => {
+      const da = toDate(payableDate(a))?.getTime() || 0;
+      const db = toDate(payableDate(b))?.getTime() || 0;
+      return db - da;
+    })
+    .map((p) => ({
+      id: String(p.id),
+      data: formatPtDate(payableDate(p)),
+      descricao: p.historico || (p.numeroDocumento ? ("Documento " + p.numeroDocumento) : "Conta a pagar"),
+      fornecedor: (p.contato && p.contato.nome) || "—",
+      categoria: "Sem categoria",
+      valor: Number(p.valor) || 0,
+      vencimento: formatPtDate(p.vencimento),
+      status: payableStatus(p),
+      metodo: (p.formaPagamento && p.formaPagamento.nome) || "—",
+    }));
+
+  const latest = latestPayableMonth(payables);
+  const inMonth = payablesInMonth(payables, latest);
+  const top = topPayable(inMonth) || topPayable(payables);
+  const pend = pendingPayables(payables);
+
+  const metrics = {
+    totalMes: totalPayables(inMonth),
+    totalDelta: payableMoM(payables) ?? 0,
+    mediaDiaria: avgDailyForMonth(payables, latest),
+    mediaDelta: avgDailyMoM(payables) ?? 0,
+    maiorDespesa: {
+      fornecedor: (top && top.contato && top.contato.nome) || "—",
+      valor: top ? (Number(top.valor) || 0) : 0,
+      data: top ? formatPtDate(payableDate(top)) : "—",
+    },
+    pagamentosPendentes: pend.valor,
+    pendentesQtd: pend.qtd,
+  };
+
+  return {
+    metrics,
+    evolution: expenseDailySeries(payables, latest),
+    byCategory: [{ name: "Sem categoria", value: metrics.totalMes, color: "#94a3b8" }],
+    list,
+  };
+}
+
 // Dataset completo pronto para as telas.
-export function buildSalesDataset({ orders }) {
+export function buildSalesDataset({ orders, payables }) {
   return {
     receitas: buildReceitas(orders),
     clientes: buildClientes(orders),
     resumo: buildResumo(orders),
     alertas: buildAlertas(orders),
+    despesas: payables ? buildDespesas(payables) : null, // null => Despesas usa mock
     diagnostics: buildSalesDiagnostics(orders), // não ligado às telas nesta etapa
     orders, // exposto para recálculos por período no front (ex.: donut de categorias)
   };
@@ -271,6 +357,12 @@ async function fetchRawSales() {
   return res?.data ?? res ?? [];
 }
 
+async function fetchRawPayables() {
+  // Mesmo endpoint do proxy, com ?recurso=despesas (contas a pagar).
+  const res = await apiGet("pedidos/vendas", { params: { recurso: "despesas" } });
+  return res?.data ?? res ?? [];
+}
+
 // Devolve { source:'api'|'mock', sales } — sales:null significa usar mockData.
 export async function loadFinerData() {
   if (!isApiConfigured()) {
@@ -279,7 +371,18 @@ export async function loadFinerData() {
   try {
     const rawSales = await fetchRawSales();
     const orders = (rawSales || []).map(normalizeOrder);
-    return { source: "api", sales: buildSalesDataset({ orders }) };
+
+    // Despesas: best-effort. Se falhar, despesas fica undefined => mock no front,
+    // sem derrubar pedidos/receitas/clientes.
+    let payables;
+    try {
+      const rawPayables = await fetchRawPayables();
+      payables = (rawPayables || []).map(normalizePayable).filter(Boolean);
+    } catch {
+      payables = undefined;
+    }
+
+    return { source: "api", sales: buildSalesDataset({ orders, payables }) };
   } catch {
     return { source: "mock", sales: null };
   }

@@ -13,9 +13,13 @@ import DonutCategoryCard  from "../components/charts/DonutCategoryCard";
 import DataTable, { RowActionsButton } from "../components/ui/DataTable";
 
 import {
-  expenseMetrics, expenseEvolution, expenseByCategory, expenseList,
+  expenseMetrics as mockExpenseMetrics,
+  expenseEvolution as mockExpenseEvolution,
+  expenseByCategory as mockExpenseByCategory,
+  expenseList as mockExpenseList,
 } from "../data/mockData";
 import { formatEUR, formatEURCompact } from "../lib/format";
+import { useFinerData } from "../context/FinerDataContext";
 
 // ── Tooltip do gráfico de evolução ──────────────────────────
 function EvTooltip({ active, payload, label }) {
@@ -42,6 +46,13 @@ const STATUS_LABEL = {
 
 // ── Tela ────────────────────────────────────────────────────
 export default function Despesas() {
+  // Lado real (contas a pagar) com fallback ao mock; sem alterar layout.
+  const { sales } = useFinerData();
+  const expenseMetrics    = { ...mockExpenseMetrics, ...(sales?.despesas?.metrics ?? {}) };
+  const expenseEvolution  = sales?.despesas?.evolution ?? mockExpenseEvolution;
+  const expenseByCategory = sales?.despesas?.byCategory ?? mockExpenseByCategory;
+  const expenseList       = sales?.despesas?.list ?? mockExpenseList;
+
   const columns = [
     { key: "data", header: "Data" },
     { key: "descricao", header: "Descrição",

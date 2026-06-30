@@ -1,0 +1,127 @@
+// src/utils/expenseCalculations.js
+// Cálculos puros de Despesas a partir de contas a pagar normalizadas.
+// situacao: 1 = em aberto | 2 = pago/baixado | 5 = cancelado (excluído dos totais).
+// Mantém a lógica fora do JSX, espelhando o padrão de financialCalculations.js.
+
+import { round2, toDate, monthKey, MONTHS_PT } from "./financialCalculations.js";
+
+export const PAYABLE_COUNTED = [1, 2]; // 5 (cancelado) nunca entra nos totais
+
+export function billablePayables(payables) {
+  return (payables || []).filter((p) => p && PAYABLE_COUNTED.includes(Number(p.situacao)));
+}
+
+// Data de referência da despesa: emissão quando existir (vem do detalhe), senão vencimento.
+export function payableDate(p) {
+  return (p && (p.dataEmissao || p.vencimento)) || null;
+}
+
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+// 'paga' | 'pendente' | 'atraso'
+export function payableStatus(p, now = new Date()) {
+  if (Number(p?.situacao) === 2) return "paga";
+  const venc = toDate(p?.vencimento);
+  if (venc && venc < startOfDay(now)) return "atraso";
+  return "pendente";
+}
+
+export function totalPayables(payables) {
+  return round2(billablePayables(payables).reduce((a, p) => a + (Number(p.valor) || 0), 0));
+}
+
+// [{ month:'2026-05', value }] cronológico.
+export function payablesByMonth(payables) {
+  const map = new Map();
+  for (const p of billablePayables(payables)) {
+    const key = monthKey(payableDate(p));
+    if (!key) continue;
+    map.set(key, (map.get(key) || 0) + (Number(p.valor) || 0));
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, value]) => ({ month, value: round2(value) }));
+}
+
+export function latestPayableMonth(payables) {
+  const m = payablesByMonth(payables);
+  return m.length ? m[m.length - 1].month : null;
+}
+
+export function payablesInMonth(payables, key) {
+  if (!key) return [];
+  return (payables || []).filter((p) => monthKey(payableDate(p)) === key);
+}
+
+// Crescimento do último mês face ao anterior, em %.
+export function payableMoM(payables) {
+  const m = payablesByMonth(payables);
+  if (m.length < 2) return null;
+  const last = m[m.length - 1].value;
+  const prev = m[m.length - 2].value;
+  if (prev === 0) return null;
+  return round2(((last - prev) / prev) * 100);
+}
+
+function distinctExpenseDays(list) {
+  const set = new Set();
+  for (const p of list) {
+    const d = toDate(payableDate(p));
+    if (d) set.add(d.toDateString());
+  }
+  return set.size;
+}
+
+// Média por dia COM despesa no mês (evita divisão enganosa por dias sem movimento).
+export function avgDailyForMonth(payables, key) {
+  const list = billablePayables(payablesInMonth(payables, key));
+  if (!list.length) return 0;
+  const days = distinctExpenseDays(list) || 1;
+  return round2(totalPayables(list) / days);
+}
+
+export function avgDailyMoM(payables) {
+  const m = payablesByMonth(payables);
+  if (m.length < 2) return null;
+  const a = avgDailyForMonth(payables, m[m.length - 1].month);
+  const b = avgDailyForMonth(payables, m[m.length - 2].month);
+  if (!b) return null;
+  return round2(((a - b) / b) * 100);
+}
+
+// Série diária do mês: [{ dia:'30 Mai', valor }].
+export function expenseDailySeries(payables, key) {
+  const map = new Map();
+  for (const p of billablePayables(payablesInMonth(payables, key))) {
+    const d = toDate(payableDate(p));
+    if (!d) continue;
+    const label = `${d.getDate()} ${MONTHS_PT[d.getMonth()]}`;
+    const cur = map.get(label) || { ts: d.getTime(), valor: 0 };
+    cur.valor += Number(p.valor) || 0;
+    map.set(label, cur);
+  }
+  return [...map.entries()]
+    .map(([dia, v]) => ({ dia, ts: v.ts, valor: round2(v.valor) }))
+    .sort((a, b) => a.ts - b.ts)
+    .map(({ dia, valor }) => ({ dia, valor }));
+}
+
+// Maior despesa (título de maior valor) entre os billable.
+export function topPayable(payables) {
+  const list = billablePayables(payables);
+  if (!list.length) return null;
+  return list.reduce((mx, p) => ((Number(p.valor) || 0) > (Number(mx.valor) || 0) ? p : mx));
+}
+
+// Pendentes = situacao 1 (em aberto). Devolve { valor, qtd }.
+export function pendingPayables(payables) {
+  const open = (payables || []).filter((p) => Number(p?.situacao) === 1);
+  return {
+    valor: round2(open.reduce((a, p) => a + (Number(p.valor) || 0), 0)),
+    qtd: open.length,
+  };
+}
