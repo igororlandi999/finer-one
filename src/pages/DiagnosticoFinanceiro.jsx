@@ -15,8 +15,10 @@ import DiagnosticGauge   from "../components/diagnostic/DiagnosticGauge";
 
 import { usePlan }       from "../context/PlanContext";
 import { SCREENS }       from "../config/planConfig";
-import { diagnostic }    from "../data/mockData";
+import { diagnostic as mockDiagnostic } from "../data/mockData";
 import { formatEUR }     from "../lib/format";
+import { useFinerData }  from "../context/FinerDataContext";
+import DemoTag           from "../components/ui/DemoTag";
 
 // ── helpers visuais por severidade ──────────────────────────
 const SEV_BG   = { danger: "bg-rose-50  text-rose-600  border-rose-100",  warning: "bg-amber-50 text-amber-600 border-amber-100" };
@@ -38,8 +40,11 @@ function EvTooltip({ active, payload }) {
 // ── Tela ────────────────────────────────────────────────────
 export default function DiagnosticoFinanceiro() {
   const { navigateTo }  = usePlan();
-  const scoreDelta      = diagnostic.score - diagnostic.scorePrevious;
-  const totalAcoes      = diagnostic.acoes.reduce((acc, a) => acc + a.impacto, 0);
+  const { sales, source } = useFinerData();
+  const diagnostic      = sales?.diagnostico ? { ...mockDiagnostic, ...sales.diagnostico } : mockDiagnostic;
+  const demoDiag        = source === "api" && !sales?.diagnostico;
+  const scoreDelta      = diagnostic.scorePrevious != null ? diagnostic.score - diagnostic.scorePrevious : null;
+  const totalAcoes      = diagnostic.acoes.reduce((acc, a) => acc + (Number(a.impacto) || 0), 0);
 
   const stateVariant =
     diagnostic.estado === "Saudável" ? "saudavel" :
@@ -64,7 +69,7 @@ export default function DiagnosticoFinanceiro() {
 
         {/* Estado */}
         <div className="card p-5">
-          <span className="label-uppercase">Estado da Empresa</span>
+          <span className="label-uppercase flex items-center gap-1.5">Estado da Empresa{demoDiag && <DemoTag />}</span>
           <div className="mt-3">
             <StatusBadge variant={stateVariant} className="text-sm px-2.5 py-1">
               {diagnostic.estado}
@@ -83,6 +88,7 @@ export default function DiagnosticoFinanceiro() {
           icon={Sparkles}
           iconBg="bg-brand-50 text-brand-600"
           tone="success"
+          demo={demoDiag}
         />
 
         {/* Impacto */}
@@ -93,11 +99,12 @@ export default function DiagnosticoFinanceiro() {
           iconBg="bg-amber-50 text-amber-600"
           helper="A recuperar com ações sugeridas"
           tone="warning"
+          demo={source === "api"}
         />
 
         {/* Prioridade */}
         <div className="card p-5">
-          <span className="label-uppercase">Prioridade Máxima</span>
+          <span className="label-uppercase flex items-center gap-1.5">Prioridade Máxima{demoDiag && <DemoTag />}</span>
           <div className="flex items-start gap-3 mt-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-50 text-rose-500 shrink-0">
               <Target size={18} />
@@ -116,15 +123,15 @@ export default function DiagnosticoFinanceiro() {
         {/* Gauge */}
         <div className="lg:col-span-5">
           <div className="card p-6 h-full flex flex-col">
-            <h3 className="text-sm font-semibold text-slate-800">Score de Saúde Financeira</h3>
+            <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Score de Saúde Financeira{demoDiag && <DemoTag />}</h3>
             <p className="text-xs text-slate-500 mt-0.5 mb-2">Avaliação global em tempo real</p>
             <div className="flex-1 flex items-center justify-center py-2">
               <DiagnosticGauge score={diagnostic.score} label={diagnostic.scoreLabel} size={240} />
             </div>
             <div className="grid grid-cols-3 gap-2 mt-2 pt-4 border-t border-slate-100 text-center">
-              <div><div className="text-[10px] font-semibold text-rose-600 uppercase tracking-wider">0 - 40</div><div className="text-xs text-slate-500 mt-0.5">Crítico</div></div>
-              <div><div className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">41 - 65</div><div className="text-xs text-slate-500 mt-0.5">Atenção</div></div>
-              <div><div className="text-[10px] font-semibold text-brand-600 uppercase tracking-wider">66 - 100</div><div className="text-xs text-slate-500 mt-0.5">Saudável</div></div>
+              <div><div className="text-[10px] font-semibold text-rose-600 uppercase tracking-wider">0 - 49</div><div className="text-xs text-slate-500 mt-0.5">Crítico</div></div>
+              <div><div className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">50 - 74</div><div className="text-xs text-slate-500 mt-0.5">Atenção</div></div>
+              <div><div className="text-[10px] font-semibold text-brand-600 uppercase tracking-wider">75 - 100</div><div className="text-xs text-slate-500 mt-0.5">Saudável</div></div>
             </div>
           </div>
         </div>
@@ -134,7 +141,7 @@ export default function DiagnosticoFinanceiro() {
           <div className="card p-5 h-full flex flex-col">
             <div className="flex items-start justify-between mb-3">
               <div>
-                <h3 className="text-sm font-semibold text-slate-800">Evolução do Diagnóstico</h3>
+                <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Evolução do Diagnóstico{source === "api" && <DemoTag />}</h3>
                 <p className="text-xs text-slate-500 mt-0.5">Últimos 6 meses</p>
               </div>
               <div className="text-right">
@@ -168,7 +175,7 @@ export default function DiagnosticoFinanceiro() {
           </span>
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1.5">
-              <h3 className="text-sm font-semibold text-slate-800">Resumo executivo</h3>
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Resumo executivo{demoDiag && <DemoTag />}</h3>
               <span className="text-[10px] uppercase tracking-wider font-semibold text-brand-700 bg-white px-1.5 py-0.5 rounded border border-brand-200">
                 Linguagem simples
               </span>
@@ -183,7 +190,7 @@ export default function DiagnosticoFinanceiro() {
 
         {/* Problemas */}
         <div className="card p-5">
-          <h3 className="text-sm font-semibold text-slate-800 mb-1">Principais problemas identificados</h3>
+          <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Principais problemas identificados{demoDiag && <DemoTag />}</h3>
           <p className="text-xs text-slate-500 mb-4">O que está a impactar o seu negócio agora</p>
           <div className="space-y-3">
             {diagnostic.problemas.map((p, i) => {
@@ -197,7 +204,7 @@ export default function DiagnosticoFinanceiro() {
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-sm font-semibold text-slate-800">{i + 1}. {p.titulo}</p>
                       <span className={`text-xs font-semibold shrink-0 ${SEV_TEXT[p.severidade]}`}>
-                        {formatEUR(p.impacto)}
+                        {typeof p.impacto === "number" ? formatEUR(p.impacto) : "\u2014"}
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 mt-1 leading-relaxed">{p.descricao}</p>
@@ -210,10 +217,11 @@ export default function DiagnosticoFinanceiro() {
 
         {/* Ações */}
         <div className="card p-5">
-          <h3 className="text-sm font-semibold text-slate-800 mb-1">Ações recomendadas</h3>
+          <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Ações recomendadas{demoDiag && <DemoTag />}</h3>
           <p className="text-xs text-slate-500 mb-4">
-            Impacto estimado se agir agora:{" "}
-            <strong className="text-brand-700">+{formatEUR(totalAcoes)}</strong>
+            {totalAcoes > 0
+              ? <>Impacto estimado se agir agora:{" "}<strong className="text-brand-700">+{formatEUR(totalAcoes)}</strong></>
+              : "Recomendações operacionais com base no diagnóstico"}
           </p>
           <div className="space-y-3">
             {diagnostic.acoes.map((a, i) => (
@@ -224,7 +232,7 @@ export default function DiagnosticoFinanceiro() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-semibold text-slate-800">{i + 1}. {a.titulo}</p>
-                    <span className="text-xs font-semibold text-brand-700 shrink-0">+{formatEUR(a.impacto)}</span>
+                    <span className="text-xs font-semibold text-brand-700 shrink-0">{typeof a.impacto === "number" ? "+" + formatEUR(a.impacto) : "\u2014"}</span>
                   </div>
                   <p className="text-xs text-slate-600 mt-1 leading-relaxed">{a.descricao}</p>
                   <p className="text-[11px] text-slate-500 mt-2">Prazo sugerido: <strong>{a.prazo}</strong></p>
@@ -242,8 +250,8 @@ export default function DiagnosticoFinanceiro() {
         {/* O que mudou */}
         <div className="lg:col-span-7">
           <div className="card p-5">
-            <h3 className="text-sm font-semibold text-slate-800">O que mudou desde o mês passado</h3>
-            <p className="text-xs text-slate-500 mt-0.5 mb-4">Diferenças relevantes face a Mar 26</p>
+            <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">O que mudou desde o mês passado{demoDiag && <DemoTag />}</h3>
+            <p className="text-xs text-slate-500 mt-0.5 mb-4">Diferenças relevantes face ao mês anterior</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {diagnostic.mudancasUltimoMes.map((m, i) => {
                 const isUp = m.tendencia === "up";

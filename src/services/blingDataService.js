@@ -45,7 +45,7 @@ import {
 } from "../utils/expenseCalculations.js";
 
 import { buildSalesAlerts, buildExpenseAlerts, severityCounts } from "../utils/alertsEngine.js";
-import { buildSalesDiagnostics } from "../utils/diagnosticsEngine.js";
+import { buildSalesDiagnostics, buildFinancialDiagnostic } from "../utils/diagnosticsEngine.js";
 
 // Mapeamento de estado Bling -> Finer One. Ajustar às situações reais da Overcel.
 // situacao.valor: 9 = atendido/recebido, 1 = em aberto, 12 = cancelado.
@@ -420,6 +420,7 @@ export function buildSalesDataset({ orders, payables }) {
     despesas: payables ? buildDespesas(payables) : null, // null => Despesas usa mock
     fornecedores: payables ? buildFornecedores(payables) : null, // null => Fornecedores usa mock
     diagnostics: buildSalesDiagnostics(orders), // não ligado às telas nesta etapa
+    diagnostico: payables && payables.length ? buildFinancialDiagnostic(orders, payables) : null, // null => tela Diagnóstico usa mock
     orders, // exposto para recálculos por período no front (ex.: donut de categorias)
   };
 }
