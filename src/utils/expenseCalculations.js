@@ -149,3 +149,51 @@ export function expenseByCategory(payables) {
       color: e.name === "Sem categoria" ? "#94a3b8" : EXPENSE_PALETTE[ci++ % EXPENSE_PALETTE.length],
     }));
 }
+
+// ── Lado Fornecedores (a partir de contas a pagar abertas) ──────────────
+// "Aberto" = situacao 1. Saldo do título = saldo restante, com fallback a valor.
+
+export function openPayables(payables) {
+  return (payables || []).filter((p) => Number(p && p.situacao) === 1);
+}
+
+export function payableOpenBalance(p) {
+  return (p && p.saldo != null) ? Number(p.saldo) || 0 : Number(p && p.valor) || 0;
+}
+
+// Nº de títulos abertos que vencem nos próximos `dias` (inclui hoje).
+export function payablesDueWithin(payables, dias) {
+  const today = startOfDay(new Date());
+  const limit = new Date(today);
+  limit.setDate(limit.getDate() + dias);
+  return openPayables(payables).filter((p) => {
+    const v = toDate(p.vencimento);
+    return v && v >= today && v <= limit;
+  }).length;
+}
+
+// Dias em atraso de um título (0 se não vencido ou sem data).
+export function payableDaysOverdue(p, now = new Date()) {
+  const v = toDate(p && p.vencimento);
+  if (!v) return 0;
+  const today = startOfDay(now);
+  if (v >= today) return 0;
+  return Math.floor((today - startOfDay(v)) / (1000 * 60 * 60 * 24));
+}
+
+// Top fornecedores por saldo em aberto: [{ id, nome, faturasAbertas, saldo }].
+// Exclui títulos sem nome de fornecedor (não dá para "topar" sem nome).
+export function suppliersByOpenBalance(payables) {
+  const map = new Map();
+  for (const p of openPayables(payables)) {
+    const nome = p.contato && p.contato.nome;
+    if (!nome) continue;
+    const cur = map.get(nome) || { id: (p.contato && p.contato.id) ?? nome, nome, faturasAbertas: 0, saldo: 0 };
+    cur.faturasAbertas += 1;
+    cur.saldo += payableOpenBalance(p);
+    map.set(nome, cur);
+  }
+  return [...map.values()]
+    .map((s) => ({ ...s, saldo: round2(s.saldo) }))
+    .sort((a, b) => b.saldo - a.saldo);
+}

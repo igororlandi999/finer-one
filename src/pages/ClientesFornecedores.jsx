@@ -11,7 +11,7 @@ import AlertCard  from "../components/ui/AlertCard";
 import {
   customersSuppliersMetrics as mockCustomersSuppliersMetrics,
   topCustomers as mockTopCustomers,
-  topSuppliers, openCustomerInvoices, openSupplierInvoices,
+  topSuppliers as mockTopSuppliers, openCustomerInvoices, openSupplierInvoices,
 } from "../data/mockData";
 import { formatEUR } from "../lib/format";
 import { useFinerData } from "../context/FinerDataContext";
@@ -91,8 +91,9 @@ export default function ClientesFornecedores() {
 
   // Lado clientes a partir de vendas; restante (fornecedores, saldos a receber) fica mock.
   const { sales, source } = useFinerData();
-  const customersSuppliersMetrics = { ...mockCustomersSuppliersMetrics, ...(sales?.clientes?.metrics ?? {}) };
+  const customersSuppliersMetrics = { ...mockCustomersSuppliersMetrics, ...(sales?.clientes?.metrics ?? {}), ...(sales?.fornecedores?.metrics ?? {}) };
   const topCustomers = sales?.clientes?.top ?? mockTopCustomers;
+  const topSuppliers = sales?.fornecedores?.top ?? mockTopSuppliers;
 
   return (
     <>
@@ -124,7 +125,7 @@ export default function ClientesFornecedores() {
           delta={customersSuppliersMetrics.saldoPagarDelta}
           icon={Users2}
           iconBg="bg-purple-50 text-purple-600"
-        demo={source === "api"}
+        demo={source === "api" && !sales?.fornecedores}
         />
         <MetricCard
           label="Faturas em Aberto (Receber)"
@@ -140,7 +141,7 @@ export default function ClientesFornecedores() {
           icon={FileText}
           iconBg="bg-amber-50 text-amber-600"
           helper={`${customersSuppliersMetrics.faturasAbertasPagarVencer7} vencem nos próximos 7 dias`}
-        demo={source === "api"}
+        demo={source === "api" && !sales?.fornecedores}
         />
       </div>
 
@@ -182,7 +183,7 @@ export default function ClientesFornecedores() {
             </div>
             {/* Top fornecedores */}
             <div className="p-5">
-              <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Top Fornecedores (saldo a pagar){source === "api" && <DemoTag />}</h3>
+              <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Top Fornecedores (saldo a pagar){source === "api" && !sales?.fornecedores && <DemoTag />}</h3>
               <p className="text-xs text-slate-500 mb-3">Fornecedores com maior valor em aberto</p>
               <div>
                 {topSuppliers.map((s) => (
@@ -194,7 +195,7 @@ export default function ClientesFornecedores() {
         )}
 
         {tab === "clientes"     && <OpenInvoicesTable rows={openCustomerInvoices} partyHeader="Cliente"     partyKey="cliente"    demo={source === "api"} />}
-        {tab === "fornecedores" && <OpenInvoicesTable rows={openSupplierInvoices} partyHeader="Fornecedor" partyKey="fornecedor" demo={source === "api"} />}
+        {tab === "fornecedores" && <OpenInvoicesTable rows={sales?.fornecedores?.openInvoices ?? openSupplierInvoices} partyHeader="Fornecedor" partyKey="fornecedor" demo={source === "api" && !sales?.fornecedores} />}
       </div>
 
       {/* Alertas operacionais */}

@@ -38,6 +38,10 @@ import {
   topPayable,
   pendingPayables,
   expenseByCategory,
+  openPayables,
+  payablesDueWithin,
+  payableDaysOverdue,
+  suppliersByOpenBalance,
 } from "../utils/expenseCalculations.js";
 
 import { buildSalesAlerts, buildExpenseAlerts, severityCounts } from "../utils/alertsEngine.js";
@@ -333,6 +337,44 @@ function buildDespesas(payables) {
 }
 
 // Dataset completo pronto para as telas.
+// Lado Fornecedores da tela Clientes e Fornecedores, a partir de contas a pagar.
+// Apenas títulos em aberto (situacao 1). Sem delta de saldo (ponto-no-tempo).
+function buildFornecedores(payables) {
+  const pend = pendingPayables(payables); // { valor, qtd } dos abertos
+
+  const metrics = {
+    saldoPagar: pend.valor,
+    saldoPagarDelta: null, // oculto: sem base honesta de comparação mês a mês
+    faturasAbertasPagar: pend.qtd,
+    faturasAbertasPagarVencer7: payablesDueWithin(payables, 7),
+  };
+
+  const top = suppliersByOpenBalance(payables).slice(0, 6);
+
+  // Até 20 títulos abertos mais próximos do vencimento (o que precisa de ação primeiro).
+  const openInvoices = openPayables(payables)
+    .slice()
+    .sort((a, b) => {
+      const da = toDate(a.vencimento), db = toDate(b.vencimento);
+      if (da && db) return da - db;
+      if (da) return -1;
+      if (db) return 1;
+      return 0;
+    })
+    .slice(0, 20)
+    .map((p) => ({
+      id: p.id,
+      fornecedor: (p.contato && p.contato.nome) || "\u2014",
+      numero: (p.numeroDocumento != null && p.numeroDocumento !== "") ? String(p.numeroDocumento) : "\u2014",
+      dataEmissao: p.dataEmissao ? formatPtDate(p.dataEmissao) : "\u2014",
+      vencimento: p.vencimento ? formatPtDate(p.vencimento) : "\u2014",
+      valor: Number(p.valor) || 0,
+      diasAtraso: payableDaysOverdue(p),
+    }));
+
+  return { metrics, top, openInvoices };
+}
+
 export function buildSalesDataset({ orders, payables }) {
   return {
     receitas: buildReceitas(orders),
@@ -340,6 +382,7 @@ export function buildSalesDataset({ orders, payables }) {
     resumo: buildResumo(orders),
     alertas: buildAlertas(orders, payables),
     despesas: payables ? buildDespesas(payables) : null, // null => Despesas usa mock
+    fornecedores: payables ? buildFornecedores(payables) : null, // null => Fornecedores usa mock
     diagnostics: buildSalesDiagnostics(orders), // não ligado às telas nesta etapa
     orders, // exposto para recálculos por período no front (ex.: donut de categorias)
   };
