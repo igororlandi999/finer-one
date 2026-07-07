@@ -275,11 +275,47 @@ function buildClientes(orders) {
   };
 }
 
-function buildResumo(orders) {
+// Mes anterior de uma chave "YYYY-MM".
+function prevMonthKey(key) {
+  if (!key) return null;
+  const [y, m] = key.split("-").map(Number);
+  if (!y || !m) return null;
+  const d = new Date(y, m - 2, 1); // m-1 seria o proprio mes (0-based); m-2 = anterior
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+// Resumo ancorado no mes das receitas. Despesas/resultado so entram com payables reais;
+// sem payables, o mock preenche e os cards mantem o selo Demo.
+// Deltas: MoM honesto; null (oculto) quando a base anterior nao permite % clara.
+function buildResumo(orders, payables) {
   const latest = latestMonthKey(orders);
   const receitas = totalRevenue(ordersInMonth(orders, latest));
   const receitasDelta = monthOverMonthGrowth(orders) ?? 0;
-  return { metrics: { receitas, receitasDelta } };
+  const metrics = { receitas, receitasDelta };
+
+  if (payables) {
+    const prev = prevMonthKey(latest);
+
+    const despesas = totalPayables(payablesInMonth(payables, latest));
+    const prevDespesas = prev ? totalPayables(payablesInMonth(payables, prev)) : 0;
+    const despesasDelta = prevDespesas > 0
+      ? round2(((despesas - prevDespesas) / prevDespesas) * 100)
+      : null;
+
+    const resultado = round2(receitas - despesas);
+    const prevReceitas = prev ? totalRevenue(ordersInMonth(orders, prev)) : 0;
+    const prevResultado = round2(prevReceitas - prevDespesas);
+    const resultadoDelta = prevResultado > 0
+      ? round2(((resultado - prevResultado) / prevResultado) * 100)
+      : null;
+
+    metrics.despesas = despesas;
+    metrics.despesasDelta = despesasDelta;
+    metrics.resultado = resultado;
+    metrics.resultadoDelta = resultadoDelta;
+  }
+
+  return { metrics };
 }
 
 function buildAlertas(orders, payables) {
@@ -379,7 +415,7 @@ export function buildSalesDataset({ orders, payables }) {
   return {
     receitas: buildReceitas(orders),
     clientes: buildClientes(orders),
-    resumo: buildResumo(orders),
+    resumo: buildResumo(orders, payables),
     alertas: buildAlertas(orders, payables),
     despesas: payables ? buildDespesas(payables) : null, // null => Despesas usa mock
     fornecedores: payables ? buildFornecedores(payables) : null, // null => Fornecedores usa mock

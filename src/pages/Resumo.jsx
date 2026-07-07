@@ -8,6 +8,7 @@ import {
 
 import PageHeader   from "../layouts/PageHeader";
 import MetricCard   from "../components/ui/MetricCard";
+import DemoTag      from "../components/ui/DemoTag";
 import AlertCard    from "../components/ui/AlertCard";
 import ChartCard    from "../components/charts/ChartCard";
 import StatusBadge  from "../components/ui/StatusBadge";
@@ -139,7 +140,7 @@ export default function Resumo() {
           delta={monthMetrics.despesasDelta}
           icon={TrendingDown}
           iconBg="bg-rose-50 text-rose-500"
-          demo={source === "api"}
+          demo={source === "api" && !sales?.despesas}
         />
         <MetricCard
           label="Resultado (Mês)"
@@ -148,7 +149,7 @@ export default function Resumo() {
           icon={BarChart3}
           iconBg="bg-sky-50 text-sky-600"
           tone="success"
-          demo={source === "api"}
+          demo={source === "api" && !sales?.despesas}
         />
       </div>
 
@@ -157,7 +158,7 @@ export default function Resumo() {
         {/* Cashflow */}
         <div className="lg:col-span-7">
           <ChartCard
-            title="Cashflow previsto"
+            title={<span className="inline-flex items-center gap-1.5">Cashflow previsto{source === "api" && <DemoTag />}</span>}
             subtitle={`Saldo previsto em 30 dias: ${formatEUR(monthMetrics.cashflowPrevisto30)}`}
             height={260}
             action={
@@ -206,7 +207,7 @@ export default function Resumo() {
         <div className="lg:col-span-5">
           <div className="card p-5 h-full">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-slate-800">Faturas em atraso</h3>
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Faturas em atraso{source === "api" && <DemoTag />}</h3>
               <button className="text-xs font-medium text-brand-600 hover:text-brand-700">Ver todas</button>
             </div>
             <div className="space-y-3">
