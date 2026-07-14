@@ -1,9 +1,9 @@
 // Gauge circular SVG que representa o score financeiro 0-100.
-// Cores: vermelho (Crítico 0-40), amarelo (Atenção 41-65), verde (Saudável 66-100)
+// Cores: vermelho (Crítico 0-49), amarelo (Atenção 50-74), verde (Saudável 75-100)
 
 const BANDS = [
-  { max: 40,  color: "#EF4444", label: "Crítico"   },  // Vermelho Risco
-  { max: 65,  color: "#F59E0B", label: "Atenção"   },  // Dourado Premium / atenção
+  { max: 49,  color: "#EF4444", label: "Crítico"   },  // Vermelho Risco
+  { max: 74,  color: "#F59E0B", label: "Atenção"   },  // Dourado Premium / atenção
   { max: 100, color: "#10B981", label: "Saudável"  },  // Verde Sucesso
 ];
 
@@ -45,9 +45,9 @@ export default function DiagnosticGauge({ score = 0, label, size = 220, thicknes
         <path d={arcPath(startA, startA + totalA)} fill="none" stroke="#e2e8f0" strokeWidth={thickness} strokeLinecap="round" />
 
         {/* Zonas de cor subtis */}
-        <path d={arcPath(startA,             startA + totalA * 0.40)} fill="none" stroke="#fecaca" strokeWidth={thickness} strokeLinecap="round" opacity={0.5} />
-        <path d={arcPath(startA + totalA * 0.40, startA + totalA * 0.65)} fill="none" stroke="#fde68a" strokeWidth={thickness} strokeLinecap="round" opacity={0.5} />
-        <path d={arcPath(startA + totalA * 0.65, startA + totalA)}        fill="none" stroke="#a7f3d0" strokeWidth={thickness} strokeLinecap="round" opacity={0.5} />
+        <path d={arcPath(startA,             startA + totalA * 0.50)} fill="none" stroke="#fecaca" strokeWidth={thickness} strokeLinecap="round" opacity={0.5} />
+        <path d={arcPath(startA + totalA * 0.50, startA + totalA * 0.75)} fill="none" stroke="#fde68a" strokeWidth={thickness} strokeLinecap="round" opacity={0.5} />
+        <path d={arcPath(startA + totalA * 0.75, startA + totalA)}        fill="none" stroke="#a7f3d0" strokeWidth={thickness} strokeLinecap="round" opacity={0.5} />
 
         {/* Progresso até ao score */}
         <path d={arcPath(startA, valueAngle)} fill="none" stroke={band.color} strokeWidth={thickness} strokeLinecap="round" />

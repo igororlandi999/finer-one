@@ -37,10 +37,17 @@ function CashflowTooltip({ active, payload, label }) {
 }
 
 // ── Bloco de destaque do Diagnóstico ────────────────────────
-function DiagnosticHighlight({ onOpen }) {
+// Frase-síntese derivada do estado do diagnóstico (real ou mock) — sem números inventados.
+const FRASE_ESTADO = {
+  "Saudável": "A empresa está financeiramente saudável, sem riscos relevantes identificados.",
+  "Atenção":  "A empresa está estável, mas existem sinais que pedem atenção.",
+  "Crítico":  "A empresa apresenta sinais críticos que pedem ação imediata.",
+};
+
+function DiagnosticHighlight({ onOpen, diag, demo }) {
   const variant =
-    diagnostic.estado === "Saudável" ? "saudavel" :
-    diagnostic.estado === "Atenção"  ? "atencao"  : "critico";
+    diag.estado === "Saudável" ? "saudavel" :
+    diag.estado === "Atenção"  ? "atencao"  : "critico";
 
   return (
     <div className="card overflow-hidden bg-gradient-to-br from-finerblue-deep to-finerblue text-white">
@@ -56,15 +63,18 @@ function DiagnosticHighlight({ onOpen }) {
             <span className="text-[11px] uppercase tracking-wider font-semibold text-brand-300">
               Diagnóstico Financeiro
             </span>
-            <StatusBadge variant={variant}>{diagnostic.estado}</StatusBadge>
+            {demo && <DemoTag />}
+            <StatusBadge variant={variant}>{diag.estado}</StatusBadge>
           </div>
           <h3 className="text-lg font-semibold leading-snug">
-            A empresa está estável, mas existem sinais de atenção em margem e tesouraria.
+            {FRASE_ESTADO[diag.estado] ?? FRASE_ESTADO["Atenção"]}
           </h3>
           <p className="text-sm text-slate-300 mt-1.5 leading-relaxed">
-            Impacto financeiro identificado de{" "}
-            <strong className="text-white">{formatEUR(diagnostic.impactoFinanceiro)}</strong>.{" "}
-            Prioridade: {diagnostic.prioridadeMaxima.toLowerCase()}.
+            {typeof diag.impactoFinanceiro === "number" && (
+              <>Impacto financeiro identificado de{" "}
+              <strong className="text-white">{formatEUR(diag.impactoFinanceiro)}</strong>.{" "}</>
+            )}
+            Prioridade: {diag.prioridadeMaxima.toLowerCase()}.
           </p>
         </div>
 
@@ -72,7 +82,7 @@ function DiagnosticHighlight({ onOpen }) {
         <div className="flex items-center gap-6 shrink-0">
           <div className="text-center">
             <div className="text-3xl font-bold leading-none">
-              {diagnostic.score}
+              {diag.score}
               <span className="text-base text-slate-400 font-medium">/100</span>
             </div>
             <div className="text-xs text-slate-400 mt-1">Finer Score</div>
@@ -114,7 +124,11 @@ export default function Resumo() {
 
       {/* Diagnóstico em destaque */}
       <div className="mb-6">
-        <DiagnosticHighlight onOpen={() => navigateTo(SCREENS.DIAGNOSTICO)} />
+        <DiagnosticHighlight
+          onOpen={() => navigateTo(SCREENS.DIAGNOSTICO)}
+          diag={sales?.diagnostico ?? diagnostic}
+          demo={source === "api" && !sales?.diagnostico}
+        />
       </div>
 
       {/* KPIs */}
