@@ -21,6 +21,10 @@ export const SUPPORTED_QUESTIONS = [
   "Quais alertas estão ativos?",
 ];
 
+// Chave de handoff one-shot: o Diagnóstico grava aqui a pergunta sugerida e
+// o Chat consome-a (e remove-a) assim que os dados resolverem.
+export const PENDING_CHAT_QUESTION_KEY = "finerone.chat.pendingQuestion";
+
 const SEV_PT = { danger: "Crítico", warning: "Atenção", info: "Informação", success: "Positivo" };
 
 const NEED_PAYABLES = {

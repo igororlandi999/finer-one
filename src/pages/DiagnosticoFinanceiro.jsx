@@ -14,6 +14,7 @@ import MetricCard        from "../components/ui/MetricCard";
 import StatusBadge       from "../components/ui/StatusBadge";
 import DiagnosticGauge   from "../components/diagnostic/DiagnosticGauge";
 import ActionPlanModal   from "../components/diagnostic/ActionPlanModal";
+import { SUPPORTED_QUESTIONS, PENDING_CHAT_QUESTION_KEY } from "../utils/chatEngine";
 
 import { usePlan }       from "../context/PlanContext";
 import { SCREENS }       from "../config/planConfig";
@@ -48,6 +49,8 @@ export default function DiagnosticoFinanceiro() {
   const scoreDelta      = diagnostic.scorePrevious != null ? diagnostic.score - diagnostic.scorePrevious : null;
   const totalAcoes      = diagnostic.acoes.reduce((acc, a) => acc + (Number(a.impacto) || 0), 0);
   const [planOpen, setPlanOpen] = useState(false);
+  // Sugestões clicáveis: com diagnóstico real, só perguntas que o chat sabe responder.
+  const perguntas = sales?.diagnostico ? SUPPORTED_QUESTIONS.slice(0, 5) : diagnostic.perguntasIA;
 
   const stateVariant =
     diagnostic.estado === "Saudável" ? "saudavel" :
@@ -284,10 +287,13 @@ export default function DiagnosticoFinanceiro() {
             </div>
             <p className="text-xs text-slate-500 mb-3">Sugestões com base no seu diagnóstico</p>
             <div className="space-y-2 flex-1">
-              {diagnostic.perguntasIA.map((q, i) => (
+              {perguntas.map((q, i) => (
                 <button
                   key={i}
-                  onClick={() => navigateTo(SCREENS.CHAT_FINANCEIRO)}
+                  onClick={() => {
+                    try { sessionStorage.setItem(PENDING_CHAT_QUESTION_KEY, q); } catch { /* segue sem handoff */ }
+                    navigateTo(SCREENS.CHAT_FINANCEIRO);
+                  }}
                   className="w-full text-left text-sm text-slate-700 px-3 py-2.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200/70 transition-colors"
                 >
                   {q}

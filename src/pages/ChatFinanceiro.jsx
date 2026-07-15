@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Send, History, Plus, Sparkles, FileText, Users, BarChart3,
   CalendarRange, ArrowUpRight, ArrowDownRight, MessageSquare,
@@ -11,7 +11,7 @@ import {
 } from "../data/mockData";
 import { useFinerData } from "../context/FinerDataContext";
 import DemoTag from "../components/ui/DemoTag";
-import { answerQuestion, buildWelcome, SUPPORTED_QUESTIONS } from "../utils/chatEngine";
+import { answerQuestion, buildWelcome, SUPPORTED_QUESTIONS, PENDING_CHAT_QUESTION_KEY } from "../utils/chatEngine";
 
 // ── Avatar IA ────────────────────────────────────────────────
 function AIBadge() {
@@ -167,7 +167,7 @@ const QUICK_LIVE = [
 
 // ── Tela ────────────────────────────────────────────────────
 export default function ChatFinanceiro() {
-  const { sales, source } = useFinerData();
+  const { sales, source, loading } = useFinerData();
   const isLive = source === "api";
   const [input, setInput] = useState("");
   const [sent, setSent] = useState([]); // mensagens desta sessão (modo dados reais)
@@ -195,6 +195,25 @@ export default function ChatFinanceiro() {
     ]);
     setInput("");
   }
+
+  // Pergunta vinda do Diagnóstico (handoff one-shot via sessionStorage).
+  // Só consome quando o source já resolveu; em modo demo descarta em silêncio.
+  useEffect(() => {
+    if (loading) return;
+    let pending = null;
+    try {
+      pending = sessionStorage.getItem(PENDING_CHAT_QUESTION_KEY);
+      if (pending) sessionStorage.removeItem(PENDING_CHAT_QUESTION_KEY);
+    } catch { return; }
+    if (!pending || !isLive) return;
+    const reply = answerQuestion(pending, sales);
+    setSent((m) => [
+      ...m,
+      { id: `u-${Date.now()}`, role: "user", timestamp: nowHM(), content: pending },
+      { id: `a-${Date.now()}`, role: "ai", timestamp: nowHM(), ...reply },
+    ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, isLive]);
 
   return (
     <>
