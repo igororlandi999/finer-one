@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   LineChart, Line, ResponsiveContainer, Tooltip,
   XAxis, YAxis, CartesianGrid, ReferenceLine,
@@ -12,6 +13,7 @@ import PageHeader        from "../layouts/PageHeader";
 import MetricCard        from "../components/ui/MetricCard";
 import StatusBadge       from "../components/ui/StatusBadge";
 import DiagnosticGauge   from "../components/diagnostic/DiagnosticGauge";
+import ActionPlanModal   from "../components/diagnostic/ActionPlanModal";
 
 import { usePlan }       from "../context/PlanContext";
 import { SCREENS }       from "../config/planConfig";
@@ -45,6 +47,7 @@ export default function DiagnosticoFinanceiro() {
   const demoDiag        = source === "api" && !sales?.diagnostico;
   const scoreDelta      = diagnostic.scorePrevious != null ? diagnostic.score - diagnostic.scorePrevious : null;
   const totalAcoes      = diagnostic.acoes.reduce((acc, a) => acc + (Number(a.impacto) || 0), 0);
+  const [planOpen, setPlanOpen] = useState(false);
 
   const stateVariant =
     diagnostic.estado === "Saudável" ? "saudavel" :
@@ -240,7 +243,7 @@ export default function DiagnosticoFinanceiro() {
               </div>
             ))}
           </div>
-          <button className="mt-4 w-full btn-primary justify-center">Ver plano de ação completo</button>
+          <button onClick={() => setPlanOpen(true)} className="mt-4 w-full btn-primary justify-center">Ver plano de ação completo</button>
         </div>
       </div>
 
@@ -300,6 +303,13 @@ export default function DiagnosticoFinanceiro() {
           </div>
         </div>
       </div>
+
+      <ActionPlanModal
+        open={planOpen}
+        onClose={() => setPlanOpen(false)}
+        diagnostic={diagnostic}
+        demo={demoDiag}
+      />
     </>
   );
 }
