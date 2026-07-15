@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Send, History, Plus, Sparkles, FileText, Users, BarChart3,
-  CalendarRange, ArrowUpRight, MessageSquare,
+  CalendarRange, ArrowUpRight, ArrowDownRight, MessageSquare,
 } from "lucide-react";
 
 import PageHeader  from "../layouts/PageHeader";
@@ -9,6 +9,9 @@ import { currentUser } from "../data/mockData";
 import {
   chatHistory, chatStartSuggestions, chatInsights, chatRecentQuestions,
 } from "../data/mockData";
+import { useFinerData } from "../context/FinerDataContext";
+import DemoTag from "../components/ui/DemoTag";
+import { answerQuestion, buildWelcome, SUPPORTED_QUESTIONS } from "../utils/chatEngine";
 
 // ── Avatar IA ────────────────────────────────────────────────
 function AIBadge() {
@@ -31,13 +34,16 @@ function UserBadge() {
 // ── Card de métrica inline (resposta IA) ────────────────────
 function InlineMetric({ label, value, delta, tone = "success" }) {
   const color = tone === "success" ? "text-brand-600" : "text-rose-600";
+  const Arrow = String(delta ?? "").trim().startsWith("-") ? ArrowDownRight : ArrowUpRight;
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
       <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">{label}</div>
       <div className="text-lg font-semibold text-slate-900 mt-0.5">{value}</div>
-      <div className={`text-xs font-medium mt-0.5 inline-flex items-center gap-0.5 ${color}`}>
-        <ArrowUpRight size={11} />{delta}
-      </div>
+      {delta ? (
+        <div className={`text-xs font-medium mt-0.5 inline-flex items-center gap-0.5 ${color}`}>
+          <Arrow size={11} />{delta}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -140,9 +146,55 @@ function QuickAction({ icon: Icon, title, description, onClick }) {
   );
 }
 
+function nowHM() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+// Ações rápidas: no modo dados reais só sugerimos perguntas que o motor sabe responder.
+const QUICK_MOCK = [
+  { icon: FileText,      title: "Resumo executivo",     description: "Obtenha um resumo do mês",          q: "Resumo executivo do mês." },
+  { icon: Users,         title: "Análise de clientes",  description: "Top clientes e contribuição",       q: "Quais os meus principais clientes?" },
+  { icon: BarChart3,     title: "Análise de despesas",  description: "Onde está a gastar mais",           q: "Onde estou a gastar mais?" },
+  { icon: CalendarRange, title: "Previsão de cashflow", description: "Projete cashflow futuro",           q: "Qual a previsão de cashflow nos próximos 60 dias?" },
+];
+const QUICK_LIVE = [
+  { icon: FileText,      title: "Saúde da empresa",     description: "Estado e score atuais",             q: "A minha empresa está saudável?" },
+  { icon: BarChart3,     title: "Resultado do mês",     description: "Receitas, despesas e resultado",    q: "Como está o resultado do mês?" },
+  { icon: Users,         title: "Fornecedores",         description: "Quem pesa mais no caixa",           q: "Quais fornecedores pesam no caixa?" },
+  { icon: CalendarRange, title: "Ações prioritárias",   description: "O que fazer primeiro",              q: "Quais ações devo priorizar?" },
+];
+
 // ── Tela ────────────────────────────────────────────────────
 export default function ChatFinanceiro() {
+  const { sales, source } = useFinerData();
+  const isLive = source === "api";
   const [input, setInput] = useState("");
+  const [sent, setSent] = useState([]); // mensagens desta sessão (modo dados reais)
+
+  // `source` resolve de forma assíncrona, por isso a conversa é derivada e não fixada no mount.
+  const welcome = useMemo(
+    () => ({ id: "w1", role: "ai", timestamp: nowHM(), ...buildWelcome(sales) }),
+    [sales]
+  );
+  const thread = isLive ? [welcome, ...sent] : chatHistory;
+  const suggestions = isLive ? SUPPORTED_QUESTIONS.slice(0, 5) : chatStartSuggestions;
+  const recentes = isLive ? SUPPORTED_QUESTIONS.slice(5) : chatRecentQuestions;
+  const insights = isLive && sales?.diagnostico
+    ? sales.diagnostico.mudancasUltimoMes.map((m) => `${m.label}: ${m.valor} (${m.detalhe}).`)
+    : chatInsights;
+
+  function handleSend() {
+    const text = input.trim();
+    if (!text || !isLive) return; // no modo demo a conversa é estática
+    const reply = answerQuestion(text, sales);
+    setSent((m) => [
+      ...m,
+      { id: `u-${Date.now()}`, role: "user", timestamp: nowHM(), content: text },
+      { id: `a-${Date.now()}`, role: "ai", timestamp: nowHM(), ...reply },
+    ]);
+    setInput("");
+  }
 
   return (
     <>
@@ -162,7 +214,7 @@ export default function ChatFinanceiro() {
         <span className="text-xs uppercase tracking-wider font-semibold text-slate-500 mr-1">
           Sugestões:
         </span>
-        {chatStartSuggestions.map((s, i) => (
+        {suggestions.map((s, i) => (
           <button
             key={i}
             onClick={() => setInput(s)}
@@ -178,7 +230,7 @@ export default function ChatFinanceiro() {
         <div className="lg:col-span-8 flex flex-col">
           <div className="card flex flex-col flex-1">
             <div className="flex-1 p-5 space-y-5 overflow-y-auto" style={{ maxHeight: 580 }}>
-              {chatHistory.map((m) => <Message key={m.id} msg={m} />)}
+              {thread.map((m) => <Message key={m.id} msg={m} />)}
             </div>
 
             {/* Input */}
@@ -188,10 +240,11 @@ export default function ChatFinanceiro() {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSend(); }}
                   placeholder="Faça uma pergunta sobre a Overcel..."
                   className="flex-1 text-sm outline-none bg-transparent placeholder:text-slate-400"
                 />
-                <button className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-500 hover:bg-brand-600 text-white transition-colors">
+                <button onClick={handleSend} className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-500 hover:bg-brand-600 text-white transition-colors">
                   <Send size={14} />
                 </button>
               </div>
@@ -208,21 +261,20 @@ export default function ChatFinanceiro() {
           <div className="card p-5">
             <h3 className="text-sm font-semibold text-slate-800 mb-3">Ações rápidas</h3>
             <div className="space-y-2">
-              <QuickAction icon={FileText}      title="Resumo executivo"      description="Obtenha um resumo do mês"           onClick={() => setInput("Resumo executivo do mês.")} />
-              <QuickAction icon={Users}         title="Análise de clientes"   description="Top clientes e contribuição"        onClick={() => setInput("Quais os meus principais clientes?")} />
-              <QuickAction icon={BarChart3}     title="Análise de despesas"   description="Onde está a gastar mais"            onClick={() => setInput("Onde estou a gastar mais?")} />
-              <QuickAction icon={CalendarRange} title="Previsão de cashflow"  description="Projete cashflow futuro"            onClick={() => setInput("Qual a previsão de cashflow nos próximos 60 dias?")} />
+              {(isLive ? QUICK_LIVE : QUICK_MOCK).map((qa) => (
+                <QuickAction key={qa.title} icon={qa.icon} title={qa.title} description={qa.description} onClick={() => setInput(qa.q)} />
+              ))}
             </div>
           </div>
 
           {/* Insights */}
           <div className="card p-5">
             <div className="flex items-center gap-2 mb-3">
-              <h3 className="text-sm font-semibold text-slate-800">Insights inteligentes</h3>
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Insights inteligentes{source === "api" && !sales?.diagnostico && <DemoTag />}</h3>
               <span className="text-[10px] uppercase tracking-wider font-semibold text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded">Novo</span>
             </div>
             <ul className="space-y-2.5">
-              {chatInsights.map((ins, i) => (
+              {insights.map((ins, i) => (
                 <li key={i} className="flex items-start gap-2.5 text-sm text-slate-700">
                   <Sparkles size={14} className="text-brand-500 mt-0.5 shrink-0" />
                   <span className="leading-relaxed">{ins}</span>
@@ -235,7 +287,7 @@ export default function ChatFinanceiro() {
           <div className="card p-5">
             <h3 className="text-sm font-semibold text-slate-800 mb-3">Perguntas recentes</h3>
             <ul className="space-y-1.5">
-              {chatRecentQuestions.map((q, i) => (
+              {recentes.map((q, i) => (
                 <li key={i}>
                   <button
                     onClick={() => setInput(q)}
