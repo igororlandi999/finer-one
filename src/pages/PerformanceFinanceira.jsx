@@ -8,6 +8,8 @@ import {
   performanceMetrics, profitLossRows, balanceSheetRows, cashflowStatementRows,
 } from "../data/mockData";
 import { formatEUR } from "../lib/format";
+import { useFinerData } from "../context/FinerDataContext";
+import DemoTag from "../components/ui/DemoTag";
 
 // ── Tabs ────────────────────────────────────────────────────
 const TABS = [
@@ -82,6 +84,10 @@ function FinancialTable({ rows, header1 = "Período Atual", header2 = "Período 
 // ── Tela ────────────────────────────────────────────────────
 export default function PerformanceFinanceira() {
   const [tab, setTab] = useState("geral");
+  const { sales, source } = useFinerData();
+  // Demonstrações contábeis (DRE, balanço, cashflow, KPIs anuais): sem base contábil real => sempre demo em modo api.
+  const demoAll = source === "api";
+  const analise = sales?.diagnostico?.resumoExecutivo ?? null;
 
   return (
     <>
@@ -102,11 +108,11 @@ export default function PerformanceFinanceira() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 mb-6">
-        <MetricCard dense label="Lucro Líquido"  value={formatEUR(performanceMetrics.lucroLiquido)}  delta={performanceMetrics.lucroLiquidoDelta} deltaLabel="vs ano anterior" tone="success" />
-        <MetricCard dense label="Margem Líquida" value={`${performanceMetrics.margemLiquida}%`}      delta={performanceMetrics.margemLiquidaDelta} deltaSuffix=" p.p." deltaLabel="vs ano anterior" tone="success" />
-        <MetricCard dense label="EBITDA"          value={formatEUR(performanceMetrics.ebitda)}        delta={performanceMetrics.ebitdaDelta} deltaLabel="vs ano anterior" tone="success" />
-        <MetricCard dense label="Ativo Total"     value={formatEUR(performanceMetrics.ativoTotal)}    delta={performanceMetrics.ativoTotalDelta} deltaLabel="vs ano anterior" />
-        <MetricCard dense label="Solvabilidade"   value={`${performanceMetrics.solvabilidade}%`}      delta={performanceMetrics.solvabilidadeDelta} deltaSuffix=" p.p." deltaLabel="vs ano anterior" tone="success" />
+        <MetricCard dense demo={demoAll} label="Lucro Líquido"  value={formatEUR(performanceMetrics.lucroLiquido)}  delta={performanceMetrics.lucroLiquidoDelta} deltaLabel="vs ano anterior" tone="success" />
+        <MetricCard dense demo={demoAll} label="Margem Líquida" value={`${performanceMetrics.margemLiquida}%`}      delta={performanceMetrics.margemLiquidaDelta} deltaSuffix=" p.p." deltaLabel="vs ano anterior" tone="success" />
+        <MetricCard dense demo={demoAll} label="EBITDA"          value={formatEUR(performanceMetrics.ebitda)}        delta={performanceMetrics.ebitdaDelta} deltaLabel="vs ano anterior" tone="success" />
+        <MetricCard dense demo={demoAll} label="Ativo Total"     value={formatEUR(performanceMetrics.ativoTotal)}    delta={performanceMetrics.ativoTotalDelta} deltaLabel="vs ano anterior" />
+        <MetricCard dense demo={demoAll} label="Solvabilidade"   value={`${performanceMetrics.solvabilidade}%`}      delta={performanceMetrics.solvabilidadeDelta} deltaSuffix=" p.p." deltaLabel="vs ano anterior" tone="success" />
       </div>
 
       {/* Tabs */}
@@ -129,6 +135,7 @@ export default function PerformanceFinanceira() {
                 </button>
               );
             })}
+            {demoAll && <span className="ml-auto flex items-center py-3"><DemoTag /></span>}
           </div>
         </div>
 
@@ -161,10 +168,12 @@ export default function PerformanceFinanceira() {
             <Lightbulb size={20} />
           </span>
           <div className="flex-1">
-            <h3 className="text-sm font-semibold text-slate-800 mb-2">Análise rápida</h3>
+            <h3 className="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-1.5">Análise rápida{source === "api" && !analise && <DemoTag />}</h3>
             <p className="text-sm text-slate-700 leading-relaxed">
-              O lucro líquido cresceu 13,7% face ao período homólogo, com melhoria da margem líquida (+1,8 p.p.).
-              A posição financeira mantém-se saudável, com rácio de solvabilidade de 53,3% e aumento de caixa de 50.500 €.
+              {analise ?? (
+                <>O lucro líquido cresceu 13,7% face ao período homólogo, com melhoria da margem líquida (+1,8 p.p.).
+                A posição financeira mantém-se saudável, com rácio de solvabilidade de 53,3% e aumento de caixa de 50.500 €.</>
+              )}
             </p>
           </div>
         </div>
