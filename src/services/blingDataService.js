@@ -44,8 +44,8 @@ import {
   suppliersByOpenBalance,
 } from "../utils/expenseCalculations.js";
 
-import { buildSalesAlerts, buildExpenseAlerts, severityCounts } from "../utils/alertsEngine.js";
-import { buildSalesDiagnostics, buildFinancialDiagnostic } from "../utils/diagnosticsEngine.js";
+import { buildSalesAlerts, buildExpenseAlerts } from "../utils/alertsEngine.js";
+import { buildFinancialDiagnostic } from "../utils/diagnosticsEngine.js";
 
 // Mapeamento de estado Bling -> Finer One. Ajustar às situações reais da Overcel.
 // situacao.valor: 9 = atendido/recebido, 1 = em aberto, 12 = cancelado.
@@ -293,7 +293,7 @@ function buildResumo(orders, payables) {
   const receitasDelta = monthOverMonthGrowth(orders) ?? 0;
   const metrics = { receitas, receitasDelta };
 
-  if (payables) {
+  if (Array.isArray(payables)) {
     const prev = prevMonthKey(latest);
 
     const despesas = totalPayables(payablesInMonth(payables, latest));
@@ -320,7 +320,7 @@ function buildResumo(orders, payables) {
 
 function buildAlertas(orders, payables) {
   const list = [...buildSalesAlerts(orders), ...buildExpenseAlerts(payables || [])];
-  return { list, metrics: severityCounts(list) };
+  return { list };
 }
 
 // Despesas a partir de contas a pagar (Bling). Formas iguais aos mocks de Despesas.
@@ -412,15 +412,18 @@ function buildFornecedores(payables) {
 }
 
 export function buildSalesDataset({ orders, payables }) {
+  // Critério único de dados reais de contas a pagar: array presente (mesmo vazio).
+  // undefined/null => falha ou ausência => telas usam mock + Demo.
+  // [] => dado real com zero títulos => zeros reais, sem selo.
+  const hasPayables = Array.isArray(payables);
   return {
     receitas: buildReceitas(orders),
     clientes: buildClientes(orders),
     resumo: buildResumo(orders, payables),
     alertas: buildAlertas(orders, payables),
-    despesas: payables ? buildDespesas(payables) : null, // null => Despesas usa mock
-    fornecedores: payables ? buildFornecedores(payables) : null, // null => Fornecedores usa mock
-    diagnostics: buildSalesDiagnostics(orders), // não ligado às telas nesta etapa
-    diagnostico: payables && payables.length ? buildFinancialDiagnostic(orders, payables) : null, // null => tela Diagnóstico usa mock
+    despesas: hasPayables ? buildDespesas(payables) : null, // null => Despesas usa mock
+    fornecedores: hasPayables ? buildFornecedores(payables) : null, // null => Fornecedores usa mock
+    diagnostico: hasPayables ? buildFinancialDiagnostic(orders, payables) : null, // null => tela Diagnóstico usa mock
     orders, // exposto para recálculos por período no front (ex.: donut de categorias)
   };
 }

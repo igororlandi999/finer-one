@@ -91,7 +91,7 @@ function sentimentOf(items) {
 // Sem histórico de score real: scorePrevious é sempre null (delta oculto).
 
 export function buildFinancialDiagnostic(orders, payables) {
-  if (!orders || !orders.length || !payables || !payables.length) return null;
+  if (!orders || !orders.length || !Array.isArray(payables)) return null; // [] = zero títulos reais => diagnóstico calculado
 
   const key = latestMonthKey(orders); // mês âncora = mês das receitas (coerente com o Resumo)
   const prev = prevKeyOf(key);
