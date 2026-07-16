@@ -10,6 +10,8 @@ import PageHeader from "../layouts/PageHeader";
 import DiagnosticGauge from "../components/diagnostic/DiagnosticGauge";
 
 import { finerScore } from "../data/mockData";
+import { useFinerData } from "../context/FinerDataContext";
+import DemoTag from "../components/ui/DemoTag";
 
 const FACTOR_ICONS = {
   liquidez:      Droplets,
@@ -59,8 +61,30 @@ function FactorRow({ factor }) {
   );
 }
 
+// Mensagem do box de estado derivada do estado real (ou mock) — sem texto fixo contraditório.
+const ESTADO_UI = {
+  "Saudável": { box: "bg-brand-50 border-brand-100", text: "text-brand-700", headline: "A empresa está financeiramente saudável", sub: "Continue assim. Mantenha o foco e aproveite as oportunidades para crescer ainda mais." },
+  "Atenção":  { box: "bg-amber-50 border-amber-100", text: "text-amber-700", headline: "A empresa apresenta sinais que pedem atenção", sub: "Reveja os fatores que penalizam o score e siga as ações recomendadas." },
+  "Crítico":  { box: "bg-rose-50 border-rose-100",  text: "text-rose-700",  headline: "A empresa apresenta sinais críticos", sub: "Priorize as ações recomendadas para recuperar a saúde financeira." },
+};
+
 // ── Tela ────────────────────────────────────────────────────
 export default function FinerScore() {
+  const { sales, source } = useFinerData();
+  const d = sales?.diagnostico ?? null;
+
+  // Vista: score real quando existir; histórico/fatores continuam mock (selados).
+  const view = d
+    ? { ...finerScore, score: d.score, label: d.scoreLabel, estado: d.estado, ultimaAtualizacao: d.ultimaAtualizacao, previous: null, variacao: null }
+    : finerScore;
+  const demoScore = source === "api" && !d;
+  const demoHist = source === "api"; // evolução e fatores: sem base real, sempre Demo em api
+  const melhorias = d?.acoes?.length
+    ? d.acoes.map((a) => ({ id: a.id, titulo: a.titulo, descricao: a.descricao, impacto: null }))
+    : finerScore.comoMelhorar;
+  const demoMelhorar = source === "api" && !d?.acoes?.length;
+  const estadoUI = ESTADO_UI[view.estado] ?? ESTADO_UI["Saudável"];
+
   return (
     <>
       <PageHeader
@@ -68,7 +92,7 @@ export default function FinerScore() {
         subtitle="Uma nota única de 0 a 100 que resume a saúde financeira da Overcel — útil também para bancos e investidores."
         actions={
           <>
-            <span className="text-xs text-slate-500 mr-1">Atualizado {finerScore.ultimaAtualizacao}</span>
+            <span className="text-xs text-slate-500 mr-1">Atualizado {view.ultimaAtualizacao}</span>
             <button className="btn-secondary"><RefreshCw size={14} />Recalcular</button>
             <button className="btn-secondary"><Download size={14} />Exportar</button>
           </>
@@ -79,32 +103,34 @@ export default function FinerScore() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6">
         <div className="lg:col-span-5">
           <div className="card p-6 h-full flex flex-col">
-            <h3 className="text-sm font-semibold text-slate-800">Score atual</h3>
+            <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Score atual{demoScore && <DemoTag />}</h3>
             <div className="flex-1 flex items-center justify-center py-2">
-              <DiagnosticGauge score={finerScore.score} label={finerScore.label} size={240} />
+              <DiagnosticGauge score={view.score} label={view.label} size={240} />
             </div>
 
-            <div className="mt-4 p-4 rounded-lg bg-brand-50 border border-brand-100">
-              <div className="flex items-center gap-2 text-brand-700 font-semibold">
+            <div className={`mt-4 p-4 rounded-lg border ${estadoUI.box}`}>
+              <div className={`flex items-center gap-2 font-semibold ${estadoUI.text}`}>
                 <TrendingUp size={16} />
-                A Overcel está financeiramente saudável
+                {estadoUI.headline}
               </div>
               <p className="text-sm text-slate-700 mt-1.5 leading-relaxed">
-                Continue assim. Mantenha o foco e aproveite as oportunidades para crescer ainda mais.
+                {estadoUI.sub}
               </p>
             </div>
 
-            <div className="mt-3 p-4 rounded-lg bg-slate-50 border border-slate-200/70 flex items-center justify-between">
-              <div>
-                <div className="text-xs text-slate-500">Variação vs mês anterior</div>
-                <div className="text-xl font-semibold text-brand-700 mt-0.5 inline-flex items-center gap-1">
-                  <ArrowUpRight size={18} />+{finerScore.variacao} pontos
+            {typeof view.variacao === "number" && (
+              <div className="mt-3 p-4 rounded-lg bg-slate-50 border border-slate-200/70 flex items-center justify-between">
+                <div>
+                  <div className="text-xs text-slate-500 flex items-center gap-1.5">Variação vs mês anterior{source === "api" && <DemoTag />}</div>
+                  <div className="text-xl font-semibold text-brand-700 mt-0.5 inline-flex items-center gap-1">
+                    <ArrowUpRight size={18} />+{view.variacao} pontos
+                  </div>
+                </div>
+                <div className="text-right text-xs text-slate-500">
+                  de {view.previous}<br />para {view.score}
                 </div>
               </div>
-              <div className="text-right text-xs text-slate-500">
-                de {finerScore.previous}<br />para {finerScore.score}
-              </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -112,7 +138,7 @@ export default function FinerScore() {
           <div className="card p-5 h-full flex flex-col">
             <div className="flex items-start justify-between mb-3">
               <div>
-                <h3 className="text-sm font-semibold text-slate-800">Evolução do Finer Score</h3>
+                <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Evolução do Finer Score{demoHist && <DemoTag />}</h3>
                 <p className="text-xs text-slate-500 mt-0.5">Últimos 6 meses</p>
               </div>
               <select className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-600 bg-white">
@@ -163,7 +189,7 @@ export default function FinerScore() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <div className="lg:col-span-7">
           <div className="card p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-1">Fatores que mais impactam o seu score</h3>
+            <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Fatores que mais impactam o seu score{demoHist && <DemoTag />}</h3>
             <p className="text-xs text-slate-500 mb-4">Como cada dimensão contribui</p>
             <div>
               {finerScore.fatores.map((f) => <FactorRow key={f.key} factor={f} />)}
@@ -173,10 +199,10 @@ export default function FinerScore() {
 
         <div className="lg:col-span-5">
           <div className="card p-5 h-full">
-            <h3 className="text-sm font-semibold text-slate-800 mb-1">Como melhorar o seu score</h3>
+            <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Como melhorar o seu score{demoMelhorar && <DemoTag />}</h3>
             <p className="text-xs text-slate-500 mb-4">Ações com maior impacto potencial</p>
             <div className="space-y-3">
-              {finerScore.comoMelhorar.map((m) => (
+              {melhorias.map((m) => (
                 <div key={m.id} className="flex items-start gap-3 p-3 rounded-lg border border-slate-200/70">
                   <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-brand-600 shrink-0">
                     <TrendingUp size={15} />
@@ -184,7 +210,7 @@ export default function FinerScore() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-sm font-semibold text-slate-800">{m.titulo}</p>
-                      <span className="text-xs font-semibold text-brand-700 shrink-0">{m.impacto}</span>
+                      {m.impacto && <span className="text-xs font-semibold text-brand-700 shrink-0">{m.impacto}</span>}
                     </div>
                     <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{m.descricao}</p>
                   </div>
