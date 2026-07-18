@@ -29,7 +29,7 @@ const SEV_ORDER = { danger: 0, warning: 1, info: 2, success: 3 };
 const SEV_LABEL = { danger: "Alerta Importante", warning: "Atenção", info: "Informativo", success: "Tudo sob controlo" };
 
 // ── Insight card (4 colunas no topo) ────────────────────────
-function InsightCard({ insight }) {
+function InsightCard({ insight, onCta }) {
   const cfg = TONE_STYLE[insight.tone];
   const Icon = cfg.icon;
   return (
@@ -42,7 +42,7 @@ function InsightCard({ insight }) {
       </div>
       <h3 className="text-base font-semibold text-slate-900 mt-2">{insight.title}</h3>
       <p className="text-xs text-slate-600 mt-1 leading-relaxed">{insight.description}</p>
-      <button className={`mt-3 text-xs font-semibold ${cfg.cta} hover:underline inline-flex items-center gap-1`}>
+      <button onClick={onCta} className={`mt-3 text-xs font-semibold ${cfg.cta} hover:underline inline-flex items-center gap-1`}>
         {insight.cta} →
       </button>
     </div>
@@ -123,7 +123,7 @@ export default function IAFinanceira() {
         <h2 className="text-base font-semibold text-slate-800 flex items-center gap-1.5">O que a IA identificou hoje{insightsDemo && <DemoTag />}</h2>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        {insights.map((i) => <InsightCard key={i.id} insight={i} />)}
+        {insights.map((i) => <InsightCard key={i.id} insight={i} onCta={i.label ? () => navigateTo(SCREENS.ALERTAS) : undefined} />)}
       </div>
 
       {/* Detalhe + Recomendações */}

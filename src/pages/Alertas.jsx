@@ -75,7 +75,7 @@ function AlertRow({ alert }) {
             </div>
           )}
         </div>
-        <button className="btn-secondary shrink-0 hidden sm:inline-flex">
+        <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary shrink-0 hidden sm:inline-flex disabled:opacity-50 disabled:cursor-not-allowed">
           Ver detalhes
         </button>
       </div>
@@ -127,7 +127,7 @@ export default function Alertas() {
         subtitle="Tudo o que precisa de atenção na Overcel hoje — para não ser apanhado de surpresa."
         actions={
           <>
-            <button className="btn-secondary"><Filter size={14} />Filtros</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Filter size={14} />Filtros</button>
             <button onClick={exportCsv} disabled={!canExport} title={!canExport ? "Exportação disponível apenas com dados reais" : undefined} className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>
           </>
         }

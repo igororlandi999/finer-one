@@ -81,7 +81,7 @@ export default function Movimentos() {
               {movementsPeriod.inicio} — {movementsPeriod.fim}
             </span>
             <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>
-            <button className="btn-secondary"><MoreHorizontal size={14} />Mais opções</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><MoreHorizontal size={14} />Mais opções</button>
           </>
         }
       />

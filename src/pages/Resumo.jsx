@@ -204,7 +204,7 @@ export default function Resumo() {
           <div className="card p-5 h-full flex flex-col">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-slate-800">Alertas importantes</h3>
-              <button className="text-xs font-medium text-brand-600 hover:text-brand-700">Ver todos</button>
+              <button onClick={() => navigateTo(SCREENS.ALERTAS)} className="text-xs font-medium text-brand-600 hover:text-brand-700">Ver todos</button>
             </div>
             <div className="flex-1 divide-y divide-slate-100 -mx-1">
               {alerts.slice(0, 4).map((a) => (
@@ -222,7 +222,7 @@ export default function Resumo() {
           <div className="card p-5 h-full">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Faturas em atraso{source === "api" && <DemoTag />}</h3>
-              <button className="text-xs font-medium text-brand-600 hover:text-brand-700">Ver todas</button>
+              <button onClick={() => navigateTo(SCREENS.CLIENTES_FORNECEDORES)} className="text-xs font-medium text-brand-600 hover:text-brand-700">Ver todas</button>
             </div>
             <div className="space-y-3">
               {overdueInvoices.map((inv) => (
@@ -288,7 +288,7 @@ export default function Resumo() {
           <div className="card p-5">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-slate-800">Documentos recentes</h3>
-              <button className="text-xs font-medium text-brand-600 hover:text-brand-700">Ver todos</button>
+              <button onClick={() => navigateTo(SCREENS.DOCUMENTOS)} className="text-xs font-medium text-brand-600 hover:text-brand-700">Ver todos</button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {recentDocuments.map((d) => (
