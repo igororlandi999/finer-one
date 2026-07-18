@@ -9,7 +9,7 @@ import DemoTag  from "../components/ui/DemoTag";
 import { alertsMetrics as mockAlertsMetrics, alertsList as mockAlertsList } from "../data/mockData";
 import { useFinerData } from "../context/FinerDataContext";
 import { severityCounts } from "../utils/alertsEngine";
-import { downloadCsv, csvMoney } from "../utils/csvExport";
+import { downloadCsv } from "../utils/csvExport";
 
 // Categorias que NÃO derivam de vendas — mantêm-se sempre em mock.
 const NON_SALES_CATEGORIES = ["Liquidez", "Margem", "Recebimentos", "Tesouraria", "Fiscal", "Documentos"];
