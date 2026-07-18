@@ -103,7 +103,7 @@ export default function ClientesFornecedores() {
         actions={
           <>
             <button className="btn-secondary"><Download size={14} />Exportar</button>
-            <button className="btn-primary"><Plus size={14} />Novo registo</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"><Plus size={14} />Novo registo</button>
           </>
         }
       />

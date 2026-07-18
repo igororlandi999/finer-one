@@ -49,7 +49,7 @@ export default function Relatorio() {
               <option>01/01/2026 — 31/12/2026</option>
               <option>YTD</option>
             </select>
-            <button className="btn-primary"><Download size={14} />Exportar PDF</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar PDF</button>
           </>
         }
       />
@@ -151,7 +151,7 @@ export default function Relatorio() {
             Gere um relatório completo pronto a apresentar a bancos ou investidores: P&L, Balanço, Cashflow, KPIs, gráficos e forecast.
           </p>
         </div>
-        <button className="btn-primary shrink-0">
+        <button disabled title="Funcionalidade disponível numa fase futura" className="btn-primary shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
           <Download size={15} />
           Exportar Relatório Completo
         </button>

@@ -104,8 +104,8 @@ export default function AlertasPreditivos() {
             <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 px-2 py-1 rounded border border-brand-200">
               <Sparkles size={12} />Análise preditiva
             </span>
-            <button className="btn-secondary"><RefreshCw size={14} />Recalcular</button>
-            <button className="btn-secondary"><Download size={14} />Exportar</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><RefreshCw size={14} />Recalcular</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>
           </>
         }
       />

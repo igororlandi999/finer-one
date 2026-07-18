@@ -50,9 +50,9 @@ export default function PlaneamentoCashflow() {
         subtitle="Veja o saldo previsto nos próximos 90 dias e antecipe problemas de tesouraria antes de acontecerem."
         actions={
           <>
-            <button className="btn-secondary"><Download size={14} />Exportar</button>
-            <button className="btn-secondary"><FileText size={14} />Extrair PDF</button>
-            <button className="btn-primary"><Plus size={14} />Novo cenário</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><FileText size={14} />Extrair PDF</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"><Plus size={14} />Novo cenário</button>
           </>
         }
       />

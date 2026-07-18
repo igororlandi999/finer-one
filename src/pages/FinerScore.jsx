@@ -70,7 +70,7 @@ const ESTADO_UI = {
 
 // ── Tela ────────────────────────────────────────────────────
 export default function FinerScore() {
-  const { sales, source } = useFinerData();
+  const { sales, source, reload } = useFinerData();
   const d = sales?.diagnostico ?? null;
 
   // Vista: score real quando existir; histórico/fatores continuam mock (selados).
@@ -93,8 +93,8 @@ export default function FinerScore() {
         actions={
           <>
             <span className="text-xs text-slate-500 mr-1">Atualizado {view.ultimaAtualizacao}</span>
-            <button className="btn-secondary"><RefreshCw size={14} />Recalcular</button>
-            <button className="btn-secondary"><Download size={14} />Exportar</button>
+            <button onClick={reload} className="btn-secondary"><RefreshCw size={14} />Recalcular</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>
           </>
         }
       />

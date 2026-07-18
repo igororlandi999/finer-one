@@ -116,8 +116,8 @@ export default function Resumo() {
         subtitle="Eis a saúde financeira da Overcel hoje."
         actions={
           <>
-            <button className="btn-secondary"><Plus size={15} />Novo registo</button>
-            <button className="btn-secondary"><Upload size={15} />Enviar documento</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Plus size={15} />Novo registo</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Upload size={15} />Enviar documento</button>
           </>
         }
       />

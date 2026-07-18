@@ -222,8 +222,8 @@ export default function ChatFinanceiro() {
         subtitle="Pergunte em linguagem natural sobre a Overcel — obtenha respostas com números reais em segundos."
         actions={
           <>
-            <button className="btn-secondary"><History size={14} />Histórico</button>
-            <button className="btn-primary"><Plus size={14} />Nova conversa</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><History size={14} />Histórico</button>
+            <button onClick={() => setSent([])} className="btn-primary"><Plus size={14} />Nova conversa</button>
           </>
         }
       />

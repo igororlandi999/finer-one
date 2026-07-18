@@ -96,7 +96,7 @@ export default function BenchmarkingSetor() {
               <option>Últimos 12 meses</option>
               <option>YTD 2026</option>
             </select>
-            <button className="btn-secondary"><Download size={14} />Exportar</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>
           </>
         }
       />

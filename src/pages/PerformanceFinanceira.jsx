@@ -100,8 +100,8 @@ export default function PerformanceFinanceira() {
               <option>Ano 2026 vs 2025</option>
               <option>2026 YTD</option>
             </select>
-            <button className="btn-secondary"><Download size={14} />Exportar</button>
-            <button className="btn-primary"><FileText size={14} />Extrair PDF</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"><FileText size={14} />Extrair PDF</button>
           </>
         }
       />

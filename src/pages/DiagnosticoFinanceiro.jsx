@@ -43,7 +43,7 @@ function EvTooltip({ active, payload }) {
 // ── Tela ────────────────────────────────────────────────────
 export default function DiagnosticoFinanceiro() {
   const { navigateTo }  = usePlan();
-  const { sales, source } = useFinerData();
+  const { sales, source, reload } = useFinerData();
   const diagnostic      = sales?.diagnostico ? { ...mockDiagnostic, ...sales.diagnostico } : mockDiagnostic;
   const demoDiag        = source === "api" && !sales?.diagnostico;
   const scoreDelta      = diagnostic.scorePrevious != null ? diagnostic.score - diagnostic.scorePrevious : null;
@@ -64,8 +64,8 @@ export default function DiagnosticoFinanceiro() {
         actions={
           <>
             <span className="text-xs text-slate-500 mr-1">Atualizado {diagnostic.ultimaAtualizacao}</span>
-            <button className="btn-secondary"><RefreshCw size={14} />Recalcular</button>
-            <button className="btn-secondary"><Download size={14} />Exportar PDF</button>
+            <button onClick={reload} className="btn-secondary"><RefreshCw size={14} />Recalcular</button>
+            <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar PDF</button>
           </>
         }
       />
