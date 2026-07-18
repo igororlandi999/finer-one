@@ -22,6 +22,7 @@ import {
   billable,
   round2,
   toDate,
+  prevMonthKey,
 } from "../utils/financialCalculations.js";
 
 import {
@@ -273,15 +274,6 @@ function buildClientes(orders) {
     byClient: revenueByClient(orders),
     concentracao: clientConcentration(orders),
   };
-}
-
-// Mes anterior de uma chave "YYYY-MM".
-function prevMonthKey(key) {
-  if (!key) return null;
-  const [y, m] = key.split("-").map(Number);
-  if (!y || !m) return null;
-  const d = new Date(y, m - 2, 1); // m-1 seria o proprio mes (0-based); m-2 = anterior
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 // Resumo ancorado no mes das receitas. Despesas/resultado so entram com payables reais;

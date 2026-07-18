@@ -231,14 +231,10 @@ export function answerQuestion(question, sales) {
 function norm(s) {
   return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
+import { eur, pct } from "./financialCalculations.js";
+
 function hasAny(q, words) {
   return words.some((w) => q.includes(w));
-}
-function eur(n) {
-  return (Number(n) || 0).toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
-}
-function pct(n) {
-  return String(n).replace(".", ",");
 }
 function deltaStr(dlt) {
   return typeof dlt === "number" ? `${dlt > 0 ? "+" : ""}${pct(dlt)}% vs mês anterior` : null;

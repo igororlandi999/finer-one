@@ -13,6 +13,8 @@ import {
   billable,
   round2,
   toDate,
+  startOfDay,
+  eur,
 } from "./financialCalculations.js";
 
 import {
@@ -199,9 +201,6 @@ export function buildExpenseAlerts(payables) {
 
   return out;
 }
-
-function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
-function eur(n) { return (Number(n) || 0).toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"; }
 
 // ── auxiliares internos ───────────────────────────────────────
 

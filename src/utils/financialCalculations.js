@@ -168,3 +168,17 @@ export function recentOrders(orders, n = 10) {
     .sort((a, b) => (toDate(b.date) || 0) - (toDate(a.date) || 0))
     .slice(0, n);
 }
+
+// ── primitivos partilhados (consolidação de helpers duplicados) ───────────
+// Corpos copiados byte a byte das cópias locais dos engines — saída idêntica.
+export function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
+export function eur(n) { return (Number(n) || 0).toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"; }
+export function pct(n) { return String(n).replace(".", ","); }
+// Mes anterior de uma chave "YYYY-MM".
+export function prevMonthKey(key) {
+  if (!key) return null;
+  const [y, m] = key.split("-").map(Number);
+  if (!y || !m) return null;
+  const d = new Date(y, m - 2, 1); // m-1 seria o proprio mes (0-based); m-2 = anterior
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}

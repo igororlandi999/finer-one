@@ -3,7 +3,7 @@
 // situacao: 1 = em aberto | 2 = pago/baixado | 5 = cancelado (excluído dos totais).
 // Mantém a lógica fora do JSX, espelhando o padrão de financialCalculations.js.
 
-import { round2, toDate, monthKey, MONTHS_PT } from "./financialCalculations.js";
+import { round2, toDate, monthKey, MONTHS_PT, startOfDay } from "./financialCalculations.js";
 
 export const PAYABLE_COUNTED = [1, 2]; // 5 (cancelado) nunca entra nos totais
 
@@ -14,12 +14,6 @@ export function billablePayables(payables) {
 // Data de referência da despesa: emissão quando existir (vem do detalhe), senão vencimento.
 export function payableDate(p) {
   return (p && (p.dataEmissao || p.vencimento)) || null;
-}
-
-function startOfDay(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
 }
 
 // 'paga' | 'pendente' | 'atraso'
