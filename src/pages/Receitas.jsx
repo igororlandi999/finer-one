@@ -19,6 +19,7 @@ import {
 } from "../data/mockData";
 import { formatEUR, formatEURCompact } from "../lib/format";
 import { useFinerData } from "../context/FinerDataContext";
+import { downloadCsv, csvMoney } from "../utils/csvExport";
 import { buildRevenueByCategoryFromOrders } from "../services/blingDataService";
 
 // ── Tooltip do gráfico de evolução ──────────────────────────
@@ -47,7 +48,18 @@ const STATUS_LABEL = {
 // ── Tela ────────────────────────────────────────────────────
 export default function Receitas() {
   // Fonte de dados: vendas reais (quando há API) ou fallback ao mock.
-  const { sales } = useFinerData();
+  const { sales, source } = useFinerData();
+  // Exportação CSV: sempre a lista completa real (tabs/busca são só visualização).
+  const canExport = source === "api";
+  function exportCsv() {
+    if (!canExport) return;
+    const rows = (sales?.receitas?.list ?? []).map((r) => [
+      r.data, r.cliente, r.documento, r.categoria, csvMoney(r.valor),
+      r.recebidoEm ?? "\u2014", STATUS_LABEL[r.status] ?? r.status, r.metodo,
+    ]);
+    downloadCsv("receitas.csv",
+      ["Data", "Cliente", "Documento", "Categoria", "Valor (€)", "Recebido em", "Estado", "Método"], rows);
+  }
   const revenueMetrics    = sales?.receitas?.metrics    ?? mockRevenueMetrics;
   const revenueEvolution  = sales?.receitas?.evolution  ?? mockRevenueEvolution;
   const revenueList       = sales?.receitas?.list       ?? mockRevenueList;
@@ -98,7 +110,7 @@ export default function Receitas() {
         subtitle="Veja de onde vem o dinheiro da Overcel e quais categorias mais contribuem para o volume de negócios."
         actions={
           <>
-            <button className="btn-secondary"><Download size={14} />Exportar</button>
+            <button onClick={exportCsv} disabled={!canExport} title={!canExport ? "Exportação disponível apenas com dados reais" : undefined} className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>
             <button disabled title="Funcionalidade disponível numa fase futura" className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"><Plus size={14} />Nova receita</button>
           </>
         }

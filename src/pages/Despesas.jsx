@@ -21,6 +21,7 @@ import {
 } from "../data/mockData";
 import { formatEUR, formatEURCompact } from "../lib/format";
 import { useFinerData } from "../context/FinerDataContext";
+import { downloadCsv, csvMoney } from "../utils/csvExport";
 
 // ── Tooltip do gráfico de evolução ──────────────────────────
 function EvTooltip({ active, payload, label }) {
@@ -49,6 +50,17 @@ const STATUS_LABEL = {
 export default function Despesas() {
   // Lado real (contas a pagar) com fallback ao mock; sem alterar layout.
   const { sales, source } = useFinerData();
+  // Exportação CSV: sempre a lista completa real (tabs/busca são só visualização).
+  const canExport = source === "api" && !!sales?.despesas;
+  function exportCsv() {
+    if (!canExport) return;
+    const rows = (sales?.despesas?.list ?? []).map((d) => [
+      d.data, d.descricao, d.fornecedor, d.categoria, csvMoney(d.valor),
+      d.vencimento, STATUS_LABEL[d.status] ?? d.status, d.metodo,
+    ]);
+    downloadCsv("despesas.csv",
+      ["Data", "Descrição", "Fornecedor", "Categoria", "Valor (€)", "Vencimento", "Estado", "Método"], rows);
+  }
   const despesasDemo = source === "api" && !sales?.despesas;
   const expenseMetrics    = { ...mockExpenseMetrics, ...(sales?.despesas?.metrics ?? {}) };
   const expenseEvolution  = sales?.despesas?.evolution ?? mockExpenseEvolution;
@@ -92,7 +104,7 @@ export default function Despesas() {
         subtitle="Perceba onde está a gastar mais e identifique categorias que pressionam a margem."
         actions={
           <>
-            <button className="btn-secondary"><Download size={14} />Exportar</button>
+            <button onClick={exportCsv} disabled={!canExport} title={!canExport ? "Exportação disponível apenas com dados reais" : undefined} className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>
             <button disabled title="Funcionalidade disponível numa fase futura" className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"><Plus size={14} />Nova despesa</button>
           </>
         }

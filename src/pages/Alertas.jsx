@@ -9,6 +9,7 @@ import DemoTag  from "../components/ui/DemoTag";
 import { alertsMetrics as mockAlertsMetrics, alertsList as mockAlertsList } from "../data/mockData";
 import { useFinerData } from "../context/FinerDataContext";
 import { severityCounts } from "../utils/alertsEngine";
+import { downloadCsv, csvMoney } from "../utils/csvExport";
 
 // Categorias que NÃO derivam de vendas — mantêm-se sempre em mock.
 const NON_SALES_CATEGORIES = ["Liquidez", "Margem", "Recebimentos", "Tesouraria", "Fiscal", "Documentos"];
@@ -97,6 +98,17 @@ export default function Alertas() {
 
   // Alertas de vendas (quando há API) somados aos não-comerciais em mock.
   const { sales, source } = useFinerData();
+  // Exportação CSV: só os alertas reais puros — a lista composta da tela inclui mock não-comercial.
+  const canExport = source === "api" && !!sales?.alertas?.list?.length;
+  function exportCsv() {
+    if (!canExport) return;
+    const SEV_CSV = { danger: "Crítico", warning: "Atenção", info: "Informação", success: "Positivo" };
+    const rows = (sales?.alertas?.list ?? []).map((a) => [
+      SEV_CSV[a.severity] ?? a.severity, a.category, a.title, a.description, a.acao ?? "\u2014",
+    ]);
+    downloadCsv("alertas.csv",
+      ["Severidade", "Categoria", "Título", "Descrição", "Ação sugerida"], rows);
+  }
   const salesList = sales?.alertas?.list ?? null;
   const alertsList = composeAlerts(salesList, mockAlertsList);
   const alertsMetrics = salesList
@@ -116,7 +128,7 @@ export default function Alertas() {
         actions={
           <>
             <button className="btn-secondary"><Filter size={14} />Filtros</button>
-            <button className="btn-secondary"><Download size={14} />Exportar</button>
+            <button onClick={exportCsv} disabled={!canExport} title={!canExport ? "Exportação disponível apenas com dados reais" : undefined} className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>
           </>
         }
       />

@@ -15,6 +15,7 @@ import {
 } from "../data/mockData";
 import { formatEUR } from "../lib/format";
 import { useFinerData } from "../context/FinerDataContext";
+import { downloadCsv, csvMoney } from "../utils/csvExport";
 
 // ── Tabs internas ────────────────────────────────────────────
 const TABS = [
@@ -91,6 +92,16 @@ export default function ClientesFornecedores() {
 
   // Lado clientes a partir de vendas; restante (fornecedores, saldos a receber) fica mock.
   const { sales, source } = useFinerData();
+  // Exportação CSV: apenas o lado real (fornecedores em aberto); a tab Clientes é mock e nunca sai.
+  const canExport = source === "api" && !!sales?.fornecedores;
+  function exportCsv() {
+    if (!canExport) return;
+    const rows = (sales?.fornecedores?.openInvoices ?? []).map((i) => [
+      i.fornecedor, i.numero, i.dataEmissao, i.vencimento, csvMoney(i.valor), i.diasAtraso,
+    ]);
+    downloadCsv("fornecedores-em-aberto.csv",
+      ["Fornecedor", "Nº documento", "Emissão", "Vencimento", "Valor (€)", "Dias em atraso"], rows);
+  }
   const customersSuppliersMetrics = { ...mockCustomersSuppliersMetrics, ...(sales?.clientes?.metrics ?? {}), ...(sales?.fornecedores?.metrics ?? {}) };
   const topCustomers = sales?.clientes?.top ?? mockTopCustomers;
   const topSuppliers = sales?.fornecedores?.top ?? mockTopSuppliers;
@@ -102,7 +113,7 @@ export default function ClientesFornecedores() {
         subtitle="Saiba quem lhe deve, a quem deve e quais faturas estão a aproximar-se do vencimento."
         actions={
           <>
-            <button className="btn-secondary"><Download size={14} />Exportar</button>
+            <button onClick={exportCsv} disabled={!canExport} title={!canExport ? "Exportação disponível apenas com dados reais" : undefined} className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>
             <button disabled title="Funcionalidade disponível numa fase futura" className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"><Plus size={14} />Novo registo</button>
           </>
         }
