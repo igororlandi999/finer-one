@@ -79,3 +79,46 @@ describe("buildExpenseAlerts — contas a pagar", () => {
     expect(buildExpenseAlerts(undefined)).toEqual([]);
   });
 });
+
+describe("buildExpenseAlerts \u2014 d-cat-mom (categoria em forte subida)", () => {
+  const cat = (id, m, d, valor, categoria) => ({
+    ...payable(id, 2, m, d, valor),
+    categoriaNome: categoria,
+  });
+
+  it("dispara quando uma categoria sobe \u2265 50% com valor atual \u2265 500 \u20ac", () => {
+    const payables = [
+      cat(1, 6, 5, 900, "Marketing"),  // julho: 900
+      cat(2, 5, 5, 500, "Marketing"),  // junho: 500 => +80%
+      cat(3, 6, 6, 400, "Compras"),
+      cat(4, 5, 6, 400, "Compras"),    // estavel: nao interfere
+    ];
+    const g = buildExpenseAlerts(payables).find((a) => a.id === "d-cat-mom");
+    expect(g).toBeDefined();
+    expect(g.severity).toBe("warning");
+    expect(g.description).toContain("Marketing");
+    expect(g.description).toContain("80%");
+    expect(g.description).toContain("900,00");
+  });
+
+  it("n\u00e3o dispara com crescimento baixo, valor irrelevante ou categoria sem hist\u00f3rico", () => {
+    const payables = [
+      cat(1, 6, 5, 600, "Compras"),    // +20% (<50): nao dispara
+      cat(2, 5, 5, 500, "Compras"),
+      cat(3, 6, 6, 450, "Servicos"),   // +125% mas valor atual < 500: nao dispara
+      cat(4, 5, 6, 200, "Servicos"),
+      cat(5, 6, 7, 5000, "Nova"),      // sem mes anterior (antes = 0): nao dispara
+    ];
+    const ids = buildExpenseAlerts(payables).map((a) => a.id);
+    expect(ids).not.toContain("d-cat-mom");
+  });
+
+  it("ignora \"Sem categoria\" mesmo com subida enorme", () => {
+    const payables = [
+      { ...payable(1, 2, 6, 5, 9000), categoriaNome: null },  // julho, sem categoria
+      { ...payable(2, 2, 5, 5, 500), categoriaNome: null },   // junho
+    ];
+    const ids = buildExpenseAlerts(payables).map((a) => a.id);
+    expect(ids).not.toContain("d-cat-mom");
+  });
+});

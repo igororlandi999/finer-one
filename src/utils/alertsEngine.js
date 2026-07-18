@@ -15,6 +15,7 @@ import {
   toDate,
   startOfDay,
   eur,
+  prevMonthKey,
 } from "./financialCalculations.js";
 
 import {
@@ -196,6 +197,27 @@ export function buildExpenseAlerts(payables) {
           `${share}% das despesas do mes sao para ${topSup.nome}.`,
           "Diversificar ou renegociar com o fornecedor"));
       }
+    }
+  }
+
+  // G. Categoria de despesa em forte subida vs mes anterior.
+  const prevKey = prevMonthKey(latest);
+  if (latest && prevKey) {
+    const atuais = expenseByCategory(payablesInMonth(payables, latest));
+    const antesMap = new Map(expenseByCategory(payablesInMonth(payables, prevKey)).map((c) => [c.name, c.value]));
+    let pior = null;
+    for (const c of atuais) {
+      if (c.name === "Sem categoria") continue;
+      const antes = Number(antesMap.get(c.name)) || 0;
+      if (antes <= 0 || c.value < 500) continue; // exige historico e valor relevante
+      const growth = Math.round(((c.value - antes) / antes) * 100);
+      if (growth >= 50 && (!pior || growth > pior.growth)) pior = { name: c.name, value: c.value, growth };
+    }
+    if (pior) {
+      out.push(mk("d-cat-mom", "warning", "Despesas",
+        "Categoria de despesa em forte subida",
+        `A categoria "${pior.name}" subiu ${pior.growth}% face ao mes anterior (${eur(pior.value)} este mes).`,
+        "Rever gastos e contratos desta categoria"));
     }
   }
 
