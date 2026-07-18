@@ -16,8 +16,10 @@ Plano já mapeado: exportar as quatro de `financialCalculations.js` copiando byt
 ## 2. Alerta G — crescimento de categoria de despesa vs mês anterior (baixa)
 Ficou fora dos alertas A-F por exigir helper novo de "despesas por categoria por mês". Especificação: disparar quando uma categoria subir ≥ +50% MoM com valor relevante; excluir "Sem categoria". Entrar em `alertsEngine.buildExpenseAlerts` com id `d-cat-mom`.
 
-## 3. Code splitting do bundle (baixa)
-Aviso permanente do build: chunk > 500 kB (Recharts). Opções: `manualChunks` no rollup separando Recharts, ou lazy-load das telas com gráficos. Sem impacto funcional; melhora o primeiro carregamento.
+## 3. Code splitting do bundle — RESOLVIDO (manualChunks) + opcional futuro
+Feito: `manualChunks` (forma de função) no `vite.config.js` separando o grafo do Recharts (recharts + d3-* + victory-vendor, ~434 kB) e o runtime do React (react + react-dom + scheduler, ~142 kB) do chunk da aplicação (~257 kB). O aviso de chunk > 500 kB desapareceu sem tocar em `chunkSizeWarningLimit`, e o cache entre deploys melhorou (os hashes das libs só mudam quando elas mudarem).
+
+Opcional futuro (registrado, não planejado): `React.lazy` por página no `App.jsx` para reduzir o carregamento inicial. Ressalvas conhecidas: o ganho é limitado porque a home (Resumo) já usa Recharts; exige fallback de `Suspense` (mudança de comportamento visual sutil na primeira visita a cada tela); avaliar apenas se o tempo de primeiro carregamento virar problema real medido.
 
 ## 4. Ações secundárias restantes (baixa, UX)
 Deixadas conscientemente sem ação:
