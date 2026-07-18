@@ -10,6 +10,8 @@ import DonutCategoryCard from "../components/charts/DonutCategoryCard";
 
 import { docsMetrics, docsByCategory, docsList } from "../data/mockData";
 import { formatEUR } from "../lib/format";
+import { useFinerData } from "../context/FinerDataContext";
+import DemoTag from "../components/ui/DemoTag";
 
 // ── Mapa categoria → cor pill ───────────────────────────────
 const CAT_STYLE = {
@@ -49,6 +51,9 @@ const CATEGORY_TABS = ["Todos", "Faturas de Fornecedores", "Recibos", "Faturas d
 
 // ── Tela ────────────────────────────────────────────────────
 export default function Documentos() {
+  const { source } = useFinerData();
+  // Tela de documentos: sem storage real, permanece demo explicita em modo api.
+  const demoAll = source === "api";
   const [tab, setTab] = useState("Todos");
   const [search, setSearch] = useState("");
 
@@ -67,8 +72,8 @@ export default function Documentos() {
         subtitle="Centralize faturas, recibos e contratos da Overcel — sem perder tempo a procurar."
         actions={
           <>
-            <button className="btn-secondary"><Upload size={14} />Carregar</button>
-            <button className="btn-primary"><Plus size={14} />Novo documento</button>
+            <button disabled={demoAll} title={demoAll ? "Funcionalidade disponível numa fase futura" : undefined} className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Upload size={14} />Carregar</button>
+            <button disabled={demoAll} title={demoAll ? "Funcionalidade disponível numa fase futura" : undefined} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"><Plus size={14} />Novo documento</button>
           </>
         }
       />
@@ -76,6 +81,7 @@ export default function Documentos() {
       {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <MetricCard
+          demo={demoAll}
           label="Total de Documentos"
           value={docsMetrics.total}
           icon={FileText}
@@ -83,6 +89,7 @@ export default function Documentos() {
           helper={`+${docsMetrics.esteMes} este mês`}
         />
         <MetricCard
+          demo={demoAll}
           label="Documentos este mês"
           value={docsMetrics.esteMes}
           icon={Calendar}
@@ -93,7 +100,7 @@ export default function Documentos() {
         />
         <div className="card p-5 flex flex-col gap-3">
           <div className="flex items-start justify-between gap-3">
-            <span className="label-uppercase">Armazenamento</span>
+            <span className="label-uppercase flex items-center gap-1.5">Armazenamento{demoAll && <DemoTag />}</span>
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-50 text-purple-600">
               <HardDrive size={18} />
             </span>
@@ -112,6 +119,7 @@ export default function Documentos() {
           </div>
         </div>
         <MetricCard
+          demo={demoAll}
           label="Origem mais frequente"
           value="Email"
           icon={Mail}
@@ -124,7 +132,7 @@ export default function Documentos() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6">
         <div className="lg:col-span-7">
           <DonutCategoryCard
-            title="Documentos por Categoria"
+            title={<span className="inline-flex items-center gap-1.5">Documentos por Categoria{demoAll && <DemoTag />}</span>}
             data={docsByCategory}
             valueFormatter={(v) => `${v} doc${v === 1 ? "" : "s"}`}
             centerValue={`${docsMetrics.total}`}
@@ -133,7 +141,7 @@ export default function Documentos() {
         </div>
         <div className="lg:col-span-5">
           <div className="card p-5 h-full">
-            <h3 className="text-sm font-semibold text-slate-800 mb-1">Carregamentos recentes</h3>
+            <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Carregamentos recentes{demoAll && <DemoTag />}</h3>
             <p className="text-xs text-slate-500 mb-4">Últimos documentos adicionados</p>
             <div className="space-y-2">
               {docsList.slice(0, 5).map((d) => (
@@ -172,6 +180,7 @@ export default function Documentos() {
                 </button>
               );
             })}
+            {demoAll && <span className="ml-auto flex items-center py-3"><DemoTag /></span>}
           </div>
         </div>
 
