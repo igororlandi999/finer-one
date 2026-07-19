@@ -41,6 +41,16 @@ function EvTooltip({ active, payload }) {
 }
 
 // ── Tela ────────────────────────────────────────────────────
+// Linha do bloco "Como o score foi calculado": motivo real + pontos descontados.
+function PenaltyLine({ pen }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5">
+      <span className="text-sm text-slate-700">{pen.motivo}</span>
+      <span className="text-sm font-semibold text-rose-600 tabular-nums shrink-0">−{pen.pts} pts</span>
+    </div>
+  );
+}
+
 export default function DiagnosticoFinanceiro() {
   const { navigateTo }  = usePlan();
   const { sales, source, reload } = useFinerData();
@@ -139,6 +149,23 @@ export default function DiagnosticoFinanceiro() {
               <div><div className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">50 - 74</div><div className="text-xs text-slate-500 mt-0.5">Atenção</div></div>
               <div><div className="text-[10px] font-semibold text-brand-600 uppercase tracking-wider">75 - 100</div><div className="text-xs text-slate-500 mt-0.5">Saudável</div></div>
             </div>
+            {sales?.diagnostico?.penalizacoes && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="label-uppercase mb-2">Como o score foi calculado</div>
+                {sales.diagnostico.penalizacoes.length ? (
+                  <>
+                    <div className="divide-y divide-slate-100">
+                      {sales.diagnostico.penalizacoes.map((pen, i) => <PenaltyLine key={i} pen={pen} />)}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-3">
+                      Partimos de 100; os descontos somam −{sales.diagnostico.penalizacoes.reduce((acc, pen) => acc + pen.pts, 0)} pts → score {diagnostic.score}.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-brand-700">Sem penalizações — a empresa atingiu o score máximo.</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
