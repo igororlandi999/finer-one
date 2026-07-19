@@ -2,7 +2,7 @@ import {
   LineChart, Line, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 import {
-  ArrowUpRight, TrendingUp, RefreshCw, Download, Droplets,
+  ArrowUpRight, TrendingUp, TrendingDown, RefreshCw, Download, Droplets,
   Building2, Clock, BarChart3,
 } from "lucide-react";
 
@@ -57,6 +57,29 @@ function FactorRow({ factor }) {
       }`}>
         {factor.badge}
       </span>
+    </div>
+  );
+}
+
+// Linha real de fator: penalização do cálculo do score (sem sub-score inventado).
+function PenaltyRow({ pen, positive }) {
+  if (positive) {
+    return (
+      <div className="flex items-center gap-3 py-2.5">
+        <span className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-50 text-brand-600 shrink-0">
+          <TrendingUp size={15} />
+        </span>
+        <span className="text-sm text-slate-700">Sem fatores a penalizar o score neste momento.</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-3 py-2.5 border-b border-slate-100 last:border-0">
+      <span className="flex h-8 w-8 items-center justify-center rounded-md bg-rose-50 text-rose-600 shrink-0">
+        <TrendingDown size={15} />
+      </span>
+      <span className="text-sm text-slate-700 flex-1">{pen.motivo}</span>
+      <span className="text-sm font-semibold text-rose-600 tabular-nums shrink-0">−{pen.pts} pts</span>
     </div>
   );
 }
@@ -189,10 +212,14 @@ export default function FinerScore() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <div className="lg:col-span-7">
           <div className="card p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Fatores que mais impactam o seu score{demoHist && <DemoTag />}</h3>
-            <p className="text-xs text-slate-500 mb-4">Como cada dimensão contribui</p>
+            <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Fatores que mais impactam o seu score{source === "api" && !d && <DemoTag />}</h3>
+            <p className="text-xs text-slate-500 mb-4">{d ? "Fatores identificados a partir dos dados conectados" : "Como cada dimensão contribui"}</p>
             <div>
-              {finerScore.fatores.map((f) => <FactorRow key={f.key} factor={f} />)}
+              {d
+                ? (d.penalizacoes?.length
+                    ? d.penalizacoes.map((p, i) => <PenaltyRow key={i} pen={p} />)
+                    : <PenaltyRow positive />)
+                : finerScore.fatores.map((f) => <FactorRow key={f.key} factor={f} />)}
             </div>
           </div>
         </div>
