@@ -1,7 +1,7 @@
 // src/utils/diagnosticsEngine.js
-// Diagnósticos derivados de vendas. Criado nesta etapa como parte da camada de
-// dados, mas NÃO ligado à tela Diagnóstico Financeiro (essa depende de despesas
-// e fica intacta). Pronto a ser consumido numa etapa futura.
+// Motores determinísticos de diagnóstico derivados de vendas e contas a pagar.
+// O diagnóstico financeiro completo alimenta a tela Diagnóstico Financeiro
+// quando as fontes reais necessárias estão disponíveis.
 
 import {
   totalRevenue,
@@ -186,14 +186,14 @@ export function buildFinancialDiagnostic(orders, payables) {
       severidade: growth <= -10 ? "danger" : "warning",
       titulo: growth <= -10 ? "Quebra de faturação" : "Faturação em desaceleração",
       descricao: `A faturação caiu ${pct(Math.abs(growth))}% face ao mês anterior.`,
-      impacto: prev ? round2(receitas - prevReceitas) : null,
+      impacto: null, // variação de faturação não é impacto financeiro recuperável
     });
   }
   if (despDelta !== null && despDelta >= 20) {
     problemas.push({
       id: "pr-despesas", severidade: "warning", titulo: "Despesas em forte subida",
       descricao: `As despesas subiram ${pct(despDelta)}% face ao mês anterior.`,
-      impacto: -round2(despesas - prevDespesas),
+      impacto: null, // variação de despesas não é impacto financeiro recuperável
     });
   }
   if (resultado >= 0 && margem !== null && margem < 10) {
@@ -278,6 +278,28 @@ export function buildFinancialDiagnostic(orders, payables) {
   const now = new Date();
   const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
+  // ── Impacto identificado (só valores DIRETAMENTE comprováveis) ──
+  // Regra: entram apenas montantes concretos já apurados a partir dos dados reais.
+  // NÃO entram faturação perdida, risco, concentração nem quedas percentuais
+  // convertidas em euros — não existe fórmula aprovada para isso.
+  // Hoje o único montante comprovável no âmbito do motor é o das contas a pagar
+  // vencidas (valor real por regularizar).
+  const impactBreakdown = [];
+  if (vencidasQtd > 0 && vencidasValor > 0) {
+    impactBreakdown.push({
+      id: "contas-vencidas",
+      label: `Contas a pagar vencidas (${vencidasQtd})`,
+      amount: round2(vencidasValor),
+    });
+  }
+  const impactIsQuantified = impactBreakdown.length > 0;
+  const impactAmount = impactIsQuantified
+    ? round2(impactBreakdown.reduce((a, b) => a + b.amount, 0))
+    : null;
+  const impactLabel = impactIsQuantified
+    ? "Valor vencido por regularizar"
+    : "Impacto não quantificado";
+
   return {
     estado,
     score,
@@ -290,6 +312,14 @@ export function buildFinancialDiagnostic(orders, payables) {
     mudancasUltimoMes: mudancas,
     resumoExecutivo: frases.join(" "),
     penalizacoes, // transparência do cálculo (não renderizado)
+    // Impacto: explícito e rastreável (null quando não quantificável).
+    impactAmount,
+    impactLabel,
+    impactBreakdown,
+    impactIsQuantified,
+    // Sem snapshots mensais de score: não há evolução real a apresentar.
+    // Explicitamente null para o ecrã mostrar estado vazio em vez da série mock.
+    evolucao: null,
   };
 }
 

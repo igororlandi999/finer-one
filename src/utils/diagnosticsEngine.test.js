@@ -136,3 +136,117 @@ describe("buildFinancialDiagnostic — contratos de honestidade", () => {
     for (const a of d.acoes) expect(a.impacto).toBeNull();
   });
 });
+
+describe("buildFinancialDiagnostic — impacto e evolução (credibilidade)", () => {
+  it("sem contas vencidas: impacto NÃO quantificado, sem valor fictício", () => {
+    const { orders } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, []);
+    expect(d.impactIsQuantified).toBe(false);
+    expect(d.impactAmount).toBeNull();
+    expect(d.impactLabel).toBe("Impacto não quantificado");
+    expect(d.impactBreakdown).toEqual([]);
+  });
+
+  it("com contas vencidas: impacto quantificado e rastreável", () => {
+    const venc = [
+      { id: 1, situacao: 1, valor: 500, saldo: 500, vencimento: "2020-01-01", dataEmissao: "2019-12-01", contato: { id: 1, nome: "F" } },
+      { id: 2, situacao: 1, valor: 300, saldo: 300, vencimento: "2020-02-01", dataEmissao: "2019-12-01", contato: { id: 2, nome: "G" } },
+    ];
+    const { orders } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, venc);
+    expect(d.impactIsQuantified).toBe(true);
+    expect(d.impactAmount).toBeGreaterThan(0);
+    expect(d.impactBreakdown.length).toBeGreaterThan(0);
+    expect(d.impactBreakdown[0].id).toBe("contas-vencidas");
+    // rastreável: o total do breakdown iguala o impactAmount
+    const soma = d.impactBreakdown.reduce((a, b) => a + b.amount, 0);
+    expect(soma).toBe(d.impactAmount);
+  });
+
+  it("impactBreakdown contém apenas contas vencidas", () => {
+    const { orders } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, []);
+    const ids = (d.impactBreakdown || []).map((b) => b.id);
+    expect(ids.every((i) => i === "contas-vencidas")).toBe(true);
+  });
+
+  it("evolucao é null: sem histórico real de score (nunca série inventada)", () => {
+    const { orders } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, []);
+    expect(d.evolucao).toBeNull();
+    expect(d.scorePrevious).toBeNull();
+  });
+
+  it("score real continua a ser produzido e rotulado", () => {
+    const { orders } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, []);
+    expect(typeof d.score).toBe("number");
+    expect(d.score).toBeGreaterThanOrEqual(0);
+    expect(d.score).toBeLessThanOrEqual(100);
+    expect(typeof d.scoreLabel).toBe("string");
+    expect(typeof d.resumoExecutivo).toBe("string");
+    expect(d.resumoExecutivo.length).toBeGreaterThan(0);
+  });
+});
+
+describe("buildFinancialDiagnostic — impactos individuais dos problemas", () => {
+  // Cenário com quebra de faturação e subida de despesas face ao mês anterior.
+  function cenarioQuedaESubida() {
+    const orders = [
+      order({ id: 1, m: 5, d: 10, total: 10000 }), // mês anterior alto
+      order({ id: 2, m: 6, d: 10, total: 4000 }),  // mês atual baixo => queda
+    ];
+    const payables = [
+      payable({ id: 1, situacao: 2, m: 5, d: 5, valor: 500 }),   // mês anterior baixo
+      payable({ id: 2, situacao: 2, m: 6, d: 5, valor: 3000 }),  // mês atual alto => subida
+    ];
+    return { orders, payables };
+  }
+
+  it("pr-vendas tem impacto null (queda de faturação não é recuperável)", () => {
+    const { orders, payables } = cenarioQuedaESubida();
+    const d = buildFinancialDiagnostic(orders, payables);
+    const p = d.problemas.find((x) => x.id === "pr-vendas");
+
+    expect(p).toBeTruthy();
+    expect(p.impacto).toBeNull();
+  });
+
+  it("pr-despesas tem impacto null (subida de despesas não é recuperável)", () => {
+    const { orders, payables } = cenarioQuedaESubida();
+    const d = buildFinancialDiagnostic(orders, payables);
+    const p = d.problemas.find((x) => x.id === "pr-despesas");
+
+    expect(p).toBeTruthy();
+    expect(p.impacto).toBeNull();
+  });
+
+  it("nenhum problema de variação (%) carrega valor em euros", () => {
+    const { orders, payables } = cenarioQuedaESubida();
+    const d = buildFinancialDiagnostic(orders, payables);
+    for (const p of d.problemas) {
+      if (p.id === "pr-vendas" || p.id === "pr-despesas") expect(p.impacto).toBeNull();
+    }
+  });
+
+  it("pr-vencidas mantém impacto numérico rastreável (valor vencido real)", () => {
+    const { orders } = cenarioSaudavel();
+    const venc = [
+      { id: 1, situacao: 1, valor: 700, saldo: 700, vencimento: "2020-01-01", dataEmissao: "2019-12-01", contato: { id: 1, nome: "F" } },
+    ];
+    const d = buildFinancialDiagnostic(orders, venc);
+    const p = d.problemas.find((x) => x.id === "pr-vencidas");
+    expect(p).toBeTruthy();
+    expect(typeof p.impacto).toBe("number");
+    expect(p.impacto).toBeLessThan(0); // saída de dinheiro
+    // rastreável: coincide com o montante do breakdown de impacto
+    expect(Math.abs(p.impacto)).toBe(d.impactAmount);
+  });
+
+  it("impactBreakdown continua a conter apenas contas vencidas", () => {
+    const { orders, payables } = cenarioQuedaESubida();
+    const d = buildFinancialDiagnostic(orders, payables);
+    const ids = (d.impactBreakdown || []).map((b) => b.id);
+    expect(ids.every((i) => i === "contas-vencidas")).toBe(true);
+  });
+});

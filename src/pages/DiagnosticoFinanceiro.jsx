@@ -6,7 +6,7 @@ import {
 import {
   Stethoscope, Target, TrendingDown, ArrowUpRight, ArrowDownRight,
   AlertCircle, AlertTriangle, Lightbulb, RefreshCw, Download,
-  Sparkles, Send,
+  Sparkles, Send, TrendingUp,
 } from "lucide-react";
 
 import PageHeader        from "../layouts/PageHeader";
@@ -56,6 +56,11 @@ export default function DiagnosticoFinanceiro() {
   const { sales, source, reload } = useFinerData();
   const diagnostic      = sales?.diagnostico ? { ...mockDiagnostic, ...sales.diagnostico } : mockDiagnostic;
   const demoDiag        = source === "api" && !sales?.diagnostico;
+  const isRealDiag      = !!sales?.diagnostico; // fonte real do motor de diagnóstico
+  // Evolução do score: só existe série se houver histórico REAL. Com o motor real,
+  // evolucao vem null (não há snapshots mensais) => estado vazio, nunca série mock.
+  const evolucaoData    = isRealDiag ? (sales.diagnostico.evolucao ?? null) : mockDiagnostic.evolucao;
+  const temEvolucao     = Array.isArray(evolucaoData) && evolucaoData.length > 0;
   const scoreDelta      = diagnostic.scorePrevious != null ? diagnostic.score - diagnostic.scorePrevious : null;
   const totalAcoes      = diagnostic.acoes.reduce((acc, a) => acc + (Number(a.impacto) || 0), 0);
   const [planOpen, setPlanOpen] = useState(false);
@@ -107,16 +112,36 @@ export default function DiagnosticoFinanceiro() {
           demo={demoDiag}
         />
 
-        {/* Impacto */}
-        <MetricCard
-          label="Impacto Identificado"
-          value={formatEUR(diagnostic.impactoFinanceiro)}
-          icon={TrendingDown}
-          iconBg="bg-amber-50 text-amber-600"
-          helper="A recuperar com ações sugeridas"
-          tone="warning"
-          demo={source === "api"}
-        />
+        {/* Impacto — só valores comprováveis; sem fonte real, mock + Demo */}
+        {!isRealDiag ? (
+          <MetricCard
+            label="Impacto Identificado"
+            value={formatEUR(diagnostic.impactoFinanceiro)}
+            icon={TrendingDown}
+            iconBg="bg-amber-50 text-amber-600"
+            helper="A recuperar com ações sugeridas"
+            tone="warning"
+            demo={source === "api"}
+          />
+        ) : diagnostic.impactIsQuantified ? (
+          <MetricCard
+            label="Impacto Identificado"
+            value={formatEUR(diagnostic.impactAmount)}
+            icon={TrendingDown}
+            iconBg="bg-amber-50 text-amber-600"
+            helper={(diagnostic.impactBreakdown || []).map((b) => b.label).join(" · ") || diagnostic.impactLabel}
+            tone="warning"
+          />
+        ) : (
+          <div className="card p-5">
+            <span className="label-uppercase">Impacto Identificado</span>
+            <p className="mt-3 text-sm font-semibold text-slate-700">Impacto não quantificado</p>
+            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+              Existem riscos financeiros identificados, mas o impacto monetário ainda não pode ser
+              calculado com os dados disponíveis.
+            </p>
+          </div>
+        )}
 
         {/* Prioridade */}
         <div className="card p-5">
@@ -169,32 +194,48 @@ export default function DiagnosticoFinanceiro() {
           </div>
         </div>
 
-        {/* Evolução */}
+        {/* Evolução — sem snapshots mensais reais, mostra estado vazio (nunca série inventada) */}
         <div className="lg:col-span-7">
           <div className="card p-5 h-full flex flex-col">
             <div className="flex items-start justify-between mb-3">
               <div>
-                <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Evolução do Diagnóstico{source === "api" && <DemoTag />}</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Últimos 6 meses</p>
+                <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Evolução do Diagnóstico{demoDiag && <DemoTag />}</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{temEvolucao ? "Últimos 6 meses" : "Histórico em construção"}</p>
               </div>
-              <div className="text-right">
-                <div className="text-[11px] uppercase tracking-wider text-slate-500">Variação 6M</div>
-                <div className="text-sm font-semibold text-brand-600 inline-flex items-center gap-0.5">
-                  <ArrowUpRight size={14} />+20 pts
+              {temEvolucao && (
+                <div className="text-right">
+                  <div className="text-[11px] uppercase tracking-wider text-slate-500">Variação 6M</div>
+                  <div className="text-sm font-semibold text-brand-600 inline-flex items-center gap-0.5">
+                    <ArrowUpRight size={14} />+20 pts
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
             <div className="flex-1" style={{ minHeight: 260 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={diagnostic.evolucao} margin={{ top: 20, right: 12, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                  <XAxis dataKey="mes" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                  <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} width={36} />
-                  <Tooltip content={<EvTooltip />} />
-                  <ReferenceLine y={65} stroke="#cbd5e1" strokeDasharray="3 3" />
-                  <Line type="monotone" dataKey="score" stroke="#10B981" strokeWidth={2.6} dot={{ r: 4, fill: "#fff", stroke: "#10B981", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#10B981" }} />
-                </LineChart>
-              </ResponsiveContainer>
+              {temEvolucao ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={evolucaoData} margin={{ top: 20, right: 12, left: -10, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                    <XAxis dataKey="mes" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                    <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} width={36} />
+                    <Tooltip content={<EvTooltip />} />
+                    <ReferenceLine y={65} stroke="#cbd5e1" strokeDasharray="3 3" />
+                    <Line type="monotone" dataKey="score" stroke="#10B981" strokeWidth={2.6} dot={{ r: 4, fill: "#fff", stroke: "#10B981", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#10B981" }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center px-6">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-400 mb-3">
+                    <TrendingUp size={18} />
+                  </span>
+                  <p className="text-sm font-medium text-slate-600">
+                    Ainda não existem avaliações históricas suficientes para apresentar a evolução do score.
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1.5">
+                    O histórico do diagnóstico será construído ao longo dos próximos meses.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>

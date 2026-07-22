@@ -74,10 +74,15 @@ function DiagnosticHighlight({ onOpen, diag, demo }) {
             {FRASE_ESTADO[diag.estado] ?? FRASE_ESTADO["Atenção"]}
           </h3>
           <p className="text-sm text-slate-300 mt-1.5 leading-relaxed">
-            {typeof diag.impactoFinanceiro === "number" && (
+            {/* Real: só mostra valor se o motor o quantificou (contas vencidas).
+                Mock: preserva impactoFinanceiro (o bloco já leva o selo Demo acima). */}
+            {diag.impactIsQuantified === true && typeof diag.impactAmount === "number" ? (
+              <>Impacto financeiro identificado de{" "}
+              <strong className="text-white">{formatEUR(diag.impactAmount)}</strong>.{" "}</>
+            ) : diag.impactIsQuantified === undefined && typeof diag.impactoFinanceiro === "number" ? (
               <>Impacto financeiro identificado de{" "}
               <strong className="text-white">{formatEUR(diag.impactoFinanceiro)}</strong>.{" "}</>
-            )}
+            ) : null}
             Prioridade: {diag.prioridadeMaxima.toLowerCase()}.
           </p>
         </div>
@@ -164,14 +169,23 @@ export default function Resumo() {
 
       {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <MetricCard
-          label="Saldo Disponível"
-          value={formatEUR(monthMetrics.saldoDisponivel)}
-          icon={Wallet}
-          iconBg="bg-brand-50 text-brand-600"
-          helper={`Atualizado ${monthMetrics.lastSync}`}
-          demo={source === "api"}
-        />
+        {source === "api" ? (
+          <MetricCard
+            label="Saldo bancário"
+            value="—"
+            icon={Wallet}
+            iconBg="bg-slate-100 text-slate-400"
+            helper="Integração bancária não configurada"
+          />
+        ) : (
+          <MetricCard
+            label="Saldo Disponível"
+            value={formatEUR(monthMetrics.saldoDisponivel)}
+            icon={Wallet}
+            iconBg="bg-brand-50 text-brand-600"
+            helper={`Atualizado ${monthMetrics.lastSync}`}
+          />
+        )}
         <MetricCard
           label="Receitas (Mês)"
           value={formatEUR(monthMetrics.receitas)}
@@ -323,13 +337,19 @@ export default function Resumo() {
                 </button>
               ))}
             </div>
-            <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200">
+            <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50/60">
               <input
                 type="text"
+                disabled
+                title="Escreva a sua pergunta no Chat Financeiro"
                 placeholder="Faça uma pergunta sobre a sua empresa..."
-                className="flex-1 text-sm outline-none bg-transparent placeholder:text-slate-400"
+                className="flex-1 text-sm outline-none bg-transparent placeholder:text-slate-400 disabled:cursor-not-allowed"
               />
-              <button className="flex h-7 w-7 items-center justify-center rounded-md bg-brand-500 hover:bg-brand-600 text-white transition-colors">
+              <button
+                onClick={() => navigateTo(SCREENS.CHAT_FINANCEIRO)}
+                title="Abrir o Chat Financeiro"
+                className="flex h-7 w-7 items-center justify-center rounded-md bg-brand-500 hover:bg-brand-600 text-white transition-colors"
+              >
                 <Send size={13} />
               </button>
             </div>
@@ -343,12 +363,12 @@ export default function Resumo() {
         <div className="lg:col-span-7">
           <div className="card p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-slate-800">Documentos recentes</h3>
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Documentos recentes{source === "api" && <DemoTag />}</h3>
               <button onClick={() => navigateTo(SCREENS.DOCUMENTOS)} className="text-xs font-medium text-brand-600 hover:text-brand-700">Ver todos</button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {recentDocuments.map((d) => (
-                <div key={d.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 border border-slate-200/60 hover:bg-slate-100 transition-colors cursor-pointer">
+                <div key={d.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 border border-slate-200/60">
                   <div className="flex h-9 w-9 items-center justify-center rounded-md bg-white border border-slate-200 shrink-0">
                     <FileText size={16} className="text-rose-500" />
                   </div>
@@ -362,27 +382,54 @@ export default function Resumo() {
           </div>
         </div>
 
-        {/* Sincronização bancária */}
+        {/* Integração bancária — a Finer One ainda não tem Open Banking.
+            Com fonte real nunca mostramos banco ligado, saldo nem data de sincronização. */}
         <div className="lg:col-span-5">
           <div className="card p-5 h-full">
             <h3 className="text-sm font-semibold text-slate-800 mb-4">Sincronização bancária</h3>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-100 shrink-0">
-                <Building2 size={20} className="text-slate-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-slate-800">{bankSync.bank}</p>
-                <p className="text-xs text-slate-500">Conta •••• {bankSync.accountTail}</p>
-              </div>
-              <StatusBadge variant="success">{bankSync.status}</StatusBadge>
-            </div>
-            <p className="text-xs text-slate-500 mb-4">Última sincronização {bankSync.lastSync}</p>
-            <button
-              onClick={() => navigateTo(SCREENS.RECEITAS)}
-              className="w-full btn-secondary justify-center"
-            >
-              Ver detalhes
-            </button>
+            {source === "api" ? (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-100 shrink-0">
+                    <Building2 size={20} className="text-slate-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-700">Integração bancária não configurada</p>
+                    <p className="text-xs text-slate-500">Nenhuma conta ligada</p>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                  Ligue uma conta bancária para acompanhar o saldo disponível e reconciliar movimentos.
+                </p>
+                <button
+                  disabled
+                  title="Funcionalidade disponível numa fase futura"
+                  className="w-full btn-secondary justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Ligar conta bancária
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-100 shrink-0">
+                    <Building2 size={20} className="text-slate-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-800">{bankSync.bank}</p>
+                    <p className="text-xs text-slate-500">Conta •••• {bankSync.accountTail}</p>
+                  </div>
+                  <StatusBadge variant="success">{bankSync.status}</StatusBadge>
+                </div>
+                <p className="text-xs text-slate-500 mb-4">Última sincronização {bankSync.lastSync}</p>
+                <button
+                  onClick={() => navigateTo(SCREENS.RECEITAS)}
+                  className="w-full btn-secondary justify-center"
+                >
+                  Ver detalhes
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
