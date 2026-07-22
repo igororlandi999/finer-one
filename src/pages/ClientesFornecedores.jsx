@@ -16,6 +16,7 @@ import {
 import { formatEUR } from "../lib/format";
 import { useFinerData } from "../context/FinerDataContext";
 import { downloadCsv, csvMoney } from "../utils/csvExport";
+import { buildOperationalAlerts, hasOperationalSource } from "../utils/operationalAlerts";
 
 // ── Tabs internas ────────────────────────────────────────────
 const TABS = [
@@ -39,8 +40,33 @@ function TopRow({ name, openCount, balance, tone, unitLabel = "faturas em aberto
   );
 }
 
+// ── Rodapé da tabela: contagem e total em aberto ────────────
+// Cadeia de fallbacks (fora do JSX). `side` = sales.recebiveis | sales.fornecedores.
+// metricCountKey/metricValueKey diferem por lado (Receber vs Pagar).
+function sumInvoices(list) {
+  return (list || []).reduce((acc, r) => acc + (Number(r.valor) || 0), 0);
+}
+
+function footerCount(side, rows, metricCountKey) {
+  const m = side && side.metrics ? side.metrics[metricCountKey] : null;
+  if (m != null) return m;                                    // 1) métrica
+  if (side && Array.isArray(side.allOpenInvoices)) return side.allOpenInvoices.length; // 2) base completa
+  return rows.length;                                         // 3) linhas visíveis
+}
+
+function footerValue(side, rows, metricValueKey) {
+  const m = side && side.metrics ? side.metrics[metricValueKey] : null;
+  if (m != null) return m;                                    // 1) métrica
+  if (side && Array.isArray(side.allOpenInvoices)) return sumInvoices(side.allOpenInvoices); // 2) base completa
+  return sumInvoices(rows);                                   // 3) linhas visíveis
+}
+
 // ── Tabela simples de faturas em aberto ─────────────────────
-function OpenInvoicesTable({ rows, partyHeader, partyKey, demo = false }) {
+function OpenInvoicesTable({ rows, partyHeader, partyKey, demo = false, totalCount, totalValue }) {
+  const shown = rows.length;
+  const total = totalCount != null ? totalCount : shown;
+  const valor = totalValue != null ? totalValue : sumInvoices(rows);
+  const plural = total === 1 ? "fatura" : "faturas";
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
@@ -55,7 +81,7 @@ function OpenInvoicesTable({ rows, partyHeader, partyKey, demo = false }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {rows.length > 0 ? rows.map((r) => (
             <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
               <td className="px-5 py-3 text-sm font-medium text-slate-800">{r[partyKey]}</td>
               <td className="px-5 py-3 text-sm text-slate-600">{r.numero}</td>
@@ -70,18 +96,21 @@ function OpenInvoicesTable({ rows, partyHeader, partyKey, demo = false }) {
                   : <span className="text-xs text-slate-400">—</span>}
               </td>
             </tr>
-          ))}
+          )) : (
+            <tr>
+              <td colSpan={6} className="px-5 py-10 text-center text-sm text-slate-500">Não existem faturas em aberto neste momento.</td>
+            </tr>
+          )}
         </tbody>
-        <tfoot>
-          <tr className="bg-slate-50/40">
-            <td colSpan={4} className="px-5 py-3 text-xs uppercase tracking-wider font-semibold text-slate-500">Total</td>
-            <td className="px-5 py-3 text-sm font-semibold text-slate-900 text-right tabular-nums">
-              {formatEUR(rows.reduce((acc, r) => acc + r.valor, 0))}
-            </td>
-            <td></td>
-          </tr>
-        </tfoot>
       </table>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 px-5 py-3 border-t border-slate-200 bg-slate-50/40">
+        <span className="text-xs text-slate-500">
+          A mostrar {shown} de {total} {plural}
+        </span>
+        <span className="text-sm text-slate-600">
+          Total em aberto: <span className="font-semibold text-slate-900 tabular-nums">{formatEUR(valor)}</span>
+        </span>
+      </div>
     </div>
   );
 }
@@ -90,21 +119,40 @@ function OpenInvoicesTable({ rows, partyHeader, partyKey, demo = false }) {
 export default function ClientesFornecedores() {
   const [tab, setTab] = useState("geral");
 
-  // Lado clientes a partir de vendas; restante (fornecedores, saldos a receber) fica mock.
+  // Lado clientes a partir de contas a receber reais (sales.recebiveis); lado
+  // fornecedores a partir de contas a pagar. Cada lado cai para mock quando ausente.
   const { sales, source } = useFinerData();
-  // Exportação CSV: apenas o lado real (fornecedores em aberto); a tab Clientes é mock e nunca sai.
-  const canExport = source === "api" && !!sales?.fornecedores;
+  const hasReceivables = source === "api" && !!sales?.recebiveis;
+  const hasPayables = source === "api" && !!sales?.fornecedores;
+  // Exportação CSV: cada lado real exporta o seu ficheiro (clientes e/ou fornecedores).
+  const canExport = hasReceivables || hasPayables;
   function exportCsv() {
-    if (!canExport) return;
-    const rows = (sales?.fornecedores?.openInvoices ?? []).map((i) => [
-      i.fornecedor, i.numero, i.dataEmissao, i.vencimento, csvMoney(i.valor), i.diasAtraso,
-    ]);
-    downloadCsv("fornecedores-em-aberto.csv",
-      ["Fornecedor", "Nº documento", "Emissão", "Vencimento", "Valor (€)", "Dias em atraso"], rows);
+    if (hasReceivables) {
+      const rows = (sales?.recebiveis?.allOpenInvoices ?? sales?.recebiveis?.openInvoices ?? []).map((i) => [
+        i.cliente, i.numero, i.dataEmissao, i.vencimento, csvMoney(i.valor), i.diasAtraso,
+      ]);
+      downloadCsv("clientes-em-aberto.csv",
+        ["Cliente", "Nº documento", "Emissão", "Vencimento", "Valor (€)", "Dias em atraso"], rows);
+    }
+    if (hasPayables) {
+      const rows = (sales?.fornecedores?.allOpenInvoices ?? sales?.fornecedores?.openInvoices ?? []).map((i) => [
+        i.fornecedor, i.numero, i.dataEmissao, i.vencimento, csvMoney(i.valor), i.diasAtraso,
+      ]);
+      downloadCsv("fornecedores-em-aberto.csv",
+        ["Fornecedor", "Nº documento", "Emissão", "Vencimento", "Valor (€)", "Dias em atraso"], rows);
+    }
   }
-  const customersSuppliersMetrics = { ...mockCustomersSuppliersMetrics, ...(sales?.clientes?.metrics ?? {}), ...(sales?.fornecedores?.metrics ?? {}) };
-  const topCustomers = sales?.clientes?.top ?? mockTopCustomers;
+  const customersSuppliersMetrics = { ...mockCustomersSuppliersMetrics, ...(sales?.recebiveis?.metrics ?? {}), ...(sales?.fornecedores?.metrics ?? {}) };
+  const topCustomers = sales?.recebiveis?.top ?? mockTopCustomers;
   const topSuppliers = sales?.fornecedores?.top ?? mockTopSuppliers;
+
+  // Alertas operacionais reais a partir dos lados disponíveis (recebíveis/fornecedores).
+  // Se houver qualquer fonte real, usamos os alertas calculados (mesmo que a lista fique
+  // vazia => estado vazio real, sem Demo). Só sem nenhuma fonte é que fica mock + Demo.
+  const opSource = hasOperationalSource({ recebiveis: sales?.recebiveis, fornecedores: sales?.fornecedores });
+  const operationalAlerts = opSource
+    ? buildOperationalAlerts({ recebiveis: sales?.recebiveis, fornecedores: sales?.fornecedores }).slice(0, 4)
+    : null;
 
   return (
     <>
@@ -128,7 +176,7 @@ export default function ClientesFornecedores() {
           icon={Users}
           iconBg="bg-brand-50 text-brand-600"
           tone="success"
-        demo={source === "api"}
+        demo={source === "api" && !sales?.recebiveis}
         />
         <MetricCard
           label="Saldo a Pagar"
@@ -144,7 +192,7 @@ export default function ClientesFornecedores() {
           icon={FileText}
           iconBg="bg-amber-50 text-amber-600"
           helper={`${customersSuppliersMetrics.faturasAbertasReceberVencer7} vencem nos próximos 7 dias`}
-        demo={source === "api"}
+        demo={source === "api" && !sales?.recebiveis}
         />
         <MetricCard
           label="Faturas em Aberto (Pagar)"
@@ -184,12 +232,16 @@ export default function ClientesFornecedores() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:divide-x divide-slate-200">
             {/* Top clientes */}
             <div className="p-5">
-              <h3 className="text-sm font-semibold text-slate-800 mb-1">Top Clientes por faturação</h3>
-              <p className="text-xs text-slate-500 mb-3">Maior faturação no período</p>
+              <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Top Clientes (saldo a receber){source === "api" && !sales?.recebiveis && <DemoTag />}</h3>
+              <p className="text-xs text-slate-500 mb-3">Clientes com maior valor em aberto</p>
               <div>
-                {topCustomers.map((c) => (
-                  <TopRow key={c.id} name={c.nome} openCount={c.faturasAbertas} balance={c.saldo} tone="in" unitLabel="pedidos" />
-                ))}
+                {topCustomers.length > 0 ? (
+                  topCustomers.map((c) => (
+                    <TopRow key={c.id} name={c.nome} openCount={c.faturasAbertas} balance={c.saldo} tone="in" unitLabel={hasReceivables ? "faturas" : "pedidos"} />
+                  ))
+                ) : (
+                  <p className="py-4 text-sm text-slate-500">Não existem clientes com saldo em aberto.</p>
+                )}
               </div>
             </div>
             {/* Top fornecedores */}
@@ -197,26 +249,54 @@ export default function ClientesFornecedores() {
               <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Top Fornecedores (saldo a pagar){source === "api" && !sales?.fornecedores && <DemoTag />}</h3>
               <p className="text-xs text-slate-500 mb-3">Fornecedores com maior valor em aberto</p>
               <div>
-                {topSuppliers.map((s) => (
-                  <TopRow key={s.id} name={s.nome} openCount={s.faturasAbertas} balance={s.saldo} tone="out" />
-                ))}
+                {topSuppliers.length > 0 ? (
+                  topSuppliers.map((s) => (
+                    <TopRow key={s.id} name={s.nome} openCount={s.faturasAbertas} balance={s.saldo} tone="out" />
+                  ))
+                ) : (
+                  <p className="py-4 text-sm text-slate-500">Não existem fornecedores com saldo em aberto.</p>
+                )}
               </div>
             </div>
           </div>
         )}
 
-        {tab === "clientes"     && <OpenInvoicesTable rows={openCustomerInvoices} partyHeader="Cliente"     partyKey="cliente"    demo={source === "api"} />}
-        {tab === "fornecedores" && <OpenInvoicesTable rows={sales?.fornecedores?.openInvoices ?? openSupplierInvoices} partyHeader="Fornecedor" partyKey="fornecedor" demo={source === "api" && !sales?.fornecedores} />}
+        {tab === "clientes"     && <OpenInvoicesTable
+          rows={sales?.recebiveis?.openInvoices ?? openCustomerInvoices}
+          partyHeader="Cliente" partyKey="cliente"
+          demo={source === "api" && !sales?.recebiveis}
+          totalCount={footerCount(sales?.recebiveis, sales?.recebiveis?.openInvoices ?? openCustomerInvoices, "faturasAbertasReceber")}
+          totalValue={footerValue(sales?.recebiveis, sales?.recebiveis?.openInvoices ?? openCustomerInvoices, "saldoReceber")}
+        />}
+        {tab === "fornecedores" && <OpenInvoicesTable
+          rows={sales?.fornecedores?.openInvoices ?? openSupplierInvoices}
+          partyHeader="Fornecedor" partyKey="fornecedor"
+          demo={source === "api" && !sales?.fornecedores}
+          totalCount={footerCount(sales?.fornecedores, sales?.fornecedores?.openInvoices ?? openSupplierInvoices, "faturasAbertasPagar")}
+          totalValue={footerValue(sales?.fornecedores, sales?.fornecedores?.openInvoices ?? openSupplierInvoices, "saldoPagar")}
+        />}
       </div>
 
       {/* Alertas operacionais */}
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1.5">Alertas operacionais{source === "api" && <DemoTag />}</h3>
+        <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1.5">Alertas operacionais{!opSource && source === "api" && <DemoTag />}</h3>
         <div className="divide-y divide-slate-100 -mx-1">
-          <AlertCard severity="danger"  title="Fatura vencida"      description="Norte Industrial tem fatura FT 2026/119 vencida há 34 dias." timestamp="Hoje" />
-          <AlertCard severity="warning" title="A vencer em breve"   description="3 faturas de clientes vencem nos próximos 7 dias." timestamp="Hoje" />
-          <AlertCard severity="warning" title="Fornecedor em atraso" description="Vasco & Lemos: 1 fatura vencida há 19 dias." timestamp="Ontem" />
-          <AlertCard severity="info"    title="Pagamento a vencer"   description="Contas & Cia: fatura vence em 5 dias." timestamp="Ontem" />
+          {operationalAlerts !== null ? (
+            operationalAlerts.length > 0 ? (
+              operationalAlerts.map((a) => (
+                <AlertCard key={a.id} severity={a.severity} title={a.title} description={a.description} timestamp={a.timestamp} />
+              ))
+            ) : (
+              <p className="py-6 text-center text-sm text-slate-500">Não existem alertas operacionais neste momento.</p>
+            )
+          ) : (
+            <>
+              <AlertCard severity="danger"  title="Fatura vencida"      description="Norte Industrial tem fatura FT 2026/119 vencida há 34 dias." timestamp="Hoje" />
+              <AlertCard severity="warning" title="A vencer em breve"   description="3 faturas de clientes vencem nos próximos 7 dias." timestamp="Hoje" />
+              <AlertCard severity="warning" title="Fornecedor em atraso" description="Vasco & Lemos: 1 fatura vencida há 19 dias." timestamp="Ontem" />
+              <AlertCard severity="info"    title="Pagamento a vencer"   description="Contas & Cia: fatura vence em 5 dias." timestamp="Ontem" />
+            </>
+          )}
         </div>
       </div>
     </>

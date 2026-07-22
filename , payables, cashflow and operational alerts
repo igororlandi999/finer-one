@@ -1,0 +1,12 @@
+warning: in the working copy of 'package-lock.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/services/blingDataService.test.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/utils/expenseCalculations.js', LF will be replaced by CRLF the next time Git touches it
+ package-lock.json                     | 1286 [32m++++++++++++++++++++++++++++++++[m[31m-[m
+ package.json                          |    7 [32m+[m[31m-[m
+ src/pages/ClientesFornecedores.jsx    |  162 [32m+++[m[31m--[m
+ src/pages/Resumo.jsx                  |  124 [32m+++[m[31m-[m
+ src/services/blingDataService.js      |  154 [32m+++[m[31m-[m
+ src/services/blingDataService.test.js |   40 [32m+[m
+ src/utils/expenseCalculations.js      |    5 [32m+[m[31m-[m
+ 7 files changed, 1661 insertions(+), 117 deletions(-)

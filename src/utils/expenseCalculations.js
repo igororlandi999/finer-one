@@ -112,10 +112,11 @@ export function topPayable(payables) {
 }
 
 // Pendentes = situacao 1 (em aberto). Devolve { valor, qtd }.
+// Usa o saldo restante (payableOpenBalance), não o valor original — espelha pendingReceivables.
 export function pendingPayables(payables) {
   const open = (payables || []).filter((p) => Number(p?.situacao) === 1);
   return {
-    valor: round2(open.reduce((a, p) => a + (Number(p.valor) || 0), 0)),
+    valor: round2(open.reduce((a, p) => a + payableOpenBalance(p), 0)),
     qtd: open.length,
   };
 }

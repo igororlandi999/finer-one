@@ -1,3 +1,4 @@
+import { useState, useMemo } from "react";
 import {
   AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -24,14 +25,17 @@ import {
 } from "../data/mockData";
 import { formatEUR, formatEURCompact } from "../lib/format";
 import { useFinerData } from "../context/FinerDataContext";
+import { buildCashflowForecast, hasCashflowSource } from "../utils/cashflowForecast";
 
 // ── Tooltip do gráfico de cashflow ──────────────────────────
-function CashflowTooltip({ active, payload, label }) {
+// valueLabel: "Saldo" no gráfico mock (semântica original); "Variação líquida
+// acumulada" com dados reais (base zero, sem saldo bancário).
+function CashflowTooltip({ active, payload, label, valueLabel = "Saldo" }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white shadow-lg">
       <div className="text-slate-300">{label}</div>
-      <div className="font-semibold mt-0.5">Saldo {formatEUR(payload[0].value)}</div>
+      <div className="font-semibold mt-0.5">{valueLabel} {formatEUR(payload[0].value)}</div>
     </div>
   );
 }
@@ -104,10 +108,37 @@ function DiagnosticHighlight({ onOpen, diag, demo }) {
 export default function Resumo() {
   const { navigateTo } = usePlan();
 
-  // Apenas receita/faturação e alertas comerciais vêm de vendas; o resto fica mock.
+  // Fontes reais no Resumo: receita/faturação e alertas (de vendas), despesas/resultado
+  // (contas a pagar) e faturas em atraso (contas a receber). O restante fica mock + Demo.
   const { sales, source } = useFinerData();
   const monthMetrics = { ...mockMonthMetrics, ...(sales?.resumo?.metrics ?? {}) };
   const alerts = sales?.alertas?.list ?? mockAlerts;
+  // Faturas em atraso: dos recebíveis reais (títulos abertos já vencidos), senão mock.
+  // Base COMPLETA (allOpenInvoices) para o total; a exibição limita a 5 linhas.
+  const hasReceivables = source === "api" && !!sales?.recebiveis;
+  const overdueRows = hasReceivables
+    ? (sales.recebiveis.allOpenInvoices ?? sales.recebiveis.openInvoices ?? [])
+        .filter((i) => i.diasAtraso > 0)
+        .slice()
+        .sort((a, b) => b.diasAtraso - a.diasAtraso)
+    : overdueInvoices;
+  // Total calculado sobre TODA a lista real; a UI mostra no máximo as 5 mais atrasadas.
+  const overdueTotal = overdueRows.reduce((acc, i) => acc + i.valor, 0);
+  const overdueVisiveis = overdueRows.slice(0, 5);
+
+  // Cashflow previsto real: variação líquida (base zero, sem saldo bancário) a partir
+  // dos títulos abertos. Seletor 30/60 via estado local, sem nova chamada de API.
+  const [cashflowDias, setCashflowDias] = useState(30);
+  const cashflowSource = hasCashflowSource({ recebiveis: sales?.recebiveis, fornecedores: sales?.fornecedores });
+  const cashflow = useMemo(
+    () => buildCashflowForecast({ recebiveis: sales?.recebiveis, fornecedores: sales?.fornecedores, dias: cashflowDias }),
+    [sales?.recebiveis, sales?.fornecedores, cashflowDias]
+  );
+  // Série e métrica de destaque conforme a fonte:
+  //  - com fonte real: série real (dataKey "saldo" = variação líquida acumulada);
+  //  - sem fonte real: mantém o gráfico mock + Demo, sem mascarar.
+  const cashflowData = cashflowSource ? cashflow.serie : cashflowForecast;
+  const cashflowDestaque = cashflowSource ? cashflow.variacaoLiquida : mockMonthMetrics.cashflowPrevisto30;
 
   return (
     <>
@@ -172,30 +203,51 @@ export default function Resumo() {
         {/* Cashflow */}
         <div className="lg:col-span-7">
           <ChartCard
-            title={<span className="inline-flex items-center gap-1.5">Cashflow previsto{source === "api" && <DemoTag />}</span>}
-            subtitle={`Saldo previsto em 30 dias: ${formatEUR(monthMetrics.cashflowPrevisto30)}`}
+            title={<span className="inline-flex items-center gap-1.5">Cashflow previsto{source === "api" && !cashflowSource && <DemoTag />}</span>}
+            subtitle={
+              cashflowSource
+                ? `Variação líquida prevista em ${cashflowDias} dias: ${formatEUR(cashflowDestaque)}`
+                : `Saldo previsto em 30 dias: ${formatEUR(mockMonthMetrics.cashflowPrevisto30)}`
+            }
             height={260}
             action={
-              <select className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-600 bg-white">
-                <option>Próximos 30 dias</option>
-                <option>Próximos 60 dias</option>
-              </select>
+              cashflowSource ? (
+                <select
+                  value={cashflowDias}
+                  onChange={(e) => setCashflowDias(Number(e.target.value))}
+                  className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-600 bg-white"
+                >
+                  <option value={30}>Próximos 30 dias</option>
+                  <option value={60}>Próximos 60 dias</option>
+                </select>
+              ) : (
+                // Modo Demo: só 30 dias (não há série mock de 60; não mostrar 30 como se fosse 60).
+                <select disabled className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-400 bg-slate-50 cursor-not-allowed">
+                  <option>Próximos 30 dias</option>
+                </select>
+              )
             }
           >
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={cashflowForecast} margin={{ top: 10, right: 8, left: -8, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="cashGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%"   stopColor="#10B981" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="#10B981" stopOpacity={0}    />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="dia" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => formatEURCompact(v)} width={56} />
-                <Tooltip content={<CashflowTooltip />} />
-                <Area type="monotone" dataKey="saldo" stroke="#10B981" strokeWidth={2.4} fill="url(#cashGrad)" dot={{ r: 0 }} activeDot={{ r: 5, fill: "#10B981" }} />
-              </AreaChart>
-            </ResponsiveContainer>
+            {cashflowSource && !cashflow.temDados ? (
+              <div className="h-full flex items-center justify-center text-center text-sm text-slate-500 px-4">
+                Não existem movimentos previstos para este período.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={cashflowData} margin={{ top: 10, right: 8, left: -8, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="cashGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%"   stopColor="#10B981" stopOpacity={0.25} />
+                      <stop offset="100%" stopColor="#10B981" stopOpacity={0}    />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="dia" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => formatEURCompact(v)} width={56} />
+                  <Tooltip content={<CashflowTooltip valueLabel={cashflowSource ? "Variação líquida acumulada" : "Saldo"} />} />
+                  <Area type="monotone" dataKey="saldo" stroke="#10B981" strokeWidth={2.4} fill="url(#cashGrad)" dot={{ r: 0 }} activeDot={{ r: 5, fill: "#10B981" }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </ChartCard>
         </div>
 
@@ -221,24 +273,28 @@ export default function Resumo() {
         <div className="lg:col-span-5">
           <div className="card p-5 h-full">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Faturas em atraso{source === "api" && <DemoTag />}</h3>
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Faturas em atraso{source === "api" && !sales?.recebiveis && <DemoTag />}</h3>
               <button onClick={() => navigateTo(SCREENS.CLIENTES_FORNECEDORES)} className="text-xs font-medium text-brand-600 hover:text-brand-700">Ver todas</button>
             </div>
             <div className="space-y-3">
-              {overdueInvoices.map((inv) => (
-                <div key={inv.id} className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">{inv.cliente}</p>
-                    <p className="text-xs text-slate-500">{inv.numero} · Vencida há {inv.diasAtraso} dias</p>
+              {overdueRows.length > 0 ? (
+                overdueVisiveis.map((inv) => (
+                  <div key={inv.id} className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-800 truncate">{inv.cliente}</p>
+                      <p className="text-xs text-slate-500">{inv.numero} · Vencida há {inv.diasAtraso} dias</p>
+                    </div>
+                    <div className="text-sm font-semibold text-rose-600 shrink-0">{formatEUR(inv.valor)}</div>
                   </div>
-                  <div className="text-sm font-semibold text-rose-600 shrink-0">{formatEUR(inv.valor)}</div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="py-4 text-center text-sm text-slate-500">Não existem faturas vencidas neste momento.</p>
+              )}
             </div>
             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
               <span className="text-xs text-slate-500">Total em atraso</span>
               <span className="text-sm font-semibold text-rose-600">
-                {formatEUR(overdueInvoices.reduce((acc, i) => acc + i.valor, 0))}
+                {formatEUR(overdueTotal)}
               </span>
             </div>
           </div>

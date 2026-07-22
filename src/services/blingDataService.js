@@ -3,7 +3,7 @@
 // Finer One já consomem. As telas continuam a ler as mesmas formas; muda só a
 // origem. Sem API ou em falha, devolve sales:null e as telas usam o mockData.
 
-import { apiGet, isApiConfigured } from "./api.js";
+import { apiGet, isApiConfigured, ApiError } from "./api.js";
 
 import {
   totalRevenue,
@@ -40,10 +40,23 @@ import {
   pendingPayables,
   expenseByCategory,
   openPayables,
+  payableOpenBalance,
   payablesDueWithin,
   payableDaysOverdue,
   suppliersByOpenBalance,
 } from "../utils/expenseCalculations.js";
+
+import {
+  billableReceivables,
+  receivableDate,
+  receivableStatus,
+  pendingReceivables,
+  openReceivables,
+  receivableOpenBalance,
+  receivablesDueWithin,
+  receivableDaysOverdue,
+  clientsByOpenBalance,
+} from "../utils/receivableCalculations.js";
 
 import { buildSalesAlerts, buildExpenseAlerts } from "../utils/alertsEngine.js";
 import { buildFinancialDiagnostic } from "../utils/diagnosticsEngine.js";
@@ -196,6 +209,58 @@ export function normalizePayable(raw) {
     categoriaNome: raw.categoriaNome || null,
     contato: { id: raw.contato && raw.contato.id != null ? raw.contato.id : null, nome: raw.contato && raw.contato.nome ? raw.contato.nome : null },
     formaPagamento: { id: raw.formaPagamento && raw.formaPagamento.id != null ? raw.formaPagamento.id : null, nome: raw.formaPagamento && raw.formaPagamento.nome ? raw.formaPagamento.nome : null },
+  };
+}
+
+/**
+ * Conta a receber (Bling /contas/receber) -> modelo interno de recebível.
+ * Espelha normalizePayable. O Apps Script (rebuild) já resolve nomes e hidrata o
+ * detalhe; aqui garantimos defaults defensivos e tolerância ao shape legado do
+ * snapshot (categoria na raiz vs. objeto categoria), sem inventar valores.
+ *
+ * Contrato esperado (Fase 1B), campos usados pelas telas:
+ * @typedef {Object} Receivable
+ * @property {number|string|null} id
+ * @property {number|null} situacao          1 = em aberto | 2 = recebido
+ * @property {string|null} vencimento        ISO yyyy-MM-dd
+ * @property {number} valor
+ * @property {string|null} dataEmissao        ISO yyyy-MM-dd
+ * @property {string|null} vencimentoOriginal
+ * @property {string|number|null} numeroDocumento
+ * @property {string|null} historico
+ * @property {number|null} saldo              saldo restante do título
+ * @property {number|string|null} categoriaId
+ * @property {string|null} categoriaNome
+ * @property {{id:number|null, nome:string|null}} contato
+ * @property {{id:number|null, nome:string|null}} formaPagamento
+ */
+export function normalizeReceivable(raw) {
+  if (!raw) return null;
+  // Categoria: aceita objeto categoria {id,nome} (shape novo) ou categoriaId/Nome na raiz (legado).
+  const catId = (raw.categoriaId != null)
+    ? raw.categoriaId
+    : (raw.categoria && raw.categoria.id != null ? raw.categoria.id : null);
+  const catNome = raw.categoriaNome || (raw.categoria && raw.categoria.nome) || null;
+  return {
+    id: (raw.id != null) ? raw.id : null,
+    situacao: (raw.situacao != null) ? raw.situacao : null,
+    vencimento: raw.vencimento || null,
+    valor: Number(raw.valor) || 0,
+    dataEmissao: raw.dataEmissao || null,
+    vencimentoOriginal: raw.vencimentoOriginal || null,
+    numeroDocumento: (raw.numeroDocumento != null) ? raw.numeroDocumento : null,
+    historico: (raw.historico != null) ? raw.historico : null,
+    saldo: (raw.saldo != null) ? Number(raw.saldo) : null,
+    categoriaId: catId,
+    categoriaNome: catNome,
+    contato: {
+      id: raw.contato && raw.contato.id != null ? raw.contato.id : null,
+      nome: raw.contato && raw.contato.nome ? raw.contato.nome : null,
+    },
+    formaPagamento: {
+      id: raw.formaPagamento && raw.formaPagamento.id != null ? raw.formaPagamento.id : null,
+      nome: raw.formaPagamento && raw.formaPagamento.nome ? raw.formaPagamento.nome : null,
+    },
   };
 }
 
@@ -379,8 +444,10 @@ function buildFornecedores(payables) {
 
   const top = suppliersByOpenBalance(payables).slice(0, 6);
 
-  // Até 20 títulos abertos mais próximos do vencimento (o que precisa de ação primeiro).
-  const openInvoices = openPayables(payables)
+  // Todos os títulos abertos, ordenados por vencimento. openInvoices continua limitado
+  // a 20 (exibição); allOpenInvoices é a base completa para cashflow, alertas e CSV.
+  // valor = saldo restante (payableOpenBalance), não o valor original do título.
+  const allOpen = openPayables(payables)
     .slice()
     .sort((a, b) => {
       const da = toDate(a.vencimento), db = toDate(b.vencimento);
@@ -389,25 +456,71 @@ function buildFornecedores(payables) {
       if (db) return 1;
       return 0;
     })
-    .slice(0, 20)
     .map((p) => ({
       id: p.id,
       fornecedor: (p.contato && p.contato.nome) || "\u2014",
       numero: (p.numeroDocumento != null && p.numeroDocumento !== "") ? String(p.numeroDocumento) : "\u2014",
       dataEmissao: p.dataEmissao ? formatPtDate(p.dataEmissao) : "\u2014",
       vencimento: p.vencimento ? formatPtDate(p.vencimento) : "\u2014",
-      valor: Number(p.valor) || 0,
+      valor: payableOpenBalance(p),
       diasAtraso: payableDaysOverdue(p),
     }));
 
-  return { metrics, top, openInvoices };
+  const openInvoices = allOpen.slice(0, 20);
+
+  return { metrics, top, openInvoices, allOpenInvoices: allOpen };
 }
 
-export function buildSalesDataset({ orders, payables }) {
+// Lado Clientes da tela Clientes e Fornecedores, a partir de contas a receber.
+// Apenas títulos em aberto (situacao 1) alimentam saldo/top/faturas. Sem delta de
+// saldo (ponto-no-tempo, sem base honesta de comparação mês a mês). Espelha buildFornecedores.
+function buildRecebiveis(receivables) {
+  const pend = pendingReceivables(receivables); // { valor, qtd } dos abertos
+
+  const metrics = {
+    saldoReceber: pend.valor,
+    saldoReceberDelta: null, // oculto: sem base honesta de comparação mês a mês
+    faturasAbertasReceber: pend.qtd,
+    faturasAbertasReceberVencer7: receivablesDueWithin(receivables, 7),
+  };
+
+  const top = clientsByOpenBalance(receivables).slice(0, 6);
+
+  // Todos os títulos abertos, ordenados por vencimento, na forma de linha das tabelas.
+  // openInvoices continua limitado a 20 (exibição); allOpenInvoices é a base completa
+  // para cashflow, alertas e CSV (allOpenInvoices ?? openInvoices).
+  const allOpen = openReceivables(receivables)
+    .slice()
+    .sort((a, b) => {
+      const da = toDate(a.vencimento), db = toDate(b.vencimento);
+      if (da && db) return da - db;
+      if (da) return -1;
+      if (db) return 1;
+      return 0;
+    })
+    .map((r) => ({
+      id: r.id,
+      cliente: (r.contato && r.contato.nome) || "\u2014",
+      numero: (r.numeroDocumento != null && r.numeroDocumento !== "") ? String(r.numeroDocumento) : "\u2014",
+      dataEmissao: r.dataEmissao ? formatPtDate(r.dataEmissao) : "\u2014",
+      vencimento: r.vencimento ? formatPtDate(r.vencimento) : "\u2014",
+      valor: receivableOpenBalance(r),
+      diasAtraso: receivableDaysOverdue(r),
+    }));
+
+  const openInvoices = allOpen.slice(0, 20);
+
+  return { metrics, top, openInvoices, allOpenInvoices: allOpen };
+}
+
+export function buildSalesDataset({ orders, payables, receivables }) {
   // Critério único de dados reais de contas a pagar: array presente (mesmo vazio).
   // undefined/null => falha ou ausência => telas usam mock + Demo.
   // [] => dado real com zero títulos => zeros reais, sem selo.
   const hasPayables = Array.isArray(payables);
+  // Critério idêntico ao de payables: array presente (mesmo vazio) => dado real.
+  // undefined/null => falha ou ausência => lado Clientes segue mock + Demo.
+  const hasReceivables = Array.isArray(receivables);
   return {
     receitas: buildReceitas(orders),
     clientes: buildClientes(orders),
@@ -415,6 +528,7 @@ export function buildSalesDataset({ orders, payables }) {
     alertas: buildAlertas(orders, payables),
     despesas: hasPayables ? buildDespesas(payables) : null, // null => Despesas usa mock
     fornecedores: hasPayables ? buildFornecedores(payables) : null, // null => Fornecedores usa mock
+    recebiveis: hasReceivables ? buildRecebiveis(receivables) : null, // null => lado Clientes usa mock
     diagnostico: hasPayables ? buildFinancialDiagnostic(orders, payables) : null, // null => tela Diagnóstico usa mock
     orders, // exposto para recálculos por período no front (ex.: donut de categorias)
   };
@@ -440,6 +554,20 @@ async function fetchRawPayables() {
   return res?.data ?? res ?? [];
 }
 
+async function fetchRawReceivables() {
+  // Mesmo endpoint do proxy, com ?recurso=recebiveis (contas a receber).
+  // O endpoint serve só do snapshot; sem snapshot devolve { data: [], debug.fonte: "snapshot-vazio" }.
+  // Distinguimos "zero títulos reais" de "ausência de snapshot" pelo debug.fonte:
+  //   - fonte "snapshot"       + data:[]  => zero real (array vazio segue para o gating).
+  //   - fonte "snapshot-vazio"            => ausência => erro controlado => loadFinerData
+  //                                          transforma em receivables:undefined (mock + Demo).
+  const res = await apiGet("pedidos/vendas", { params: { recurso: "recebiveis" } });
+  if (res && res.debug && res.debug.fonte === "snapshot-vazio") {
+    throw new ApiError("Recebíveis sem snapshot (fonte snapshot-vazio).", { status: 0 });
+  }
+  return res?.data ?? res ?? [];
+}
+
 // Devolve { source:'api'|'mock', sales } — sales:null significa usar mockData.
 export async function loadFinerData() {
   if (!isApiConfigured()) {
@@ -459,7 +587,17 @@ export async function loadFinerData() {
       payables = undefined;
     }
 
-    return { source: "api", sales: buildSalesDataset({ orders, payables }) };
+    // Recebíveis: best-effort e independente de despesas. Se falhar, receivables fica
+    // undefined => lado Clientes segue mock + Demo, sem derrubar o resto.
+    let receivables;
+    try {
+      const rawReceivables = await fetchRawReceivables();
+      receivables = (rawReceivables || []).map(normalizeReceivable).filter(Boolean);
+    } catch {
+      receivables = undefined;
+    }
+
+    return { source: "api", sales: buildSalesDataset({ orders, payables, receivables }) };
   } catch {
     return { source: "mock", sales: null };
   }

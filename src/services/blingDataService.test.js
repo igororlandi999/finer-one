@@ -60,3 +60,43 @@ describe("buildSalesDataset — campos mortos removidos", () => {
     expect("diagnostics" in ds).toBe(false);
   });
 });
+
+describe("buildSalesDataset — allOpenInvoices e saldo restante (fornecedores)", () => {
+  const orders2 = [];
+  const parcialPay = {
+    id: 1, situacao: 1, valor: 1000, saldo: 200,
+    vencimento: iso(2026, 6, 20), dataEmissao: iso(2026, 6, 1),
+    contato: { id: 1, nome: "F, Lda" }, numeroDocumento: "FC 1",
+  };
+  const parcialRec = {
+    id: 2, situacao: 1, valor: 800, saldo: 300,
+    vencimento: iso(2026, 6, 22), dataEmissao: iso(2026, 6, 2),
+    contato: { id: 2, nome: "C, Lda" }, numeroDocumento: "FT 1",
+  };
+
+  it("fornecedores expõe allOpenInvoices e usa saldo restante no valor", () => {
+    const ds = buildSalesDataset({ orders: orders2, payables: [parcialPay] });
+    expect(Array.isArray(ds.fornecedores.allOpenInvoices)).toBe(true);
+    expect(ds.fornecedores.allOpenInvoices[0].valor).toBe(200); // saldo, não 1000
+    expect(ds.fornecedores.metrics.saldoPagar).toBe(200);       // pendingPayables usa saldo
+  });
+
+  it("recebíveis expõe allOpenInvoices com saldo restante", () => {
+    const ds = buildSalesDataset({ orders: orders2, payables: undefined, receivables: [parcialRec] });
+    expect(Array.isArray(ds.recebiveis.allOpenInvoices)).toBe(true);
+    expect(ds.recebiveis.allOpenInvoices[0].valor).toBe(300);
+    expect(ds.recebiveis.metrics.saldoReceber).toBe(300);
+  });
+
+  it("openInvoices continua limitado a 20; allOpenInvoices não", () => {
+    const many = [];
+    for (let i = 0; i < 25; i++) many.push({
+      id: i + 1, situacao: 1, valor: 100, saldo: 100,
+      vencimento: iso(2026, 6, (i % 27) + 1), dataEmissao: iso(2026, 6, 1),
+      contato: { id: i + 1, nome: `F${i}` }, numeroDocumento: `FC ${i}`,
+    });
+    const ds = buildSalesDataset({ orders: orders2, payables: many });
+    expect(ds.fornecedores.openInvoices.length).toBe(20);
+    expect(ds.fornecedores.allOpenInvoices.length).toBe(25);
+  });
+});
