@@ -250,3 +250,214 @@ describe("buildFinancialDiagnostic — impactos individuais dos problemas", () =
     expect(ids.every((i) => i === "contas-vencidas")).toBe(true);
   });
 });
+
+describe("Score — inputs financeiros vindos da DRE central", () => {
+  const { orders } = cenarioSaudavel();
+  const metricsCom = (netResult, netMarginPct) => ({
+    profitability: { netResult, netMarginPct, availability: {} },
+  });
+
+  it("sem métricas injetadas mantém o comportamento anterior (compatibilidade)", () => {
+    const d = buildFinancialDiagnostic(orders, []);
+    expect(typeof d.score).toBe("number");
+    expect(d.naoAvaliados).toEqual([]);
+  });
+
+  it("resultado líquido NEGATIVO da DRE penaliza", () => {
+    const d = buildFinancialDiagnostic(orders, [], { financialMetrics: metricsCom(-500, -20) });
+    expect(d.penalizacoes.some((p) => p.motivo === "Resultado líquido do mês negativo")).toBe(true);
+  });
+
+  it("margem líquida baixa da DRE penaliza pelo escalão correto", () => {
+    const baixa = buildFinancialDiagnostic(orders, [], { financialMetrics: metricsCom(100, 5) });
+    expect(baixa.penalizacoes.some((p) => p.motivo === "Margem líquida do mês abaixo de 10%")).toBe(true);
+    const media = buildFinancialDiagnostic(orders, [], { financialMetrics: metricsCom(100, 15) });
+    expect(media.penalizacoes.some((p) => p.motivo === "Margem líquida do mês abaixo de 20%")).toBe(true);
+  });
+
+  it("margem líquida saudável não penaliza a rentabilidade", () => {
+    const d = buildFinancialDiagnostic(orders, [], { financialMetrics: metricsCom(1000, 30) });
+    expect(d.penalizacoes.some((p) => p.motivo.startsWith("Margem líquida"))).toBe(false);
+    expect(d.penalizacoes.some((p) => p.motivo === "Resultado líquido do mês negativo")).toBe(false);
+  });
+
+  it("AUSÊNCIA de CMV não penaliza: dimensão fica NÃO AVALIADA", () => {
+    const semCmv = { profitability: { netResult: null, netMarginPct: null, availability: {} } };
+    const d = buildFinancialDiagnostic(orders, [], { financialMetrics: semCmv });
+    // nenhuma penalização de rentabilidade
+    expect(d.penalizacoes.some((p) => p.motivo.includes("Margem"))).toBe(false);
+    expect(d.penalizacoes.some((p) => p.motivo.includes("Resultado"))).toBe(false);
+    // e fica registada como não avaliada
+    expect(d.naoAvaliados.some((n) => n.dimensao === "rentabilidade")).toBe(true);
+  });
+
+  it("ausência de fonte NUNCA baixa o score face a uma margem saudável", () => {
+    const saudavel = buildFinancialDiagnostic(orders, [], { financialMetrics: metricsCom(1000, 30) });
+    const semFonte = buildFinancialDiagnostic(orders, [], {
+      financialMetrics: { profitability: { netResult: null, netMarginPct: null, availability: {} } },
+    });
+    expect(semFonte.score).toBeGreaterThanOrEqual(saudavel.score);
+  });
+
+  it("o score continua sem histórico inventado", () => {
+    const d = buildFinancialDiagnostic(orders, [], { financialMetrics: metricsCom(1000, 30) });
+    expect(d.scorePrevious).toBeNull();
+    expect(d.evolucao).toBeNull();
+  });
+
+  it("queda de margem não gera impacto monetário", () => {
+    const d = buildFinancialDiagnostic(orders, [], { financialMetrics: metricsCom(100, 5) });
+    const ids = (d.impactBreakdown || []).map((b) => b.id);
+    expect(ids.every((i) => i === "contas-vencidas")).toBe(true);
+  });
+});
+
+describe("Diagnóstico — nenhuma afirmação vem de receitas − contas a pagar", () => {
+  const fmDe = (netResult, netMarginPct, net = 100000) => ({
+    revenue: { net }, profitability: { netResult, netMarginPct, availability: {} },
+  });
+
+  it("A. netResult POSITIVO da DRE com receita−payables negativo: manda a DRE", () => {
+    // payables enormes tornam receita − contas a pagar negativo
+    const { orders } = cenarioSaudavel();
+    const pesados = [{ id: 1, situacao: 2, valor: 9999999, dataEmissao: iso(2026, 6, 1), vencimento: iso(2026, 6, 5), contato: { id: 1, nome: "F" }, categoriaNome: "Compras de fornecedores" }];
+    const d = buildFinancialDiagnostic(orders, pesados, { financialMetrics: fmDe(5000, 25) });
+    expect(d.problemas.some((p) => p.id === "pr-resultado")).toBe(false); // DRE diz positivo
+    expect(d.resumoExecutivo).toContain("receita líquida");
+    expect(d.resumoExecutivo).not.toMatch(/com um resultado de/); // frase antiga não aparece
+  });
+
+  it("B. netResult NULL (sem CMV): nada de resultado/margem inventados", () => {
+    const { orders } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, [], { financialMetrics: fmDe(null, null) });
+    expect(d.naoAvaliados.some((n) => n.dimensao === "rentabilidade")).toBe(true);
+    expect(d.problemas.some((p) => p.id === "pr-resultado")).toBe(false);
+    expect(d.problemas.some((p) => p.id === "pr-margem")).toBe(false);
+    expect(d.acoes.some((a) => a.id === "pr-resultado" || a.id === "pr-margem")).toBe(false);
+    expect(d.resumoExecutivo).toContain("não pôde ser apurado");
+    expect(d.mudancasUltimoMes.some((m) => m.label === "Resultado")).toBe(false);
+  });
+
+  it("C. netResult NEGATIVO cria pr-resultado, com impacto null", () => {
+    const { orders } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, [], { financialMetrics: fmDe(-800, -5) });
+    const pr = d.problemas.find((p) => p.id === "pr-resultado");
+    expect(pr).toBeTruthy();
+    expect(pr.descricao).toContain("resultado líquido");
+    expect(pr.impacto).toBeNull(); // resultado negativo não é impacto recuperável
+  });
+
+  it("D. netMarginPct < 10 cria pr-margem a partir da DRE", () => {
+    const { orders } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, [], { financialMetrics: fmDe(500, 4) });
+    const pm = d.problemas.find((p) => p.id === "pr-margem");
+    expect(pm).toBeTruthy();
+    expect(pm.descricao).toContain("margem líquida");
+    expect(pm.impacto).toBeNull();
+  });
+
+  it("E. monthKey injetado manda: julho parcial nos pedidos não contamina junho", () => {
+    const orders = [
+      // NOTA: o helper iso() deste ficheiro passa o mês 0-based ao Date,
+      // portanto m:4 = maio, m:5 = junho, m:6 = julho.
+      order({ id: 1, m: 4, d: 10, total: 10000 }),  // maio
+      order({ id: 2, m: 5, d: 10, total: 12000 }),  // junho (referência)
+      order({ id: 3, m: 6, d: 2, total: 300 }),     // julho em curso
+    ];
+    const d = buildFinancialDiagnostic(orders, [], { financialMetrics: fmDe(1000, 10), monthKey: "2026-06" });
+    // crescimento compara junho vs maio (+20%), nunca julho vs junho (-97,5%)
+    const fat = d.mudancasUltimoMes.find((m) => m.label === "Faturação");
+    expect(fat.valor).toBe("+20%");
+    expect(d.problemas.some((p) => p.id === "pr-vendas")).toBe(false);
+  });
+
+  it("F. variação de resultado só com períodos comparáveis", () => {
+    const { orders } = cenarioSaudavel();
+    const base = { financialMetrics: fmDe(1000, 10), previousFinancialMetrics: fmDe(500, 6) };
+    const semComparar = buildFinancialDiagnostic(orders, [], { ...base, financialComparable: false });
+    expect(semComparar.mudancasUltimoMes.some((m) => m.label === "Resultado")).toBe(false);
+    const comparavel = buildFinancialDiagnostic(orders, [], { ...base, financialComparable: true });
+    const res = comparavel.mudancasUltimoMes.find((m) => m.label === "Resultado");
+    expect(res).toBeTruthy();
+    expect(res.valor).toBe("+100%"); // 500 -> 1000
+  });
+
+  it("F2. sem previousFinancialMetrics não há variação de resultado", () => {
+    const { orders } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, [], { financialMetrics: fmDe(1000, 10), financialComparable: true });
+    expect(d.mudancasUltimoMes.some((m) => m.label === "Resultado")).toBe(false);
+  });
+
+  it("G. sem financialMetrics o fallback antigo continua a funcionar", () => {
+    const { orders } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, []);
+    expect(d.resumoExecutivo).toContain("faturou");
+    expect(typeof d.score).toBe("number");
+    expect(d.naoAvaliados).toEqual([]);
+  });
+});
+
+describe("Concentração de cliente e moeda respeitam o mês âncora", () => {
+  // NOTA: iso() deste ficheiro é 0-based no mês => m:4 = maio, m:5 = junho, m:6 = julho.
+  const ordersTresMeses = [
+    // maio: Cliente A domina
+    order({ id: 1, m: 4, d: 5, total: 9000, cliente: "Cliente A", cid: 1 }),
+    order({ id: 2, m: 4, d: 6, total: 1000, cliente: "Outro", cid: 9 }),
+    // junho (mês âncora): Cliente B domina
+    order({ id: 3, m: 5, d: 5, total: 9500, cliente: "Cliente B", cid: 2 }),
+    order({ id: 4, m: 5, d: 6, total: 500, cliente: "Outro", cid: 9 }),
+    // julho em curso: Cliente C domina
+    order({ id: 5, m: 6, d: 2, total: 8000, cliente: "Cliente C", cid: 3 }),
+  ];
+  const fm = { revenue: { net: 9000 }, profitability: { netResult: 1000, netMarginPct: 11, availability: {} } };
+
+  it("A. concentração usa SOMENTE o mês âncora (junho)", () => {
+    const d = buildFinancialDiagnostic(ordersTresMeses, [], { financialMetrics: fm, monthKey: "2026-06" });
+    // 9500 de 10000 em junho => 95%
+    expect(d.problemas.some((p) => p.id === "pr-conc-cliente")).toBe(true);
+    const pc = d.problemas.find((p) => p.id === "pr-conc-cliente");
+    expect(pc.descricao).toContain("Cliente B");
+    expect(pc.descricao).not.toContain("Cliente A");
+    expect(pc.descricao).not.toContain("Cliente C");
+  });
+
+  it("B. pr-conc-cliente nasce do cliente dominante de junho", () => {
+    const d = buildFinancialDiagnostic(ordersTresMeses, [], { financialMetrics: fm, monthKey: "2026-06" });
+    const pc = d.problemas.find((p) => p.id === "pr-conc-cliente");
+    expect(pc.descricao).toMatch(/9[0-9](,[0-9]+)?% da faturação vem de Cliente B/);
+  });
+
+  it("C. resumo executivo refere o cliente do mês âncora", () => {
+    const d = buildFinancialDiagnostic(ordersTresMeses, [], { financialMetrics: fm, monthKey: "2026-06" });
+    expect(d.resumoExecutivo).toContain("Cliente B");
+    expect(d.resumoExecutivo).not.toContain("Cliente A");
+    expect(d.resumoExecutivo).not.toContain("Cliente C");
+  });
+
+  it("A2. mudar o mês âncora muda o cliente dominante", () => {
+    const maio = buildFinancialDiagnostic(ordersTresMeses, [], { financialMetrics: fm, monthKey: "2026-05" });
+    expect(maio.resumoExecutivo).toContain("Cliente A");
+    const julho = buildFinancialDiagnostic(ordersTresMeses, [], { financialMetrics: fm, monthKey: "2026-07" });
+    expect(julho.resumoExecutivo).toContain("Cliente C");
+  });
+
+  it("D. valores monetários usam a moeda da empresa ativa (R$), não €", () => {
+    const vencidas = [payable({ id: 1, situacao: 1, m: 3, d: 1, valor: 14000, saldo: 14000 })];
+    const d = buildFinancialDiagnostic(ordersTresMeses, vencidas, { financialMetrics: fm, monthKey: "2026-06" });
+    const texto = [
+      d.resumoExecutivo,
+      ...d.problemas.map((p) => p.descricao),
+      ...d.mudancasUltimoMes.map((m) => m.detalhe),
+    ].join(" ");
+    expect(texto).toContain("R$");
+    expect(texto).not.toContain("€");
+  });
+
+  it("E. fallback sem financialMetrics mantém a semântica antiga", () => {
+    const d = buildFinancialDiagnostic(ordersTresMeses, [], { monthKey: "2026-06" });
+    expect(d.resumoExecutivo).toContain("faturou");   // frase antiga preservada
+    expect(d.resumoExecutivo).toContain("R$");        // mas já na moeda correta
+    expect(d.naoAvaliados).toEqual([]);
+    expect(typeof d.score).toBe("number");
+  });
+});

@@ -22,10 +22,36 @@ export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+/**
+ * Converte uma data civil "YYYY-MM-DD" numa Date LOCAL, sem passar por UTC.
+ *
+ * Porquê: new Date("2026-06-01") é interpretado como meia-noite UTC. Em fusos
+ * negativos (São Paulo, UTC-3) isso resulta em 31/05 21:00 local, empurrando o
+ * primeiro dia do mês para o mês anterior. Construímos a data pelos componentes
+ * e fixamos ao meio-dia local, o que também imuniza contra transições de horário
+ * de verão (que ocorrem de madrugada).
+ *
+ * Valores com hora (ISO completo) ou Date são devolvidos sem alteração de semântica.
+ * @returns {Date|null} null quando a entrada é vazia ou não parseável.
+ */
+export function parseLocalISODate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    const [, year, month, day] = match;
+    return new Date(Number(year), Number(month) - 1, Number(day), 12, 0, 0);
+  }
+
+  const parsed = new Date(value);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+// Ponto único de conversão de datas. Delega em parseLocalISODate para que
+// "YYYY-MM-DD" nunca sofra deslocamento de fuso.
 export function toDate(value) {
-  if (value instanceof Date) return value;
-  const d = new Date(value);
-  return isNaN(d.getTime()) ? null : d;
+  return parseLocalISODate(value);
 }
 
 export function monthKey(value) {

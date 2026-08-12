@@ -23,7 +23,7 @@ import {
   monthMetrics as mockMonthMetrics,
   alerts       as mockAlerts,
 } from "../data/mockData";
-import { formatEUR, formatEURCompact } from "../lib/format";
+import { formatMoney as formatEUR, formatMoneyCompact as formatEURCompact, formatMoneyOrDash } from "../lib/currency";
 import { useFinerData } from "../context/FinerDataContext";
 import { buildCashflowForecast, hasCashflowSource } from "../utils/cashflowForecast";
 
@@ -121,6 +121,17 @@ export default function Resumo() {
   // Faturas em atraso: dos recebíveis reais (títulos abertos já vencidos), senão mock.
   // Base COMPLETA (allOpenInvoices) para o total; a exibição limita a 5 linhas.
   const hasReceivables = source === "api" && !!sales?.recebiveis;
+  // Camada financeira central (DRE): mesma fonte da Performance Financeira.
+  const fin = sales?.financeiro ?? null;
+  const fm = fin?.metrics ?? null;
+  const legendaDisp = (a) => (
+    a === "unavailable" ? "Fonte indispon\u00edvel"
+    : a === "partial" ? "Dados parciais"
+    : a === "manual" ? "Valor manual"
+    : a === "mixed" ? "Inclui valor manual"
+    : null
+  );
+
   const overdueRows = hasReceivables
     ? (sales.recebiveis.allOpenInvoices ?? sales.recebiveis.openInvoices ?? [])
         .filter((i) => i.diasAtraso > 0)
@@ -202,15 +213,45 @@ export default function Resumo() {
           demo={source === "api" && !sales?.despesas}
         />
         <MetricCard
-          label="Resultado (Mês)"
-          value={formatEUR(monthMetrics.resultado)}
-          delta={monthMetrics.resultadoDelta}
+          label={fm ? "Receita líquida (DRE)" : "Resultado (Mês)"}
+          value={fm ? formatMoneyOrDash(fm.revenue.net) : formatEUR(monthMetrics.resultado)}
+          delta={fm ? undefined : monthMetrics.resultadoDelta}
+          helper={fm ? (legendaDisp(fm.revenue.netAvailability) || `Mês de referência: ${fin.monthKey}`) : undefined}
           icon={BarChart3}
           iconBg="bg-sky-50 text-sky-600"
           tone="success"
-          demo={source === "api" && !sales?.despesas}
+          demo={!fm && source === "api" && !sales?.despesas}
         />
       </div>
+
+      {fm && (
+        <div className="card p-4 mb-6">
+          <div className="flex items-baseline justify-between mb-3">
+            <h3 className="text-sm font-semibold text-slate-800">Rentabilidade (DRE)</h3>
+            <span className="text-xs text-slate-500">
+              Mês de referência: {fin.monthKey}{fin.emCurso ? ` \u00b7 ${fin.emCurso.monthKey} em andamento` : ""}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { l: "Lucro bruto", v: fm.profitability.grossProfit, a: fm.profitability.availability.grossProfit },
+              { l: "EBITDA", v: fm.profitability.ebitda, a: fm.profitability.availability.ebitda },
+              { l: "Margem EBITDA", v: fm.profitability.ebitdaMarginPct, a: fm.profitability.availability.ebitdaMarginPct, pct: true },
+              { l: "Resultado líquido", v: fm.profitability.netResult, a: fm.profitability.availability.netResult },
+            ].map((k) => (
+              <div key={k.l}>
+                <span className="label-uppercase">{k.l}</span>
+                <p className={`mt-1 text-[17px] font-semibold tabular-nums ${k.v == null ? "text-slate-400" : "text-slate-900"}`}>
+                  {k.v == null ? "\u2014" : k.pct ? `${String(k.v).replace(".", ",")}%` : formatMoneyOrDash(k.v)}
+                </p>
+                {legendaDisp(k.a) && (
+                  <p className={`text-xs mt-0.5 ${k.v == null ? "text-amber-600" : "text-slate-500"}`}>{legendaDisp(k.a)}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Cashflow + Alertas */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6">

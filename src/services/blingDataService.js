@@ -60,6 +60,11 @@ import {
 
 import { buildSalesAlerts, buildExpenseAlerts } from "../utils/alertsEngine.js";
 import { buildFinancialDiagnostic } from "../utils/diagnosticsEngine.js";
+import { buildMonthlyDre } from "../utils/dreEngine.js";
+import {
+  buildFinancialMetrics, latestUsableFinancialMonth, buildMetricsWithComparison,
+} from "../utils/financialMetrics.js";
+import { ACTIVE_COMPANY } from "../config/company.js";
 
 // Mapeamento de estado Bling -> Finer One. Ajustar às situações reais da Overcel.
 // situacao.valor: 9 = atendido/recebido, 1 = em aberto, 12 = cancelado.
@@ -148,8 +153,9 @@ export function buildRevenueByCategoryFromOrders(orders, period = "mes") {
   const now = new Date();
   const quarterOf = (d) => Math.floor(d.getMonth() / 3);
   const inPeriod = (o) => {
-    const d = new Date(o.date);
-    if (isNaN(d.getTime())) return false;
+    // toDate trata "YYYY-MM-DD" como data local (sem deslocamento de fuso).
+    const d = toDate(o.date);
+    if (!d) return false;
     if (d.getFullYear() !== now.getFullYear()) return false;
     if (period === "mes") return d.getMonth() === now.getMonth();
     if (period === "trimestre") return quarterOf(d) === quarterOf(now);
@@ -160,8 +166,9 @@ export function buildRevenueByCategoryFromOrders(orders, period = "mes") {
 
 function pad(n) { return String(n).padStart(2, "0"); }
 function formatPtDate(value) {
-  const d = value instanceof Date ? value : new Date(value);
-  if (isNaN(d.getTime())) return "—";
+  // toDate garante que "YYYY-MM-DD" nao recua um dia em fusos negativos.
+  const d = toDate(value);
+  if (!d) return "—";
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
@@ -202,6 +209,7 @@ export function normalizePayable(raw) {
     valor: Number(raw.valor) || 0,
     dataEmissao: raw.dataEmissao || null,
     vencimentoOriginal: raw.vencimentoOriginal || null,
+    competencia: raw.competencia || null, // usado pelo motor de DRE (regime de competência)
     numeroDocumento: (raw.numeroDocumento != null) ? raw.numeroDocumento : null,
     historico: (raw.historico != null) ? raw.historico : null,
     saldo: (raw.saldo != null) ? Number(raw.saldo) : null,
@@ -277,9 +285,9 @@ function buildReceitas(orders) {
   const totalMes = totalRevenue(latestOrders);
   const totalDelta = monthOverMonthGrowth(orders) ?? 0;
 
-  const days = new Set(billable(latestOrders).map((o) => new Date(o.date).getDate()));
+  const days = new Set(billable(latestOrders).map((o) => toDate(o.date)?.getDate()).filter((d) => d != null));
   const mediaDiaria = days.size ? round2(totalMes / days.size) : 0;
-  const prevDays = new Set(billable(prevOrders).map((o) => new Date(o.date).getDate()));
+  const prevDays = new Set(billable(prevOrders).map((o) => toDate(o.date)?.getDate()).filter((d) => d != null));
   const prevMedia = prevDays.size ? totalRevenue(prevOrders) / prevDays.size : 0;
   const mediaDelta = prevMedia ? round2(((mediaDiaria - prevMedia) / prevMedia) * 100) : 0;
 
@@ -304,7 +312,7 @@ function buildReceitas(orders) {
   // Lista de receitas (exclui cancelados)
   const list = (orders || [])
     .filter((o) => o.status !== "cancelada")
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .sort((a, b) => (toDate(b.date)?.getTime() ?? 0) - (toDate(a.date)?.getTime() ?? 0))
     .map((o) => ({
       id: `r-${o.id}`,
       data: formatPtDate(o.date),
@@ -521,6 +529,31 @@ export function buildSalesDataset({ orders, payables, receivables }) {
   // Critério idêntico ao de payables: array presente (mesmo vazio) => dado real.
   // undefined/null => falha ou ausência => lado Clientes segue mock + Demo.
   const hasReceivables = Array.isArray(receivables);
+
+  // ── Camada financeira central ────────────────────────────
+  // Um só sítio escolhe o mês: o último FECHADO (métricas de fecho, diagnóstico
+  // e score). O mês em curso fica disponível à parte, para acompanhamento.
+  const coverage = ACTIVE_COMPANY.historyCoverage;
+  const payablesParaDre = hasPayables ? payables : null;
+  const mesFechado = latestUsableFinancialMonth({ orders, payables: payablesParaDre, coverage });
+  const mesEmCurso = latestUsableFinancialMonth({ orders, payables: payablesParaDre, coverage, allowPartial: true });
+  const comparacao = mesFechado
+    ? buildMetricsWithComparison({
+        orders, payables: payablesParaDre, monthKey: mesFechado,
+        previousMonthKey: prevMonthKey(mesFechado), coverage,
+      })
+    : null;
+  const financeiro = {
+    monthKey: mesFechado,
+    metrics: comparacao ? comparacao.current : null,
+    previous: comparacao ? comparacao.previous : null,
+    comparable: comparacao ? comparacao.comparable : false,
+    // Mês em curso (parcial), só para acompanhamento — nunca para comparações.
+    emCurso: (mesEmCurso && mesEmCurso !== mesFechado)
+      ? buildFinancialMetrics(buildMonthlyDre({ orders, payables: payablesParaDre, monthKey: mesEmCurso, coverage }))
+      : null,
+  };
+
   return {
     receitas: buildReceitas(orders),
     clientes: buildClientes(orders),
@@ -529,8 +562,20 @@ export function buildSalesDataset({ orders, payables, receivables }) {
     despesas: hasPayables ? buildDespesas(payables) : null, // null => Despesas usa mock
     fornecedores: hasPayables ? buildFornecedores(payables) : null, // null => Fornecedores usa mock
     recebiveis: hasReceivables ? buildRecebiveis(receivables) : null, // null => lado Clientes usa mock
-    diagnostico: hasPayables ? buildFinancialDiagnostic(orders, payables) : null, // null => tela Diagnóstico usa mock
+    diagnostico: hasPayables ? buildFinancialDiagnostic(orders, payables, {
+          financialMetrics: financeiro.metrics,
+          previousFinancialMetrics: financeiro.previous,
+          financialComparable: financeiro.comparable,
+          monthKey: financeiro.monthKey, // sincroniza o mês do diagnóstico com o da DRE
+        }) : null, // null => tela Diagnóstico usa mock
+    // Métricas financeiras centrais (DRE). Fonte única de receita, margem e
+    // resultado para Resumo, Diagnóstico e Score.
+    financeiro,
     orders, // exposto para recálculos por período no front (ex.: donut de categorias)
+    // Contas a pagar normalizadas, expostas para o motor de DRE (precisa de
+    // categoriaNome, historico e datas de competência, que despesas.list não tem).
+    // null => fonte indisponível (nunca confundir com lista real vazia).
+    payables: hasPayables ? payables : null,
   };
 }
 
