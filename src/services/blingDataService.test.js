@@ -53,6 +53,110 @@ describe("buildSalesDataset — gating de payables", () => {
   });
 });
 
+/* ====================================================================================
+ * COBERTURA PRÓPRIA DAS CONTAS A PAGAR.
+ *
+ * Pedidos e contas a pagar vêm de snapshots distintos: coverage.payables pode
+ * fechar noutro mês. O mês âncora dos alertas MENSAIS de despesas tem de seguir
+ * essa cobertura, não o mês da receita (financeiro.monthKey).
+ *
+ * Datas civis "YYYY-MM-DD" de propósito: o dia 1 tem de continuar no seu mês.
+ * ==================================================================================== */
+describe("buildSalesDataset — mês âncora das contas a pagar", () => {
+  const ord = (id, dataCivil, total) => ({
+    id, date: dataCivil, total, status: "recebida", client: { id: 1, name: "C" }, items: [],
+  });
+  const pg = (id, dataCivil, valor, categoria, fornecedor) => ({
+    id, situacao: 2, dataEmissao: dataCivil, vencimento: dataCivil,
+    valor, categoriaNome: categoria, contato: { id: fornecedor, nome: fornecedor },
+  });
+
+  const ordersMJJ = [ord(1, "2026-05-10", 50000), ord(2, "2026-06-10", 60000), ord(3, "2026-07-05", 900)];
+  // Cada mês tem uma categoria e um fornecedor próprios: o texto do alerta
+  // identifica sem ambiguidade qual mês foi escolhido.
+  const payablesMJJ = [
+    pg(1, "2026-05-01", 2000, "Serviços", "Forn A"),
+    pg(2, "2026-06-01", 9500, "Aluguel", "Forn B"),
+    pg(3, "2026-07-01", 5000, "Compras", "Forn C"),
+  ];
+  // Pedidos fechados até junho em todos os cenários; só a cobertura dos payables muda.
+  const base = { firstCompleteMonth: "2026-04", partialMonths: [], closedThroughMonth: "2026-06" };
+  const alertaDespesa = (ds, id) => ds.alertas.list.find((a) => a.id === id);
+
+  it("A. payables fechados até julho: despesas usam julho, vendas continuam em junho", () => {
+    const ds = buildSalesDataset({
+      orders: ordersMJJ, payables: payablesMJJ,
+      coverage: { ...base, payables: { closedThroughMonth: "2026-07" } },
+    });
+    expect(ds.financeiro.monthKey).toBe("2026-06");           // receita/DRE
+    expect(ds.financeiro.payables.monthKey).toBe("2026-07");  // contas a pagar
+    expect(ds.financeiro.payables.previousMonthKey).toBe("2026-06");
+    expect(alertaDespesa(ds, "d-cat-conc").description).toContain("Compras");
+    expect(alertaDespesa(ds, "d-forn-alto").description).toContain("Forn C");
+  });
+
+  it("B. payables fechados só até maio: despesas usam maio, nunca junho", () => {
+    const ds = buildSalesDataset({
+      orders: ordersMJJ, payables: payablesMJJ,
+      coverage: { ...base, payables: { closedThroughMonth: "2026-05" } },
+    });
+    expect(ds.financeiro.monthKey).toBe("2026-06");
+    expect(ds.financeiro.payables.monthKey).toBe("2026-05");
+    const cat = alertaDespesa(ds, "d-cat-conc");
+    expect(cat.description).toContain("Serviços");
+    expect(cat.description).not.toContain("Aluguel"); // junho
+    expect(cat.description).not.toContain("Compras"); // julho
+    expect(alertaDespesa(ds, "d-forn-alto").description).toContain("Forn A");
+  });
+
+  it("C. mesma cobertura para ambos: comportamento preservado (junho)", () => {
+    const ds = buildSalesDataset({ orders: ordersMJJ, payables: payablesMJJ, coverage: base });
+    expect(ds.financeiro.monthKey).toBe("2026-06");
+    expect(ds.financeiro.payables.monthKey).toBe("2026-06");
+    expect(ds.financeiro.payables.comparable).toBe(true);
+    expect(ds.financeiro.payables.partial).toBe(false);
+    expect(alertaDespesa(ds, "d-cat-conc").description).toContain("Aluguel");
+    expect(alertaDespesa(ds, "d-forn-alto").description).toContain("Forn B");
+    // Julho tem títulos e seria o "último mês com títulos": não pode ser escolhido.
+    expect(alertaDespesa(ds, "d-cat-conc").description).not.toContain("Compras");
+  });
+
+  it("D. sem payables: contexto vazio e nenhum alerta mensal de despesas", () => {
+    const ds = buildSalesDataset({ orders: ordersMJJ, payables: undefined, coverage: base });
+    expect(ds.financeiro.payables.monthKey).toBeNull();
+    expect(ds.financeiro.payables.comparable).toBe(false);
+    expect(ds.alertas.list.some((a) => a.id.startsWith("d-"))).toBe(false);
+  });
+
+  it("a comparabilidade das despesas não herda a da receita", () => {
+    const ds = buildSalesDataset({ orders: ordersMJJ, payables: payablesMJJ, coverage: base });
+    // Sem CMV nem frete, a receita líquida é indisponível => receita não comparável.
+    expect(ds.financeiro.comparable).toBe(false);
+    // As contas a pagar de maio e junho estão ambas fechadas => comparáveis.
+    expect(ds.financeiro.payables.comparable).toBe(true);
+    expect(alertaDespesa(ds, "d-subida-mes")).toBeDefined(); // 2.000 -> 9.500
+  });
+
+  it("sem nenhum mês fechado de payables, usa o parcial e declara-o", () => {
+    const ds = buildSalesDataset({
+      orders: ordersMJJ,
+      payables: [pg(1, "2026-07-01", 5000, "Compras", "Forn C")], // só julho
+      coverage: { ...base, payables: { closedThroughMonth: "2026-06" } },
+    });
+    expect(ds.financeiro.payables.monthKey).toBe("2026-07");
+    expect(ds.financeiro.payables.partial).toBe(true);
+    expect(ds.financeiro.payables.comparable).toBe(false);
+    expect(alertaDespesa(ds, "d-cat-conc").description).toContain("mês em curso");
+    expect(ds.alertas.list.some((a) => a.id === "d-subida-mes")).toBe(false);
+    expect(ds.alertas.list.some((a) => a.id === "d-cat-mom")).toBe(false);
+  });
+
+  it("sem coverage injetada usa a da empresa ativa (contrato preservado)", () => {
+    const ds = buildSalesDataset({ orders: ordersMJJ, payables: payablesMJJ });
+    expect(ds.financeiro.payables.monthKey).toBe("2026-06"); // closedThroughMonth da Overcel
+  });
+});
+
 describe("buildSalesDataset — campos mortos removidos", () => {
   it("alertas exp\u00f5e apenas { list } e o dataset n\u00e3o tem diagnostics", () => {
     const ds = buildSalesDataset({ orders, payables: payablesComItens });

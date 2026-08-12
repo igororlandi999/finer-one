@@ -5,6 +5,8 @@
 
 import {
   monthOverMonthGrowth,
+  totalRevenue,
+  ordersInMonth,
   clientConcentration,
   topClients,
   averageTicket,
@@ -14,9 +16,9 @@ import {
   round2,
   toDate,
   startOfDay,
-  eur,
   prevMonthKey,
 } from "./financialCalculations.js";
+import { formatMoney } from "../lib/currency.js";
 
 import {
   billablePayables,
@@ -32,13 +34,20 @@ function mk(id, severity, category, title, description, acao = "—") {
   return { id, severity, category, title, description, timestamp: "Hoje", acao };
 }
 
-export function buildSalesAlerts(orders) {
+/**
+ * @param {Array} orders
+ * @param {{monthKey?: string, previousMonthKey?: string, comparable?: boolean}} [opts]
+ *   Quando o mês âncora é injetado, o crescimento compara ESSE mês com o anterior
+ *   — nunca o último mês dos pedidos, que pode estar em curso. Com comparable
+ *   explicitamente false, não se afirma queda nem subida.
+ */
+export function buildSalesAlerts(orders, opts) {
   const out = [];
   const hasData = billable(orders).length > 0;
   if (!hasData) return out;
 
-  // Quebra de faturação
-  const growth = monthOverMonthGrowth(orders);
+  // Quebra de faturação: só entre períodos comparáveis.
+  const growth = growthEntrePeriodos_(orders, opts);
   if (growth !== null && growth <= -10) {
     out.push(mk("v-queda", "danger", "Faturação",
       "Quebra de faturação",
@@ -51,9 +60,10 @@ export function buildSalesAlerts(orders) {
       "Manter o ritmo comercial"));
   }
 
-  // Concentração de receita
-  const conc = clientConcentration(orders);
-  const top = topClients(orders, 1)[0];
+  // Concentração de receita: do MÊS ÂNCORA quando injetado (senão, histórico).
+  const ordersConc = (opts && opts.monthKey) ? ordersInMonth(orders, opts.monthKey) : orders;
+  const conc = clientConcentration(ordersConc);
+  const top = topClients(ordersConc, 1)[0];
   if (top && conc >= 40) {
     out.push(mk("v-conc", "danger", "Concentração",
       "Dependência de cliente",
@@ -67,7 +77,7 @@ export function buildSalesAlerts(orders) {
   }
 
   // Produto em queda (compara último mês com o anterior por produto)
-  const drop = topProductDrop(orders);
+  const drop = topProductDrop(orders, opts);
   if (drop) {
     out.push(mk("v-prod", "warning", "Produtos",
       "Produto com queda de vendas",
@@ -76,18 +86,21 @@ export function buildSalesAlerts(orders) {
   }
 
   // Ticket médio em queda
-  const ticketTrend = ticketMonthTrend(orders);
+  const ticketTrend = ticketMonthTrend(orders, opts);
   if (ticketTrend !== null && ticketTrend <= -10) {
     out.push(mk("v-ticket", "warning", "Faturação",
       "Ticket médio em queda",
       `O ticket médio recuou ${Math.abs(ticketTrend)}% face ao mês anterior.`,
       "Rever mix de produtos e descontos"));
   } else {
-    const t = averageTicket(orders);
+    // Informativo: com mês âncora injetado mostra o ticket DESSE mês; sem opts,
+    // mantém o comportamento legado (média de todo o histórico).
+    const ticketOrders = (opts && opts.monthKey) ? ordersInMonth(orders, opts.monthKey) : orders;
+    const t = averageTicket(ticketOrders);
     if (t > 0) {
       out.push(mk("v-ticket-info", "info", "Faturação",
         "Ticket médio",
-        `O valor médio por pedido está em ${t.toFixed(2)} €.`, "—"));
+        `O valor médio por pedido está em ${formatMoney(t)}.`, "—"));
     }
   }
 
@@ -106,9 +119,28 @@ export function severityCounts(list, resolvidosFallback = 0) {
   };
 }
 
-// Alertas reais derivados de contas a pagar (sales.despesas). Mesmo formato dos de vendas.
-// Sem payables billable => nenhum alerta (nao inventar).
-export function buildExpenseAlerts(payables) {
+/**
+ * Alertas reais derivados de contas a pagar (sales.despesas). Mesmo formato dos de vendas.
+ * Sem payables billable => nenhum alerta (nao inventar).
+ *
+ * Dois grupos, com regras de tempo diferentes:
+ *   OPERACIONAIS ("até hoje")  — d-vencidas, d-proximos7, d-pendentes.
+ *     Olham a situação atual dos títulos. NUNCA são ancorados no mês financeiro:
+ *     uma conta vencida hoje é um problema de hoje, mesmo que o mês fechado seja junho.
+ *   MENSAIS (fotografia de um mês) — d-subida-mes, d-cat-conc, d-forn-alto, d-cat-mom.
+ *     Sem opts, mantêm o comportamento legado (latestPayableMonth), que pode
+ *     apanhar um mês em curso. Com opts.monthKey, usam SEMPRE esse mês.
+ *
+ * @param {Array} payables
+ * @param {{monthKey?: string, previousMonthKey?: string, comparable?: boolean, partial?: boolean}} [opts]
+ *   monthKey        mês âncora das contas a pagar (não é o mês dos pedidos — ver serviço).
+ *   previousMonthKey  omitido => prevMonthKey(monthKey).
+ *   comparable      false => os alertas COMPARATIVOS (d-subida-mes, d-cat-mom) não são
+ *                   emitidos: um mês em curso não se compara com um mês fechado.
+ *   partial         true => o mês âncora ainda está em curso; os alertas de concentração
+ *                   continuam a ser emitidos, mas o texto declara a parcialidade.
+ */
+export function buildExpenseAlerts(payables, opts) {
   const out = [];
   const billables = billablePayables(payables);
   if (!billables.length) return out;
@@ -126,7 +158,7 @@ export function buildExpenseAlerts(payables) {
     const total = round2(overdue.reduce((a, p) => a + (Number(p.valor) || 0), 0));
     out.push(mk("d-vencidas", "danger", "Despesas",
       "Contas a pagar vencidas",
-      `${overdue.length} ${overdue.length === 1 ? "conta vencida" : "contas vencidas"} no total de ${eur(total)}.`,
+      `${overdue.length} ${overdue.length === 1 ? "conta vencida" : "contas vencidas"} no total de ${formatMoney(total)}.`,
       "Regularizar pagamentos em atraso"));
   }
 
@@ -136,12 +168,27 @@ export function buildExpenseAlerts(payables) {
     const total = round2(soon.reduce((a, p) => a + (Number(p.valor) || 0), 0));
     out.push(mk("d-proximos7", "warning", "Despesas",
       "Pagamentos a vencer em breve",
-      `${soon.length} ${soon.length === 1 ? "conta vence" : "contas vencem"} nos proximos 7 dias (${eur(total)}).`,
+      `${soon.length} ${soon.length === 1 ? "conta vence" : "contas vencem"} nos proximos 7 dias (${formatMoney(total)}).`,
       "Garantir tesouraria para os pagamentos"));
   }
 
+  // ── Resolução do mês dos alertas MENSAIS ────────────────────
+  // Com âncora injetada, é ela que manda; sem ela, comportamento legado.
+  const ancora = (opts && opts.monthKey) ? opts.monthKey : null;
+  const mesAlvo = ancora || latestPayableMonth(payables);
+  const mesAnterior = ancora
+    ? ((opts && opts.previousMonthKey) || prevMonthKey(ancora))
+    : prevMonthKey(mesAlvo);
+  // Só se bloqueia a comparação quando há âncora: sem opts nada muda.
+  const comparavel = ancora ? (opts.comparable !== false) : true;
+  const emCurso = !!(ancora && opts.partial);
+
   // C. Despesa mensal a subir forte vs mes anterior.
-  const mom = payableMoM(payables);
+  // Com âncora: total(mesAlvo) vs total(mesAnterior), explicitamente — payableMoM
+  // escolheria sozinha os dois últimos meses com títulos (podendo ser o parcial).
+  const mom = ancora
+    ? (comparavel ? payablesMoMEntre_(payables, mesAlvo, mesAnterior) : null)
+    : payableMoM(payables);
   if (mom !== null && mom >= 20) {
     out.push(mk("d-subida-mes", "warning", "Despesas",
       "Despesas em forte subida",
@@ -154,17 +201,16 @@ export function buildExpenseAlerts(payables) {
   if (pend.qtd >= 10) {
     out.push(mk("d-pendentes", "info", "Despesas",
       "Muitas contas pendentes",
-      `Existem ${pend.qtd} contas por pagar, no total de ${eur(pend.valor)}.`,
+      `Existem ${pend.qtd} contas por pagar, no total de ${formatMoney(pend.valor)}.`,
       "Planear a ordem de pagamentos"));
   }
 
-  // Base do mes corrente para concentracao (categoria/fornecedor).
-  const latest = latestPayableMonth(payables);
-  const monthTotal = totalPayables(payablesInMonth(payables, latest));
+  // Base do mes analisado para concentracao (categoria/fornecedor).
+  const monthTotal = totalPayables(payablesInMonth(payables, mesAlvo));
 
   // E. Categoria concentrada no mes (exclui "Sem categoria").
   if (monthTotal > 0) {
-    const cats = expenseByCategory(payablesInMonth(payables, latest))
+    const cats = expenseByCategory(payablesInMonth(payables, mesAlvo))
       .filter((c) => c.name !== "Sem categoria");
     const topCat = cats[0];
     if (topCat) {
@@ -172,7 +218,9 @@ export function buildExpenseAlerts(payables) {
       if (share >= 40) {
         out.push(mk("d-cat-conc", "warning", "Despesas",
           "Categoria de despesa concentrada",
-          `${share}% das despesas do mes estao em ${topCat.name}.`,
+          emCurso
+            ? `Até ao momento, ${share}% das despesas do mês em curso estão em ${topCat.name}.`
+            : `${share}% das despesas do mes estao em ${topCat.name}.`,
           "Avaliar dependencia desta categoria"));
       }
     }
@@ -180,7 +228,7 @@ export function buildExpenseAlerts(payables) {
 
   // F. Fornecedor com gasto alto no mes.
   if (monthTotal > 0) {
-    const inMonth = billablePayables(payablesInMonth(payables, latest));
+    const inMonth = billablePayables(payablesInMonth(payables, mesAlvo));
     const bySupplier = new Map();
     for (const p of inMonth) {
       const nome = (p.contato && p.contato.nome) || null;
@@ -194,17 +242,20 @@ export function buildExpenseAlerts(payables) {
       if (share >= 40) {
         out.push(mk("d-forn-alto", "info", "Despesas",
           "Concentracao num fornecedor",
-          `${share}% das despesas do mes sao para ${topSup.nome}.`,
+          emCurso
+            ? `Até ao momento, ${share}% das despesas do mês em curso são para ${topSup.nome}.`
+            : `${share}% das despesas do mes sao para ${topSup.nome}.`,
           "Diversificar ou renegociar com o fornecedor"));
       }
     }
   }
 
   // G. Categoria de despesa em forte subida vs mes anterior.
-  const prevKey = prevMonthKey(latest);
-  if (latest && prevKey) {
-    const atuais = expenseByCategory(payablesInMonth(payables, latest));
-    const antesMap = new Map(expenseByCategory(payablesInMonth(payables, prevKey)).map((c) => [c.name, c.value]));
+  // Comparativo: com âncora usa monthKey vs previousMonthKey e cala-se quando os
+  // dois meses não são comparáveis (parcial vs fechado nunca vira conclusão).
+  if (mesAlvo && mesAnterior && comparavel) {
+    const atuais = expenseByCategory(payablesInMonth(payables, mesAlvo));
+    const antesMap = new Map(expenseByCategory(payablesInMonth(payables, mesAnterior)).map((c) => [c.name, c.value]));
     let pior = null;
     for (const c of atuais) {
       if (c.name === "Sem categoria") continue;
@@ -216,7 +267,7 @@ export function buildExpenseAlerts(payables) {
     if (pior) {
       out.push(mk("d-cat-mom", "warning", "Despesas",
         "Categoria de despesa em forte subida",
-        `A categoria "${pior.name}" subiu ${pior.growth}% face ao mes anterior (${eur(pior.value)} este mes).`,
+        `A categoria "${pior.name}" subiu ${pior.growth}% face ao mes anterior (${formatMoney(pior.value)} este mes).`,
         "Rever gastos e contratos desta categoria"));
     }
   }
@@ -226,26 +277,48 @@ export function buildExpenseAlerts(payables) {
 
 // ── auxiliares internos ───────────────────────────────────────
 
-function ticketMonthTrend(orders) {
+/* Variação % das despesas entre dois meses EXPLÍCITOS. Reutiliza payablesInMonth
+ * e totalPayables — a regra de quais títulos contam (cancelados fora) vive lá,
+ * não é duplicada aqui. Sem base anterior positiva, não há conclusão. */
+function payablesMoMEntre_(payables, mesAtual, mesAnterior) {
+  if (!mesAtual || !mesAnterior) return null;
+  const atual = totalPayables(payablesInMonth(payables, mesAtual));
+  const anterior = totalPayables(payablesInMonth(payables, mesAnterior));
+  if (!(anterior > 0)) return null;
+  return round2(((atual - anterior) / anterior) * 100);
+}
+
+/* Resolve o par de meses a comparar. Com opts.monthKey, usa SEMPRE esse mês e o
+ * anterior; com comparable === false, devolve null (nada é afirmado). Sem opts,
+ * mantém o comportamento antigo (dois últimos meses com receita). */
+function paresDeMeses_(orders, opts) {
+  if (opts && opts.monthKey) {
+    if (opts.comparable === false) return null;
+    return { lastKey: opts.monthKey, prevKey: opts.previousMonthKey || prevMonthKey(opts.monthKey) };
+  }
   const months = revenueByMonth(orders);
   if (months.length < 2) return null;
-  const lastKey = months[months.length - 1].month;
-  const prevKey = months[months.length - 2].month;
-  const lastList = (orders || []).filter((o) => o.status !== "cancelada" && keyOf(o.date) === lastKey);
-  const prevList = (orders || []).filter((o) => o.status !== "cancelada" && keyOf(o.date) === prevKey);
-  const lastT = lastList.length ? sum(lastList) / lastList.length : 0;
-  const prevT = prevList.length ? sum(prevList) / prevList.length : 0;
+  return { lastKey: months[months.length - 1].month, prevKey: months[months.length - 2].month };
+}
+
+function ticketMonthTrend(orders, opts) {
+  const par = paresDeMeses_(orders, opts);
+  if (!par) return null;
+  const { lastKey, prevKey } = par;
+  const lastList = ordersInMonth(orders, lastKey);
+  const prevList = ordersInMonth(orders, prevKey);
+  const lastT = averageTicket(lastList);
+  const prevT = averageTicket(prevList);
   if (prevT === 0) return null;
   return Math.round(((lastT - prevT) / prevT) * 1000) / 10;
 }
 
-function topProductDrop(orders) {
-  const months = revenueByMonth(orders);
-  if (months.length < 2) return null;
-  const lastKey = months[months.length - 1].month;
-  const prevKey = months[months.length - 2].month;
-  const last = revenueByProduct((orders || []).filter((o) => keyOf(o.date) === lastKey));
-  const prev = revenueByProduct((orders || []).filter((o) => keyOf(o.date) === prevKey));
+function topProductDrop(orders, opts) {
+  const par = paresDeMeses_(orders, opts);
+  if (!par) return null;
+  const { lastKey, prevKey } = par;
+  const last = revenueByProduct(ordersInMonth(orders, lastKey));
+  const prev = revenueByProduct(ordersInMonth(orders, prevKey));
   const prevMap = new Map(prev.map((p) => [p.id, p.value]));
   let worst = null;
   for (const p of last) {
@@ -257,11 +330,76 @@ function topProductDrop(orders) {
   return worst;
 }
 
-function keyOf(date) {
-  const d = date instanceof Date ? date : new Date(date);
-  if (isNaN(d.getTime())) return null;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+/* NOTA: este ficheiro NÃO tem parser de datas próprio. Existiu aqui um keyOf()
+ * que fazia new Date(date) — com "YYYY-MM-DD" isso é lido como meia-noite UTC e,
+ * em São Paulo (UTC-3), 2026-06-01 caía em maio. A conversão de datas civis é
+ * responsabilidade única de financialCalculations (parseLocalISODate/monthKey),
+ * consumida aqui através de ordersInMonth(). Não reintroduzir um segundo parser. */
+
+/* ====================================================================================
+ * Crescimento entre o mês âncora e o anterior. Sem mês injetado, mantém o
+ * comportamento antigo (compatibilidade). Com comparable === false, devolve null:
+ * um mês em curso não produz afirmação categórica de queda ou subida.
+ * ==================================================================================== */
+function growthEntrePeriodos_(orders, opts) {
+  if (!opts || !opts.monthKey) return monthOverMonthGrowth(orders);
+  if (opts.comparable === false) return null;
+  const prevKey = opts.previousMonthKey || prevMonthKey(opts.monthKey);
+  const atual = totalRevenue(ordersInMonth(orders, opts.monthKey));
+  const anterior = totalRevenue(ordersInMonth(orders, prevKey));
+  if (!(anterior > 0)) return null;
+  return Math.round(((atual - anterior) / anterior) * 100);
 }
-function sum(list) {
-  return list.reduce((a, o) => a + (Number(o.total) || 0), 0);
+
+/* ====================================================================================
+ * ALERTAS FINANCEIROS (DRE) — leem SEMPRE financialMetrics; nunca recalculam.
+ *
+ * Regras desta fase — apenas duas, ambas de sinal (não de limiar arbitrário):
+ *   - resultado líquido (após retiradas dos sócios) < 0;
+ *   - EBITDA < 0 — regra NOVA nesta fase, documentada como tal.
+ * Não existe alerta de margem líquida: ver nota dentro da função.
+ *
+ * Regras de disponibilidade:
+ *   - métrica null/unavailable  -> nenhum alerta (ausência de fonte nunca vira mau desempenho);
+ *   - partial                   -> sem afirmação categórica de comparação entre períodos;
+ *   - manual/mixed              -> alerta permitido, com a origem indicada no texto.
+ * Impacto monetário é SEMPRE null: margem e resultado não são valores recuperáveis.
+ * ==================================================================================== */
+export function buildFinancialAlerts({ financialMetrics, monthKey } = {}) {
+  const out = [];
+  const fm = financialMetrics;
+  if (!fm) return out;
+
+  const prof = fm.profitability || {};
+  const disp = prof.availability || {};
+  const manual = (a) => (a === "manual" || a === "mixed" ? " (inclui valor manual)" : "");
+  const utilizavel = (a) => a === "real" || a === "manual" || a === "mixed" || a === "partial";
+
+  // Resultado líquido negativo (limiar do score: < 0)
+  if (prof.netResult != null && utilizavel(disp.netResult) && prof.netResult < 0) {
+    out.push(mk("f-resultado", "danger", "Rentabilidade",
+      "Resultado líquido após retiradas negativo",
+      `O resultado líquido após as retiradas dos sócios${monthKey ? `, em ${monthKey},` : ""} foi de ${formatMoney(prof.netResult)}${manual(disp.netResult)}.`,
+      "Rever estrutura de custos e preços"));
+  }
+
+  // NOTA: não existe alerta de margem líquida. A margem líquida é apurada DEPOIS
+  // das retiradas dos sócios, pelo que um limiar sobre ela faria uma empresa
+  // operacionalmente rentável parecer pouco rentável apenas por os sócios terem
+  // levantado o resultado. Um alerta sobre margem EBITDA exigiria um limiar novo,
+  // que não foi aprovado nesta fase.
+
+  // EBITDA negativo — REGRA NOVA nesta fase (não existia equivalente anterior).
+  if (prof.ebitda != null && utilizavel(disp.ebitda) && prof.ebitda < 0) {
+    out.push(mk("f-ebitda", "danger", "Rentabilidade",
+      "EBITDA negativo",
+      `O EBITDA${monthKey ? ` de ${monthKey}` : ""} foi de ${formatMoney(prof.ebitda)}${manual(disp.ebitda)}.`,
+      "Rever despesas operacionais e margem bruta"));
+  }
+
+  return out;
+}
+
+function pctTxt_(v) {
+  return String(v).replace(".", ",");
 }

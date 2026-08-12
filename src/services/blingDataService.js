@@ -58,11 +58,12 @@ import {
   clientsByOpenBalance,
 } from "../utils/receivableCalculations.js";
 
-import { buildSalesAlerts, buildExpenseAlerts } from "../utils/alertsEngine.js";
+import { buildSalesAlerts, buildExpenseAlerts, buildFinancialAlerts } from "../utils/alertsEngine.js";
 import { buildFinancialDiagnostic } from "../utils/diagnosticsEngine.js";
-import { buildMonthlyDre } from "../utils/dreEngine.js";
+import { buildMonthlyDre, payablesCoverage } from "../utils/dreEngine.js";
 import {
   buildFinancialMetrics, latestUsableFinancialMonth, buildMetricsWithComparison,
+  canComparePeriods,
 } from "../utils/financialMetrics.js";
 import { ACTIVE_COMPANY } from "../config/company.js";
 
@@ -383,8 +384,35 @@ function buildResumo(orders, payables) {
   return { metrics };
 }
 
-function buildAlertas(orders, payables) {
-  const list = [...buildSalesAlerts(orders), ...buildExpenseAlerts(payables || [])];
+/**
+ * Alertas: operacionais (fontes próprias) + financeiros (DRE central).
+ * O mês âncora e a comparabilidade vêm da camada financeira — os alertas não
+ * escolhem meses nem recalculam finanças.
+ *
+ * Os alertas MENSAIS de despesas usam `financeiro.payables`, que tem cobertura
+ * própria (coverage.payables) e disponibilidade própria (availability.
+ * operatingExpenses). Nunca `financeiro.monthKey` nem `financeiro.comparable`:
+ * esses são o veredito da RECEITA (buildMetricsWithComparison compara
+ * availability.revenueNet) e podem divergir do lado das contas a pagar.
+ * Os alertas operacionais (vencidas, a vencer, pendentes) não são ancorados.
+ */
+function buildAlertas(orders, payables, financeiro) {
+  const fin = financeiro || null;
+  const finPag = (fin && fin.payables) || null;
+  const list = [
+    ...buildSalesAlerts(orders, fin ? {
+      monthKey: fin.monthKey,
+      previousMonthKey: fin.previous ? fin.previous.monthKey : null,
+      comparable: fin.comparable,
+    } : undefined),
+    ...buildExpenseAlerts(payables || [], finPag ? {
+      monthKey: finPag.monthKey,
+      previousMonthKey: finPag.previousMonthKey,
+      comparable: finPag.comparable,
+      partial: finPag.partial,
+    } : undefined),
+    ...buildFinancialAlerts({ financialMetrics: fin ? fin.metrics : null, monthKey: fin ? fin.monthKey : null }),
+  ];
   return { list };
 }
 
@@ -521,7 +549,7 @@ function buildRecebiveis(receivables) {
   return { metrics, top, openInvoices, allOpenInvoices: allOpen };
 }
 
-export function buildSalesDataset({ orders, payables, receivables }) {
+export function buildSalesDataset({ orders, payables, receivables, coverage: coverageOverride }) {
   // Critério único de dados reais de contas a pagar: array presente (mesmo vazio).
   // undefined/null => falha ou ausência => telas usam mock + Demo.
   // [] => dado real com zero títulos => zeros reais, sem selo.
@@ -533,7 +561,7 @@ export function buildSalesDataset({ orders, payables, receivables }) {
   // ── Camada financeira central ────────────────────────────
   // Um só sítio escolhe o mês: o último FECHADO (métricas de fecho, diagnóstico
   // e score). O mês em curso fica disponível à parte, para acompanhamento.
-  const coverage = ACTIVE_COMPANY.historyCoverage;
+  const coverage = coverageOverride || ACTIVE_COMPANY.historyCoverage;
   const payablesParaDre = hasPayables ? payables : null;
   const mesFechado = latestUsableFinancialMonth({ orders, payables: payablesParaDre, coverage });
   const mesEmCurso = latestUsableFinancialMonth({ orders, payables: payablesParaDre, coverage, allowPartial: true });
@@ -543,6 +571,44 @@ export function buildSalesDataset({ orders, payables, receivables }) {
         previousMonthKey: prevMonthKey(mesFechado), coverage,
       })
     : null;
+
+  /* ── Mês âncora PRÓPRIO das contas a pagar ───────────────────
+   * mesFechado é o mês da RECEITA/DRE. Pedidos e contas a pagar vêm de snapshots
+   * distintos e coverage.payables pode fechar noutro mês (Fase 2), pelo que os
+   * alertas mensais de despesas não podem herdar o mês da receita: com payables
+   * fechados até julho ficariam presos a junho; fechados só até maio, afirmariam
+   * junho sem cobertura.
+   *
+   * A escolha reutiliza os helpers existentes, sem reimplementar coverage:
+   *   - payablesCoverage(coverage) aplica a herança de coverage.payables;
+   *   - latestUsableFinancialMonth SEM orders percorre apenas os meses que têm
+   *     contas a pagar (availableDreMonths) e aceita o último cuja fonte esteja
+   *     fechada. Sem nenhum mês fechado, aceita o último parcial — assinalado em
+   *     `partial`, que faz os alertas declararem o mês em curso e calarem os
+   *     comparativos, em vez de cair no "último mês com títulos".
+   */
+  const coveragePayables = payablesCoverage(coverage);
+  const mesPayablesFechado = hasPayables
+    ? latestUsableFinancialMonth({ payables: payablesParaDre, coverage: coveragePayables })
+    : null;
+  const mesPayables = mesPayablesFechado
+    || (hasPayables
+      ? latestUsableFinancialMonth({ payables: payablesParaDre, coverage: coveragePayables, allowPartial: true })
+      : null);
+  const mesPayablesAnterior = mesPayables ? prevMonthKey(mesPayables) : null;
+  // Disponibilidade das DESPESAS (nunca a da receita): availability.operatingExpenses.
+  const dispOpex = (mk) => (mk
+    ? buildMonthlyDre({ orders, payables: payablesParaDre, monthKey: mk, coverage }).availability.operatingExpenses
+    : null);
+  const dispPayablesAtual = dispOpex(mesPayables);
+  const financeiroPayables = {
+    monthKey: mesPayables,
+    previousMonthKey: mesPayablesAnterior,
+    comparable: canComparePeriods(dispPayablesAtual, dispOpex(mesPayablesAnterior)),
+    partial: dispPayablesAtual === "partial",
+    availability: dispPayablesAtual,
+  };
+
   const financeiro = {
     monthKey: mesFechado,
     metrics: comparacao ? comparacao.current : null,
@@ -552,13 +618,15 @@ export function buildSalesDataset({ orders, payables, receivables }) {
     emCurso: (mesEmCurso && mesEmCurso !== mesFechado)
       ? buildFinancialMetrics(buildMonthlyDre({ orders, payables: payablesParaDre, monthKey: mesEmCurso, coverage }))
       : null,
+    // Contexto das contas a pagar, com cobertura própria (pode divergir de monthKey).
+    payables: financeiroPayables,
   };
 
   return {
     receitas: buildReceitas(orders),
     clientes: buildClientes(orders),
     resumo: buildResumo(orders, payables),
-    alertas: buildAlertas(orders, payables),
+    alertas: buildAlertas(orders, payables, financeiro),
     despesas: hasPayables ? buildDespesas(payables) : null, // null => Despesas usa mock
     fornecedores: hasPayables ? buildFornecedores(payables) : null, // null => Fornecedores usa mock
     recebiveis: hasReceivables ? buildRecebiveis(receivables) : null, // null => lado Clientes usa mock

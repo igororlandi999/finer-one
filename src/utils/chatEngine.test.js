@@ -91,3 +91,110 @@ describe("boas-vindas", () => {
     expect(w.content).toMatch(/contas a pagar/i);
   });
 });
+
+describe("Chat — respostas a partir da DRE central", () => {
+  const finDe = (over = {}) => ({
+    monthKey: "2026-06",
+    metrics: {
+      monthKey: "2026-06",
+      revenue: { net: 175566.72, gross: 206227.15 },
+      cmv: { value: 116039.70, pctOfNetRevenue: 66.09 },
+      operatingExpenses: { total: 8406.68, pctOfNetRevenue: 4.79 },
+      profitability: {
+        netResult: 522.50, netMarginPct: 0.30,
+        ebitda: 51120.34, ebitdaMarginPct: 29.12,
+        grossProfit: 59527.02, grossMarginPct: 33.91,
+        availability: {},
+      },
+      ...over,
+    },
+    previous: null, comparable: false, emCurso: null,
+  });
+  const salesCom = (fin) => ({ ...salesFixture, financeiro: fin });
+
+  it("A. 'qual foi o meu resultado?' responde o netResult da DRE e informa o mês", () => {
+    const r = answerQuestion("qual foi o meu resultado?", salesCom(finDe()));
+    expect(r.content).toContain("2026-06");
+    expect(r.content).toContain("522,50");
+    expect(r.content).toContain("resultado líquido");
+  });
+
+  it("B. sem CMV não responde pseudo-resultado e explica o limite", () => {
+    const semCmv = finDe({ profitability: { netResult: null, netMarginPct: null, ebitda: null, availability: {} } });
+    const r = answerQuestion("qual foi o meu lucro?", salesCom(semCmv));
+    expect(r.content).toContain("não pode ser apurado");
+    expect(r.content).toContain("CMV");
+    expect(r.content).toContain("175.566,72"); // dá o que sabe: receita líquida
+    expect(r.content).not.toMatch(/resultado líquido foi de/);
+  });
+
+  it("C. 'qual a minha margem?' usa netMarginPct", () => {
+    const r = answerQuestion("qual a minha margem?", salesCom(finDe()));
+    expect(r.content).toContain("margem líquida");
+    expect(r.content).toContain("0,3%");
+  });
+
+  it("D. 'qual o meu ebitda?' usa o EBITDA da DRE", () => {
+    const r = answerQuestion("qual o meu ebitda?", salesCom(finDe()));
+    expect(r.content).toContain("51.120,34");
+    expect(r.content).toContain("29,12%");
+  });
+
+  it("E. 'qual a minha receita líquida?' usa a receita líquida", () => {
+    const r = answerQuestion("qual a minha receita liquida?", salesCom(finDe()));
+    expect(r.content).toContain("175.566,72");
+  });
+
+  it("F. 'quanto tenho a pagar?' usa contas a pagar, não a DRE", () => {
+    const r = answerQuestion("quanto tenho a pagar?", salesCom(finDe()));
+    expect(r.content).toContain("contas a pagar");
+    expect(r.content).toContain("tesouraria");
+    expect(r.content).not.toContain("8.406,68"); // não é a despesa operacional da DRE
+  });
+
+  it("G. 'quanto gastei?' deixa explícito o conceito usado", () => {
+    const r = answerQuestion("quanto gastei?", salesCom(finDe()));
+    expect(r.content).toMatch(/contas a pagar|despesas operacionais/);
+  });
+
+  it("G2. 'qual a minha despesa operacional?' usa a DRE e dá o peso", () => {
+    const r = answerQuestion("qual a minha despesa operacional?", salesCom(finDe()));
+    expect(r.content).toContain("8.406,68");
+    expect(r.content).toContain("4,79%");
+  });
+
+  it("H. pergunta sobre o mês em curso identifica que está em andamento", () => {
+    const fin = { ...finDe(), emCurso: { monthKey: "2026-07", revenue: { net: 30000 }, profitability: {} } };
+    const r = answerQuestion("como está o mês atual?", salesCom(fin));
+    expect(r.content).toContain("2026-07");
+    expect(r.content).toContain("andamento");
+    expect(r.content).toContain("não são diretamente comparáveis");
+  });
+
+  it("I. não afirma queda categórica com mês parcial", () => {
+    const fin = { ...finDe(), emCurso: { monthKey: "2026-07", revenue: { net: 30000 }, profitability: {} } };
+    const r = answerQuestion("como está o mês em curso?", salesCom(fin));
+    expect(r.content).not.toMatch(/caiu \d|desceu \d|queda de \d/);
+  });
+
+  it("J. moeda em R$, sem qualquer €", () => {
+    const perguntas = ["qual foi o meu resultado?", "qual a minha margem?", "qual o meu ebitda?", "quanto tenho a pagar?"];
+    for (const p of perguntas) {
+      const r = answerQuestion(p, salesCom(finDe()));
+      expect(r.content).not.toContain("€");
+    }
+    expect(answerQuestion("qual foi o meu resultado?", salesCom(finDe())).content).toContain("R$");
+  });
+
+  it("K. null nunca vira zero", () => {
+    const nulo = finDe({ revenue: { net: null, gross: null }, profitability: { netResult: null, netMarginPct: null, ebitda: null, availability: {} } });
+    const r = answerQuestion("qual a minha receita liquida?", salesCom(nulo));
+    expect(r.content).toContain("indisponível");
+    expect(r.content).not.toMatch(/R\$\s*0,00/);
+  });
+
+  it("sem camada financeira não inventa resultado", () => {
+    const r = answerQuestion("qual foi o meu resultado?", { ...salesFixture, financeiro: null });
+    expect(r.content).toContain("não posso apurar");
+  });
+});

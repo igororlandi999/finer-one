@@ -56,6 +56,9 @@ export function answerQuestion(question, sales) {
   const q = norm(question);
   const d = sales?.diagnostico ?? null;
   const r = sales?.resumo?.metrics ?? null;
+  // Camada financeira central (DRE): mesma verdade da Performance/Resumo/Diagnóstico.
+  const fin = sales?.financeiro ?? null;
+  const fm = fin?.metrics ?? null;
   const f = sales?.fornecedores ?? null;
   const c = sales?.clientes ?? null;
   const alerts = sales?.alertas?.list ?? null;
@@ -89,11 +92,11 @@ export function answerQuestion(question, sales) {
     return {
       content:
         `Contas a pagar vencidas entre os títulos em aberto mais próximos do vencimento` +
-        ` (${overdue.length} ${overdue.length === 1 ? "título" : "títulos"}, ${eur(total)}` +
+        ` (${overdue.length} ${overdue.length === 1 ? "título" : "títulos"}, ${formatMoney(total)}` +
         `${shown.length < overdue.length ? `; a mostrar ${shown.length}` : ""}):`,
       table: {
         headers: ["Fornecedor", "Vencimento", "Valor", "Dias"],
-        rows: shown.map((i) => [i.fornecedor, i.vencimento, eur(i.valor), `${i.diasAtraso}`]),
+        rows: shown.map((i) => [i.fornecedor, i.vencimento, formatMoney(i.valor), `${i.diasAtraso}`]),
       },
       followUp: "A lista completa está em Clientes e Fornecedores.",
     };
@@ -161,8 +164,8 @@ export function answerQuestion(question, sales) {
     const cats = (dep.byCategory || []).slice(0, 8);
     if (!cats.length) return { content: "Não há despesas registadas no mês em análise." };
     return {
-      content: `Despesas do mês por categoria (total ${eur(dep.metrics?.totalMes)}):`,
-      table: { headers: ["Categoria", "Valor"], rows: cats.map((x) => [x.name, eur(x.value)]) },
+      content: `Despesas do mês por categoria (total ${formatMoney(dep.metrics?.totalMes)}):`,
+      table: { headers: ["Categoria", "Valor"], rows: cats.map((x) => [x.name, formatMoney(x.value)]) },
     };
   }
 
@@ -173,26 +176,60 @@ export function answerQuestion(question, sales) {
     if (!top.length) return { content: "Não há fornecedores com saldo em aberto neste momento." };
     return {
       content:
-        `Fornecedores com maior saldo em aberto — total a pagar de ${eur(f.metrics?.saldoPagar)} ` +
+        `Fornecedores com maior saldo em aberto — total a pagar de ${formatMoney(f.metrics?.saldoPagar)} ` +
         `em ${f.metrics?.faturasAbertasPagar} ${f.metrics?.faturasAbertasPagar === 1 ? "fatura" : "faturas"}:`,
       table: {
         headers: ["Fornecedor", "Faturas em aberto", "Saldo a pagar"],
-        rows: top.map((s) => [s.nome, `${s.faturasAbertas}`, eur(s.saldo)]),
+        rows: top.map((s) => [s.nome, `${s.faturasAbertas}`, formatMoney(s.saldo)]),
       },
     };
   }
 
   // ── Resultado / receitas / despesas do mês ──
-  if (hasAny(q, ["resultado", "lucro", "receita", "faturacao", "faturei", "ganh", "despesa"])) {
+  // ── Mês em curso: só quando a pergunta é explicitamente sobre ele ──
+  if (fin?.emCurso && hasAny(q, ["em curso", "andamento", "este mes", "mes atual", "mes corrente"])) {
+    const ec = fin.emCurso;
+    return {
+      content: `${ec.monthKey} ainda está em andamento, por isso os valores são parciais e não são diretamente comparáveis com um mês fechado. ` +
+        `Até agora, a receita líquida é de ${valorOuIndisponivel(ec.revenue.net)}.`,
+      followUp: `Para números fechados, pergunta pelo mês de referência (${fin.monthKey}).`,
+    };
+  }
+
+  // ── Contas a pagar (visão financeira/tesouraria, NÃO é despesa operacional da DRE) ──
+  if (hasAny(q, ["a pagar", "tenho a pagar", "contas a pagar", "por pagar"])) {
+    if (!r || typeof r.despesas !== "number") {
+      return { content: "Ainda não tenho as contas a pagar reais carregadas nesta sessão." };
+    }
+    return {
+      content: `Em contas a pagar do mês em análise: ${formatMoney(r.despesas)}. ` +
+        "Este valor é a visão de tesouraria (títulos a pagar), diferente das despesas operacionais da demonstração de resultados.",
+    };
+  }
+
+  // ── Rentabilidade e linhas da DRE ──
+  if (hasAny(q, ["resultado", "lucro", "margem", "rentabilid", "ebitda", "receita liquida", "receita líquida", "cmv", "custo das mercadorias", "despesa operacional", "despesas operacionais"])) {
+    if (!fm) {
+      if (!r) return { content: "Ainda não tenho dados reais carregados nesta sessão." };
+      return {
+        content: "Ainda não tenho a demonstração de resultados desta sessão, por isso não posso apurar resultado ou margem com segurança.",
+        metrics: monthMetricsCards(r) || undefined,
+      };
+    }
+    return respostaDre_(q, fm, fin);
+  }
+
+  // ── Faturação (receita bruta) ──
+  if (hasAny(q, ["receita", "faturacao", "faturei", "ganh", "despesa", "gastei", "gasto"])) {
     if (!r) return { content: "Ainda não tenho dados reais carregados nesta sessão." };
     const cards = monthMetricsCards(r);
     const extra = typeof r.despesas !== "number"
       ? " As despesas reais ainda não estão disponíveis nesta sessão, por isso mostro apenas as receitas."
-      : "";
+      : " O valor de despesas refere-se a contas a pagar do mês, não às despesas operacionais da demonstração de resultados.";
     return {
       content: "Assim está o mês em análise, com base nos dados reais:" + extra,
       metrics: cards || undefined,
-      followUp: 'Para contexto completo, pergunta "A minha empresa está saudável?".',
+      followUp: 'Para rentabilidade, pergunta "qual foi o meu resultado líquido?".',
     };
   }
 
@@ -204,7 +241,7 @@ export function answerQuestion(question, sales) {
       content: `Principais clientes por faturação.${conc}`,
       table: {
         headers: ["#", "Cliente", "Pedidos", "Faturação"],
-        rows: c.top.slice(0, 6).map((t, i) => [`${i + 1}`, t.nome, `${t.faturasAbertas}`, eur(t.saldo)]),
+        rows: c.top.slice(0, 6).map((t, i) => [`${i + 1}`, t.nome, `${t.faturasAbertas}`, formatMoney(t.saldo)]),
       },
     };
   }
@@ -232,6 +269,7 @@ function norm(s) {
   return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 import { eur, pct } from "./financialCalculations.js";
+import { formatMoney } from "../lib/currency.js";
 
 function hasAny(q, words) {
   return words.some((w) => q.includes(w));
@@ -243,20 +281,79 @@ function deltaStr(dlt) {
 function monthMetricsCards(r) {
   if (!r) return null;
   const cards = [{
-    label: "Receitas (mês)", value: eur(r.receitas),
+    label: "Receitas (mês)", value: formatMoney(r.receitas),
     delta: deltaStr(r.receitasDelta), tone: (r.receitasDelta ?? 0) >= 0 ? "success" : "danger",
   }];
   if (typeof r.despesas === "number") {
     cards.push({
-      label: "Despesas (mês)", value: eur(r.despesas),
+      label: "Despesas (mês)", value: formatMoney(r.despesas),
       delta: deltaStr(r.despesasDelta), tone: typeof r.despesasDelta === "number" && r.despesasDelta > 0 ? "danger" : "success",
     });
   }
   if (typeof r.resultado === "number") {
     cards.push({
-      label: "Resultado (mês)", value: eur(r.resultado),
+      label: "Resultado (mês)", value: formatMoney(r.resultado),
       delta: deltaStr(r.resultadoDelta), tone: r.resultado >= 0 ? "success" : "danger",
     });
   }
   return cards;
+}
+
+/* ====================================================================================
+ * Respostas determinísticas a partir da DRE central. Nunca recalculam finanças.
+ * null é ausência de fonte: responde-se o limite, nunca um número substituto.
+ * ==================================================================================== */
+function valorOuIndisponivel(v) {
+  return v == null ? "indisponível" : formatMoney(v);
+}
+
+function pctOuIndisponivel(v) {
+  return v == null ? "indisponível" : `${String(v).replace(".", ",")}%`;
+}
+
+function respostaDre_(q, fm, fin) {
+  const mes = fin && fin.monthKey ? fin.monthKey : "mês de referência";
+  const p = fm.profitability || {};
+
+  const pedeMargem = hasAny(q, ["margem", "rentabilid"]);
+  const pedeEbitda = hasAny(q, ["ebitda"]);
+  const pedeReceitaLiq = hasAny(q, ["receita liquida", "receita líquida"]);
+  const pedeCmv = hasAny(q, ["cmv", "custo das mercadorias", "peso dos custos"]);
+  const pedeOpex = hasAny(q, ["despesa operacional", "despesas operacionais"]);
+
+  if (pedeReceitaLiq) {
+    return { content: `Em ${mes}, a receita líquida foi de ${valorOuIndisponivel(fm.revenue.net)}.` };
+  }
+  if (pedeEbitda) {
+    if (p.ebitda == null) {
+      return { content: `Em ${mes}, o EBITDA não pode ser apurado com segurança porque o CMV ainda não está disponível. A receita líquida do período foi de ${valorOuIndisponivel(fm.revenue.net)}.` };
+    }
+    return { content: `Em ${mes}, o EBITDA foi de ${formatMoney(p.ebitda)}, com margem EBITDA de ${pctOuIndisponivel(p.ebitdaMarginPct)}.` };
+  }
+  if (pedeCmv) {
+    if (fm.cmv.value == null) {
+      return { content: "O CMV ainda não tem fonte automática, por isso o peso dos custos não pode ser apurado nesta sessão." };
+    }
+    return { content: `Em ${mes}, o CMV foi de ${formatMoney(fm.cmv.value)}, o que representa ${pctOuIndisponivel(fm.cmv.pctOfNetRevenue)} da receita líquida.` };
+  }
+  if (pedeOpex) {
+    return { content: `Em ${mes}, as despesas operacionais da demonstração de resultados foram de ${valorOuIndisponivel(fm.operatingExpenses.total)}, ou seja ${pctOuIndisponivel(fm.operatingExpenses.pctOfNetRevenue)} da receita líquida.` };
+  }
+  if (pedeMargem) {
+    if (p.netMarginPct == null) {
+      return { content: `Em ${mes}, a margem líquida não pode ser apurada com segurança porque o CMV ainda não está disponível. A receita líquida do período foi de ${valorOuIndisponivel(fm.revenue.net)}.` };
+    }
+    return { content: `Em ${mes}, a margem líquida foi de ${pctOuIndisponivel(p.netMarginPct)}, sobre uma receita líquida de ${valorOuIndisponivel(fm.revenue.net)}.` };
+  }
+
+  // resultado / lucro
+  if (p.netResult == null) {
+    return {
+      content: `Em ${mes}, o resultado líquido não pode ser apurado com segurança porque o CMV ainda não está disponível. ` +
+        `A receita líquida do período foi de ${valorOuIndisponivel(fm.revenue.net)}.`,
+    };
+  }
+  return {
+    content: `Em ${mes}, o resultado líquido foi de ${formatMoney(p.netResult)}, com margem líquida de ${pctOuIndisponivel(p.netMarginPct)}.`,
+  };
 }

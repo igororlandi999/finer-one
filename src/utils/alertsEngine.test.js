@@ -1,7 +1,8 @@
 // Testes dos alertas reais. Data simulada fixa: "hoje" = 15/07/2026.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { buildSalesAlerts, buildExpenseAlerts } from "./alertsEngine.js";
+import { buildFinancialAlerts, buildSalesAlerts, buildExpenseAlerts } from "./alertsEngine.js";
+import { formatMoney } from "../lib/currency.js";
 
 const HOJE = new Date(2026, 6, 15, 12, 0, 0);
 const iso = (y, m, d) => new Date(y, m, d).toISOString();
@@ -52,7 +53,7 @@ describe("buildExpenseAlerts — contas a pagar", () => {
     const vencidas = alerts.find((a) => a.id === "d-vencidas");
     expect(vencidas).toBeDefined();
     expect(vencidas.severity).toBe("danger");
-    expect(vencidas.description).toContain("5000,00");
+    expect(vencidas.description).toContain("5.000,00");
   });
 
   it("gera d-proximos7 quando h\u00e1 t\u00edtulo aberto a vencer nos pr\u00f3ximos 7 dias", () => {
@@ -120,5 +121,487 @@ describe("buildExpenseAlerts \u2014 d-cat-mom (categoria em forte subida)", () =
     ];
     const ids = buildExpenseAlerts(payables).map((a) => a.id);
     expect(ids).not.toContain("d-cat-mom");
+  });
+});
+
+/* ====================================================================================
+ * ALERTAS MENSAIS DE DESPESAS ANCORADOS NO MÊS FINANCEIRO.
+ *
+ * Datas civis "YYYY-MM-DD" de propósito: payablesInMonth passa por
+ * parseLocalISODate e o dia 1 tem de continuar no seu mês em qualquer fuso.
+ *
+ * Fixture (todos os títulos situacao 2 = pagos, para não gerar ruído operacional):
+ *   maio  = 10.000  (Serviços 7.500 | Aluguel 2.000 | Marketing 500)   Fornecedor A
+ *   junho = 13.000  (Aluguel 9.500 | Serviços 2.600 | Marketing 900)   Fornecedor B
+ *   julho =    100  (Compras 50 | Marketing 50)                        Fornecedor C
+ *
+ * Julho é o último mês com títulos: é exatamente o que latestPayableMonth
+ * escolheria sozinho. Cada asserção abaixo morre se ele voltar a ser escolhido.
+ * ==================================================================================== */
+describe("buildExpenseAlerts — mês âncora nos alertas mensais", () => {
+  const pg = (id, dataCivil, valor, categoria, fornecedor) => ({
+    id, situacao: 2,
+    dataEmissao: dataCivil,
+    vencimento: dataCivil,
+    valor,
+    categoriaNome: categoria,
+    contato: { id: fornecedor, nome: fornecedor },
+  });
+
+  const payables = [
+    pg(1, "2026-05-01", 7500, "Serviços", "Fornecedor A"),
+    pg(2, "2026-05-10", 2000, "Aluguel", "Fornecedor A"),
+    pg(3, "2026-05-20", 500, "Marketing", "Fornecedor A"),
+    pg(4, "2026-06-01", 9500, "Aluguel", "Fornecedor B"),
+    pg(5, "2026-06-10", 2600, "Serviços", "Fornecedor B"),
+    pg(6, "2026-06-20", 900, "Marketing", "Fornecedor B"),
+    pg(7, "2026-07-01", 50, "Compras", "Fornecedor C"),
+    pg(8, "2026-07-02", 50, "Marketing", "Fornecedor C"),
+  ];
+  const optsJunho = { monthKey: "2026-06", previousMonthKey: "2026-05", comparable: true };
+
+  it("d-subida-mes compara junho vs maio (+30%), nunca julho vs junho", () => {
+    const a = buildExpenseAlerts(payables, optsJunho).find((x) => x.id === "d-subida-mes");
+    expect(a).toBeDefined();
+    expect(a.description).toContain("30%");
+    // Julho vs junho seria -99,2%: nem sequer geraria alerta.
+  });
+
+  it("d-cat-conc usa a categoria dominante de JUNHO (Aluguel)", () => {
+    const a = buildExpenseAlerts(payables, optsJunho).find((x) => x.id === "d-cat-conc");
+    expect(a).toBeDefined();
+    expect(a.description).toContain("Aluguel");
+    expect(a.description).not.toContain("Serviços"); // dominante de maio
+    expect(a.description).not.toContain("Compras");  // dominante de julho
+  });
+
+  it("d-forn-alto usa o fornecedor de JUNHO (Fornecedor B)", () => {
+    const a = buildExpenseAlerts(payables, optsJunho).find((x) => x.id === "d-forn-alto");
+    expect(a).toBeDefined();
+    expect(a.description).toContain("Fornecedor B");
+    expect(a.description).not.toContain("Fornecedor A");
+    expect(a.description).not.toContain("Fornecedor C");
+  });
+
+  it("d-cat-mom compara junho vs maio (Aluguel 2.000 -> 9.500 = +375%)", () => {
+    const a = buildExpenseAlerts(payables, optsJunho).find((x) => x.id === "d-cat-mom");
+    expect(a).toBeDefined();
+    expect(a.description).toContain("Aluguel");
+    expect(a.description).toContain("375%");
+    expect(a.description).toContain(formatMoney(9500));
+  });
+
+  it("nenhum texto mensal cita julho: o mês parcial não interfere", () => {
+    const texto = buildExpenseAlerts(payables, optsJunho)
+      .filter((x) => ["d-subida-mes", "d-cat-conc", "d-forn-alto", "d-cat-mom"].includes(x.id))
+      .map((x) => x.description).join(" ");
+    expect(texto).not.toContain("Fornecedor C");
+    expect(texto).not.toContain("Compras");
+    expect(texto).not.toContain("€");
+    expect(texto).toContain("R$");
+  });
+
+  it("mudar a âncora para maio muda categoria e fornecedor", () => {
+    const optsMaio = { monthKey: "2026-05", previousMonthKey: "2026-04", comparable: true };
+    const out = buildExpenseAlerts(payables, optsMaio);
+    expect(out.find((x) => x.id === "d-cat-conc").description).toContain("Serviços");
+    expect(out.find((x) => x.id === "d-forn-alto").description).toContain("Fornecedor A");
+    // Abril não existe na fixture: sem base anterior, nada é afirmado.
+    expect(out.some((x) => x.id === "d-subida-mes")).toBe(false);
+    expect(out.some((x) => x.id === "d-cat-mom")).toBe(false);
+  });
+
+  it("sem opts preserva o comportamento legado (último mês com títulos = julho)", () => {
+    const out = buildExpenseAlerts(payables);
+    const conc = out.find((x) => x.id === "d-cat-conc");
+    expect(conc).toBeDefined();
+    expect(conc.description).toContain("Compras"); // julho, como antes
+    expect(out.find((x) => x.id === "d-forn-alto").description).toContain("Fornecedor C");
+  });
+});
+
+describe("buildExpenseAlerts — d-cat-mom com o par de meses da âncora", () => {
+  const mkt = (id, dataCivil, valor) => ({
+    id, situacao: 2, dataEmissao: dataCivil, vencimento: dataCivil,
+    valor, categoriaNome: "Marketing", contato: { id, nome: "Fornecedor X" },
+  });
+  // maio 500 -> junho 900 = +80%. Julho cai para 50: comparar julho contra junho
+  // daria queda, e nunca um alerta de subida.
+  const payables = [mkt(1, "2026-05-05", 500), mkt(2, "2026-06-05", 900), mkt(3, "2026-07-05", 50)];
+
+  it("junho vs maio = +80% gera d-cat-mom", () => {
+    const a = buildExpenseAlerts(payables, { monthKey: "2026-06", previousMonthKey: "2026-05", comparable: true })
+      .find((x) => x.id === "d-cat-mom");
+    expect(a).toBeDefined();
+    expect(a.description).toContain("Marketing");
+    expect(a.description).toContain("80%");
+  });
+
+  it("previousMonthKey omitido cai em prevMonthKey(monthKey)", () => {
+    const a = buildExpenseAlerts(payables, { monthKey: "2026-06", comparable: true })
+      .find((x) => x.id === "d-cat-mom");
+    expect(a).toBeDefined();
+    expect(a.description).toContain("80%");
+  });
+});
+
+describe("buildExpenseAlerts — mês em curso (comparable=false)", () => {
+  const pg = (id, dataCivil, valor, categoria, fornecedor) => ({
+    id, situacao: 2, dataEmissao: dataCivil, vencimento: dataCivil,
+    valor, categoriaNome: categoria, contato: { id: fornecedor, nome: fornecedor },
+  });
+  const payables = [
+    pg(1, "2026-06-01", 1000, "Aluguel", "Fornecedor B"),
+    pg(2, "2026-07-01", 900, "Compras", "Fornecedor C"),
+    pg(3, "2026-07-02", 100, "Marketing", "Fornecedor C"),
+  ];
+  const optsJulhoParcial = {
+    monthKey: "2026-07", previousMonthKey: "2026-06", comparable: false, partial: true,
+  };
+
+  it("os alertas COMPARATIVOS são suprimidos", () => {
+    const ids = buildExpenseAlerts(payables, optsJulhoParcial).map((a) => a.id);
+    expect(ids).not.toContain("d-subida-mes"); // seria +0% ... e mesmo +100% ficaria calado
+    expect(ids).not.toContain("d-cat-mom");
+  });
+
+  it("os alertas de concentração são emitidos, mas declaram o mês em curso", () => {
+    const out = buildExpenseAlerts(payables, optsJulhoParcial);
+    const cat = out.find((a) => a.id === "d-cat-conc");
+    const forn = out.find((a) => a.id === "d-forn-alto");
+    expect(cat).toBeDefined();
+    expect(cat.description).toContain("Compras");
+    expect(cat.description).toContain("mês em curso");
+    expect(forn).toBeDefined();
+    expect(forn.description).toContain("Fornecedor C");
+    expect(forn.description).toContain("mês em curso");
+  });
+
+  it("com o mês fechado, o texto não fala em mês em curso", () => {
+    const out = buildExpenseAlerts(payables, { monthKey: "2026-06", previousMonthKey: "2026-05", comparable: true });
+    const cat = out.find((a) => a.id === "d-cat-conc");
+    expect(cat.description).toContain("Aluguel");
+    expect(cat.description).not.toContain("mês em curso");
+  });
+});
+
+describe("buildExpenseAlerts — alertas operacionais continuam \u00e0 data de hoje", () => {
+  // "Hoje" = 15/07/2026. Âncora financeira = junho (fechado).
+  const optsJunho = { monthKey: "2026-06", previousMonthKey: "2026-05", comparable: true };
+  const aberto = (id, vencCivil, valor) => ({
+    id, situacao: 1, dataEmissao: vencCivil, vencimento: vencCivil,
+    valor, categoriaNome: "Compras", contato: { id, nome: "Fornecedor Z" },
+  });
+
+  it("t\u00edtulo vencido em julho gera d-vencidas mesmo com \u00e2ncora em junho", () => {
+    const out = buildExpenseAlerts([aberto(1, "2026-07-01", 5000)], optsJunho);
+    const v = out.find((a) => a.id === "d-vencidas");
+    expect(v).toBeDefined();
+    expect(v.description).toContain(formatMoney(5000));
+  });
+
+  it("t\u00edtulo a vencer em julho gera d-proximos7 mesmo com \u00e2ncora em junho", () => {
+    const out = buildExpenseAlerts([aberto(1, "2026-07-18", 2500)], optsJunho);
+    expect(out.some((a) => a.id === "d-proximos7")).toBe(true);
+  });
+
+  it("d-pendentes conta os abertos de qualquer m\u00eas, n\u00e3o s\u00f3 os da \u00e2ncora", () => {
+    const lista = Array.from({ length: 12 }, (_, i) => aberto(i + 1, "2026-07-25", 100));
+    const out = buildExpenseAlerts(lista, optsJunho);
+    const p = out.find((a) => a.id === "d-pendentes");
+    expect(p).toBeDefined();
+    expect(p.description).toContain("12");
+  });
+});
+
+describe("buildFinancialAlerts — rentabilidade a partir da DRE", () => {
+  const fmDe = (over = {}) => ({
+    revenue: { net: 100000 },
+    profitability: {
+      netResult: 5000, netMarginPct: 25, ebitda: 8000,
+      availability: { netResult: "real", netMarginPct: "real", ebitda: "real" },
+      ...over,
+    },
+  });
+
+  it("netResult NEGATIVO gera alerta, com impacto não monetário", () => {
+    const out = buildFinancialAlerts({ financialMetrics: fmDe({ netResult: -1200, netMarginPct: -5 }), monthKey: "2026-06" });
+    const a = out.find((x) => x.id === "f-resultado");
+    expect(a).toBeTruthy();
+    expect(a.severity).toBe("danger");
+    expect(a.description).toContain("2026-06");
+    expect(a.impacto).toBeUndefined(); // nunca quantifica impacto monetário
+  });
+
+  it("netResult POSITIVO e margem saudável não geram alerta", () => {
+    const out = buildFinancialAlerts({ financialMetrics: fmDe(), monthKey: "2026-06" });
+    expect(out.some((x) => x.id === "f-resultado")).toBe(false);
+    expect(out.some((x) => x.id === "f-margem")).toBe(false);
+  });
+
+  it("netResult NULL (sem CMV) não gera qualquer alerta financeiro", () => {
+    const semCmv = fmDe({ netResult: null, netMarginPct: null, ebitda: null,
+      availability: { netResult: "unavailable", netMarginPct: "unavailable", ebitda: "unavailable" } });
+    expect(buildFinancialAlerts({ financialMetrics: semCmv, monthKey: "2026-06" })).toEqual([]);
+  });
+
+  it("margem líquida baixa NÃO gera alerta (é apurada após retiradas dos sócios)", () => {
+    // 4% de margem líquida com resultado positivo: sem regra aprovada, sem alerta.
+    const out = buildFinancialAlerts({ financialMetrics: fmDe({ netResult: 300, netMarginPct: 4 }), monthKey: "2026-06" });
+    expect(out.some((x) => x.id === "f-margem")).toBe(false);
+    expect(out).toEqual([]);
+  });
+
+  it("só existem duas regras financeiras: resultado negativo e EBITDA negativo", () => {
+    const ids = buildFinancialAlerts({
+      financialMetrics: fmDe({ netResult: -100, netMarginPct: -1, ebitda: -50 }), monthKey: "2026-06",
+    }).map((a) => a.id).sort();
+    expect(ids).toEqual(["f-ebitda", "f-resultado"]);
+  });
+
+  it("o texto do resultado negativo explicita que é após retiradas", () => {
+    const a = buildFinancialAlerts({ financialMetrics: fmDe({ netResult: -1200 }), monthKey: "2026-06" })
+      .find((x) => x.id === "f-resultado");
+    expect(a.title).toContain("após retiradas");
+    expect(a.description).toContain("retiradas dos sócios");
+  });
+
+  it("EBITDA negativo gera alerta (regra nova desta fase)", () => {
+    const out = buildFinancialAlerts({ financialMetrics: fmDe({ ebitda: -900 }), monthKey: "2026-06" });
+    expect(out.some((x) => x.id === "f-ebitda")).toBe(true);
+  });
+
+  it("manual/mixed é usado mas conserva a origem no texto", () => {
+    const mixed = fmDe({ netResult: -500, availability: { netResult: "mixed", netMarginPct: "mixed", ebitda: "mixed" } });
+    const a = buildFinancialAlerts({ financialMetrics: mixed, monthKey: "2026-06" }).find((x) => x.id === "f-resultado");
+    expect(a.description).toContain("inclui valor manual");
+  });
+
+  it("sem financialMetrics não há alertas financeiros", () => {
+    expect(buildFinancialAlerts({})).toEqual([]);
+    expect(buildFinancialAlerts({ financialMetrics: null })).toEqual([]);
+  });
+
+  it("nenhum alerta de CMV é criado (sem fonte automática)", () => {
+    const out = buildFinancialAlerts({ financialMetrics: fmDe(), monthKey: "2026-06" });
+    expect(out.some((x) => /cmv/i.test(x.id) || /cmv/i.test(x.title))).toBe(false);
+  });
+});
+
+describe("buildSalesAlerts — comparação entre períodos", () => {
+  const o = (id, mesIdx, total) => ({
+    id: String(id), date: new Date(2026, mesIdx, 10).toISOString(), total,
+    status: "recebida", client: { id: 1, name: "C" }, items: [],
+  });
+  // maio=4, junho=5, julho=6 (Date é 0-based)
+  const orders = [o(1, 4, 10000), o(2, 5, 12000), o(3, 6, 300)];
+
+  it("junho vs maio (ambos fechados) permite a comparação", () => {
+    const out = buildSalesAlerts(orders, { monthKey: "2026-06", comparable: true });
+    // +20% não atinge o limiar de subida (>=15% gera alerta de crescimento)
+    expect(out.some((a) => a.id === "v-subida")).toBe(true);
+    expect(out.some((a) => a.id === "v-queda")).toBe(false);
+  });
+
+  it("mês parcial (comparable false) NÃO gera alerta categórico de queda", () => {
+    const out = buildSalesAlerts(orders, { monthKey: "2026-07", comparable: false });
+    expect(out.some((a) => a.id === "v-queda")).toBe(false);
+    expect(out.some((a) => a.id === "v-subida")).toBe(false);
+  });
+
+  it("sem mês injetado mantém o comportamento antigo", () => {
+    const out = buildSalesAlerts(orders);
+    expect(Array.isArray(out)).toBe(true);
+  });
+});
+
+describe("buildSalesAlerts — produto, ticket e concentração no mês âncora", () => {
+  // Date é 0-based: maio=4, junho=5, julho=6.
+  const ord = (id, mesIdx, total, cliente, cid, prod, qty = 1) => ({
+    id: String(id), date: new Date(2026, mesIdx, 10).toISOString(), total,
+    status: "recebida", client: { id: cid, name: cliente },
+    items: [{ productId: prod, code: prod, name: prod, qty, unitValue: total, total }],
+  });
+
+  // maio: Cliente A domina, produto P forte. junho: Cliente B, produto P estável.
+  // julho (parcial): Cliente C, produto P em colapso e ticket muito baixo.
+  const orders = [
+    ord(1, 4, 9000, "Cliente A", 1, "P"), ord(2, 4, 1000, "Outro", 9, "Q"),
+    ord(3, 5, 9500, "Cliente B", 2, "P"), ord(4, 5, 1000, "Outro", 9, "Q"), // Q estável maio->junho
+    ord(5, 6, 200, "Cliente C", 3, "P"), ord(6, 6, 100, "Outro", 9, "Q"),
+  ];
+  const optsJunho = { monthKey: "2026-06", comparable: true };
+
+  it("produto em queda compara junho vs maio, nunca julho vs junho", () => {
+    const out = buildSalesAlerts(orders, optsJunho);
+    const prod = out.find((a) => a.id === "v-prod");
+    // P passou de 9000 (maio) para 9500 (junho): sem queda. Julho não entra.
+    expect(prod).toBeFalsy();
+  });
+
+  it("sem mês âncora, o fallback antigo compararia julho (comportamento preservado)", () => {
+    const out = buildSalesAlerts(orders);
+    expect(out.some((a) => a.id === "v-prod")).toBe(true); // P caiu de 9500 para 200
+  });
+
+  it("comparable=false não gera queda de produto nem de ticket", () => {
+    const out = buildSalesAlerts(orders, { monthKey: "2026-07", comparable: false });
+    expect(out.some((a) => a.id === "v-prod")).toBe(false);
+    expect(out.some((a) => a.id === "v-ticket")).toBe(false);
+  });
+
+  it("ticket médio: julho parcial não contamina o alerta de junho", () => {
+    const out = buildSalesAlerts(orders, optsJunho);
+    // ticket junho (5000) vs maio (5000): sem queda
+    expect(out.some((a) => a.id === "v-ticket")).toBe(false);
+  });
+
+  it("concentração é a do mês âncora (Cliente B, não A nem C)", () => {
+    const conc = buildSalesAlerts(orders, optsJunho).find((a) => a.id === "v-conc");
+    expect(conc).toBeTruthy();
+    expect(conc.description).toContain("Cliente B");
+    expect(conc.description).not.toContain("Cliente A");
+    expect(conc.description).not.toContain("Cliente C");
+  });
+
+  it("mudar o mês âncora muda o cliente concentrado", () => {
+    const maio = buildSalesAlerts(orders, { monthKey: "2026-05", comparable: true }).find((a) => a.id === "v-conc");
+    expect(maio.description).toContain("Cliente A");
+    const julho = buildSalesAlerts(orders, { monthKey: "2026-07", comparable: true }).find((a) => a.id === "v-conc");
+    expect(julho.description).toContain("Cliente C");
+  });
+
+  it("moeda: textos de vendas em R$, sem qualquer €", () => {
+    const texto = buildSalesAlerts(orders, optsJunho).map((a) => a.description).join(" ");
+    expect(texto).not.toContain("€");
+    const comTicket = buildSalesAlerts([ord(1, 5, 1000, "A", 1, "P")], { monthKey: "2026-06", comparable: true })
+      .map((a) => a.description).join(" ");
+    expect(comTicket).toContain("R$");
+  });
+});
+
+/* ====================================================================================
+ * DATAS CIVIS "YYYY-MM-DD" — regressão da Fase 1.
+ *
+ * As datas abaixo são strings de data civil REAIS, não convertidas para timestamp.
+ * new Date("2026-06-01") é lido como meia-noite UTC; em America/Sao_Paulo (UTC-3)
+ * isso é 31/05 21:00 local e o pedido do dia 1 salta para maio. Estes testes falham
+ * se alguém voltar a introduzir new Date(dataCivil) nesta lógica — em UTC continuam
+ * a passar por acaso, mas em São Paulo não.
+ *
+ * Fixture (produto P em todos os pedidos):
+ *   2026-05-31 -> 5.000   (maio: P=5.000, ticket 5.000)
+ *   2026-06-01 -> 4.000   (junho: P=10.000, ticket 5.000)  <- o pedido em risco
+ *   2026-06-15 -> 6.000
+ *   2026-07-01 -> 100     (julho: fora do mês âncora)
+ *
+ * Se 01/06 escorregasse para maio: maio P=9.000 vs junho P=6.000 (-33%) gerava
+ * v-prod, a faturação passava a queda em vez de subida e o ticket de junho virava
+ * 6.000. Cada asserção abaixo mata um desses cenários.
+ * ==================================================================================== */
+describe("buildSalesAlerts — datas civis YYYY-MM-DD no mês âncora", () => {
+  const civil = (id, dataCivil, total, cliente, cid) => ({
+    id: String(id), date: dataCivil, total,
+    status: "recebida", client: { id: cid, name: cliente },
+    items: [{ productId: "P", code: "P", name: "P", qty: 1, unitValue: total, total }],
+  });
+
+  const orders = [
+    civil(1, "2026-05-31", 5000, "Cliente A", 1),
+    civil(2, "2026-06-01", 4000, "Cliente B", 2),
+    civil(3, "2026-06-15", 6000, "Cliente C", 3),
+    civil(4, "2026-07-01", 100, "Cliente D", 4),
+  ];
+  const optsJunho = { monthKey: "2026-06", comparable: true };
+
+  it("o pedido de 01/06 pertence a junho: produto P não aparece em queda", () => {
+    const out = buildSalesAlerts(orders, optsJunho);
+    // junho 10.000 vs maio 5.000. Com o bug de fuso seria 6.000 vs 9.000 (-33%).
+    expect(out.some((a) => a.id === "v-prod")).toBe(false);
+  });
+
+  it("o pedido de 01/06 conta na faturação de junho (subida, nunca queda)", () => {
+    const out = buildSalesAlerts(orders, optsJunho);
+    expect(out.some((a) => a.id === "v-subida")).toBe(true);
+    expect(out.some((a) => a.id === "v-queda")).toBe(false);
+  });
+
+  it("o ticket de junho inclui 01/06 e não é deslocado para maio", () => {
+    const info = buildSalesAlerts(orders, optsJunho).find((a) => a.id === "v-ticket-info");
+    expect(info).toBeTruthy();
+    expect(info.description).toContain(formatMoney(5000)); // (4.000 + 6.000) / 2
+    expect(info.description).not.toContain(formatMoney(6000)); // seria só 15/06
+    expect(info.description).not.toContain(formatMoney(100));  // julho não entra
+  });
+
+  it("maio fica apenas com 31/05: o pedido do dia 1 não recua de mês", () => {
+    const maio = buildSalesAlerts(orders, { monthKey: "2026-05", comparable: true })
+      .find((a) => a.id === "v-ticket-info");
+    expect(maio.description).toContain(formatMoney(5000));     // apenas o pedido de 31/05
+    expect(maio.description).not.toContain(formatMoney(4500)); // (5.000 + 4.000) / 2
+  });
+});
+
+/* O bloco acima corre no fuso do runner. Este força America/Sao_Paulo dentro do
+ * próprio teste: assim a guarda continua a valer mesmo que a CI corra em UTC,
+ * onde o bug de new Date("YYYY-MM-DD") passaria despercebido. */
+describe("buildSalesAlerts — datas civis com fuso forçado a America/Sao_Paulo", () => {
+  const tzOriginal = process.env.TZ;
+  beforeEach(() => { process.env.TZ = "America/Sao_Paulo"; });
+  afterEach(() => { process.env.TZ = tzOriginal; });
+
+  const civil = (id, dataCivil, total) => ({
+    id: String(id), date: dataCivil, total,
+    status: "recebida", client: { id: Number(id), name: `C${id}` },
+    items: [{ productId: "P", code: "P", name: "P", qty: 1, unitValue: total, total }],
+  });
+  const orders = [
+    civil(1, "2026-05-31", 5000),
+    civil(2, "2026-06-01", 4000),
+    civil(3, "2026-06-15", 6000),
+    civil(4, "2026-07-01", 100),
+  ];
+
+  it("em UTC-3, 01/06 continua em junho (produto, ticket e faturação)", () => {
+    expect(new Date(2026, 5, 1).getTimezoneOffset()).toBe(180); // confirma o fuso ativo
+    const out = buildSalesAlerts(orders, { monthKey: "2026-06", comparable: true });
+    expect(out.some((a) => a.id === "v-prod")).toBe(false);
+    expect(out.some((a) => a.id === "v-queda")).toBe(false);
+    expect(out.find((a) => a.id === "v-ticket-info").description).toContain(formatMoney(5000));
+  });
+});
+
+describe("buildSalesAlerts — v-ticket-info usa o mês âncora, não o histórico", () => {
+  // maio: ticket 1.000 | junho: ticket 5.000 | julho: ticket 100.
+  // Junho vs maio é subida (+400%), logo não há v-ticket de queda: cai no informativo.
+  const ord = (id, dataCivil, total) => ({
+    id: String(id), date: dataCivil, total,
+    status: "recebida", client: { id: Number(id), name: `C${id}` }, items: [],
+  });
+  const orders = [
+    ord(1, "2026-05-10", 1000), ord(2, "2026-05-20", 1000),
+    ord(3, "2026-06-10", 5000), ord(4, "2026-06-20", 5000),
+    ord(5, "2026-07-05", 100), ord(6, "2026-07-06", 100),
+  ];
+
+  it("mostra o ticket de junho, não a média histórica nem o ticket de julho", () => {
+    const out = buildSalesAlerts(orders, { monthKey: "2026-06", comparable: true });
+    expect(out.some((a) => a.id === "v-ticket")).toBe(false); // não é queda
+    const info = out.find((a) => a.id === "v-ticket-info");
+    expect(info).toBeTruthy();
+    expect(info.description).toContain(formatMoney(5000));
+    expect(info.description).not.toContain(formatMoney(2033.33)); // média de todo o histórico
+    expect(info.description).not.toContain(formatMoney(100));     // julho
+    expect(info.description).not.toContain(formatMoney(1000));    // maio
+  });
+
+  it("sem opts mantém o comportamento legado (média de todo o histórico)", () => {
+    // Sem julho não há queda de ticket, pelo que o informativo é emitido:
+    // média histórica = (1.000 + 1.000 + 5.000 + 5.000) / 4 = 3.000.
+    const semJulho = orders.filter((o) => !o.date.startsWith("2026-07"));
+    const info = buildSalesAlerts(semJulho).find((a) => a.id === "v-ticket-info");
+    expect(info).toBeTruthy();
+    expect(info.description).toContain(formatMoney(3000));
+    expect(info.description).not.toContain(formatMoney(5000)); // não é só junho
   });
 });
