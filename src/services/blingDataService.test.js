@@ -3,7 +3,7 @@
 // Também protege a remoção dos campos mortos (alertas.metrics, diagnostics).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { buildSalesDataset } from "./blingDataService.js";
+import { buildSalesDataset, normalizeOrder } from "./blingDataService.js";
 
 const HOJE = new Date(2026, 6, 15, 12, 0, 0);
 const iso = (y, m, d) => new Date(y, m, d).toISOString();
@@ -154,6 +154,65 @@ describe("buildSalesDataset — mês âncora das contas a pagar", () => {
   it("sem coverage injetada usa a da empresa ativa (contrato preservado)", () => {
     const ds = buildSalesDataset({ orders: ordersMJJ, payables: payablesMJJ });
     expect(ds.financeiro.payables.monthKey).toBe("2026-06"); // closedThroughMonth da Overcel
+  });
+});
+
+describe("buildSalesDataset — catálogo documental (sales.documents)", () => {
+  const ord = (id, over = {}) => ({
+    id, numero: 1318, date: "2026-06-01", total: 920, status: "recebida",
+    client: { id: 7, name: "Cliente Alfa" }, items: [], ...over,
+  });
+  const pag = (id, over = {}) => ({
+    id, situacao: 2, valor: 3180, dataEmissao: "2026-05-28", vencimento: "2026-06-10",
+    numeroDocumento: "V/452", categoriaNome: "Compras",
+    contato: { id: 31, nome: "Fornecedor Beta" }, ...over,
+  });
+
+  it("expõe documents sem quebrar os contratos existentes", () => {
+    const ds = buildSalesDataset({ orders: [ord(10, { notaFiscalId: 111 })], payables: [pag(10)] });
+    expect(ds.documents.available).toBe(true);
+    expect(ds.documents.list).toHaveLength(2);
+    expect(ds.documents.stats).toMatchObject({ total: 2, withFile: 0, metadataOnly: 2 });
+    // contratos anteriores intactos
+    expect(ds.alertas).toBeDefined();
+    expect(ds.financeiro).toBeDefined();
+    expect(ds.despesas).not.toBeNull();
+  });
+
+  it("usa a moeda da empresa ativa, nunca EUR fixo", () => {
+    const ds = buildSalesDataset({ orders: [ord(10, { notaFiscalId: 111 })] });
+    expect(ds.documents.list[0].currency).toBe("BRL");
+  });
+
+  it("payables ausentes: só documentos de pedidos, sem inventar", () => {
+    const ds = buildSalesDataset({ orders: [ord(10, { notaFiscalId: 111 })], payables: undefined });
+    expect(ds.documents.list).toHaveLength(1);
+    expect(ds.documents.list[0].relatedEntity.type).toBe("order");
+  });
+
+  it("sem nota fiscal e sem numeroDocumento, o catálogo fica vazio (zero real)", () => {
+    const ds = buildSalesDataset({ orders: [ord(10)], payables: [pag(11, { numeroDocumento: null })] });
+    expect(ds.documents.available).toBe(true);
+    expect(ds.documents.list).toEqual([]);
+  });
+
+  it("normalizeOrder preserva a metadata documental do snapshot", () => {
+    const o = normalizeOrder({
+      id: 26576405725, numero: 1318, data: "2026-08-11", total: 920,
+      situacao: { id: 9, valor: 9 }, contato: { id: 7, nome: "Cliente Alfa" },
+      notaFiscalId: 26576410855, dataSaida: "2026-08-11", itens: [],
+    });
+    expect(o.notaFiscalId).toBe(26576410855);
+    expect(o.dataSaida).toBe("2026-08-11");
+    // Campos financeiros do snapshot continuam FORA (pendência da DRE, não desta fase).
+    expect(o.frete).toBeUndefined();
+    expect(o.totalProdutos).toBeUndefined();
+  });
+
+  it("pedido sem nota fica com notaFiscalId null, nunca inventado", () => {
+    const o = normalizeOrder({ id: 1, numero: 2, data: "2026-06-01", total: 10, itens: [] });
+    expect(o.notaFiscalId).toBeNull();
+    expect(o.dataSaida).toBeNull();
   });
 });
 

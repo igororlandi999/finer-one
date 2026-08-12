@@ -66,6 +66,7 @@ import {
   canComparePeriods,
 } from "../utils/financialMetrics.js";
 import { ACTIVE_COMPANY } from "../config/company.js";
+import { buildDocumentCatalog } from "../utils/documentNormalizer.js";
 
 // Mapeamento de estado Bling -> Finer One. Ajustar às situações reais da Overcel.
 // situacao.valor: 9 = atendido/recebido, 1 = em aberto, 12 = cancelado.
@@ -185,6 +186,13 @@ export function normalizeOrder(raw) {
     method: raw.formaPagamento?.nome || raw.metodo || null,
     client: { id: raw.contato?.id ?? null, name: raw.contato?.nome || "Sem nome" },
     seller: raw.vendedor ? { id: raw.vendedor.id, name: raw.vendedor.nome || "—" } : null,
+    // Metadata DOCUMENTAL (Fase 5). O Apps Script preserva notaFiscalId/dataSaida no
+    // snapshot; sem os copiar aqui, a camada documental não teria como saber que o
+    // pedido tem nota emitida. São metadata: nenhum motor financeiro os lê.
+    // NOTA: o snapshot também traz frete/desconto/totalProdutos/outrasDespesas, que
+    // continuam a NÃO ser copiados — isso é uma pendência da DRE, fora desta fase.
+    notaFiscalId: (raw.notaFiscalId != null) ? raw.notaFiscalId : null,
+    dataSaida: raw.dataSaida || null,
     items: (raw.itens || []).map((it) => ({
       productId: it.produto?.id ?? it.codigo ?? null,
       code: it.codigo || "",
@@ -636,6 +644,15 @@ export function buildSalesDataset({ orders, payables, receivables, coverage: cov
           financialComparable: financeiro.comparable,
           monthKey: financeiro.monthKey, // sincroniza o mês do diagnóstico com o da DRE
         }) : null, // null => tela Diagnóstico usa mock
+    // Catálogo documental (Fase 5). Aditivo: nenhuma tela existente muda.
+    // Fonte real = metadata do Bling; nenhuma fonte devolve ficheiro, logo todos os
+    // documentos saem metadata_only. `available` descreve a FONTE, não a lista.
+    documents: buildDocumentCatalog({
+      orders,
+      payables: hasPayables ? payables : null,
+      receivables: hasReceivables ? receivables : null,
+      currency: ACTIVE_COMPANY.currency,
+    }),
     // Métricas financeiras centrais (DRE). Fonte única de receita, margem e
     // resultado para Resumo, Diagnóstico e Score.
     financeiro,
