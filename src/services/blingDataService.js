@@ -666,16 +666,39 @@ export function buildSalesDataset({ orders, payables, receivables, coverage: cov
       ? latestUsableFinancialMonth({ payables: payablesParaDre, coverage: coveragePayables, allowPartial: true })
       : null);
   const mesPayablesAnterior = mesPayables ? prevMonthKey(mesPayables) : null;
-  // Disponibilidade das DESPESAS (nunca a da receita): availability.operatingExpenses.
-  const dispOpex = (mk) => (mk
-    ? buildMonthlyDre({ orders, payables: payablesParaDre, monthKey: mk, coverage }).availability.operatingExpenses
+
+  /* ── DOIS SINAIS DISTINTOS, deliberadamente separados ────────
+   * `partial`  = o PERÍODO está aberto/incompleto no tempo. Vem só da cobertura
+   *              (availability.coberturaPayables). É este sinal que autoriza os
+   *              alertas a dizer "mês em curso".
+   * `classificacaoIncompleta` = existem títulos no mês cuja natureza contabilística
+   *              não foi reconhecida. Reutiliza o warning `titulos-nao-classificados`
+   *              que o motor já emite, em vez de criar um segundo sinal para o mesmo
+   *              facto. Um mês FECHADO pode ter classificação incompleta.
+   *
+   * `comparable` continua a sair de availability.operatingExpenses, que combina as
+   * duas coisas — e é o que se quer: comparar dois meses cuja classificação está
+   * incompleta é comparar mínimos conhecidos, e "as despesas subiram X%" seria uma
+   * afirmação insegura. Mês fechado + classificação incompleta => comparable false
+   * sem que nada chame junho de "mês em curso".
+   */
+  const dreDoMes = (mk) => (mk
+    ? buildMonthlyDre({ orders, payables: payablesParaDre, monthKey: mk, coverage })
     : null);
-  const dispPayablesAtual = dispOpex(mesPayables);
+  const dreAtual = dreDoMes(mesPayables);
+  const dreAnterior = dreDoMes(mesPayablesAnterior);
+  const dispOpex = (dre) => (dre ? dre.availability.operatingExpenses : null);
+  const temNaoClassificados = (dre) =>
+    !!(dre && (dre.warnings || []).some((w) => w.code === "titulos-nao-classificados"));
+
+  const dispPayablesAtual = dispOpex(dreAtual);
   const financeiroPayables = {
     monthKey: mesPayables,
     previousMonthKey: mesPayablesAnterior,
-    comparable: canComparePeriods(dispPayablesAtual, dispOpex(mesPayablesAnterior)),
-    partial: dispPayablesAtual === "partial",
+    comparable: canComparePeriods(dispPayablesAtual, dispOpex(dreAnterior)),
+    // Parcialidade TEMPORAL apenas. Não vira true por falta de categoria.
+    partial: dreAtual ? dreAtual.availability.coberturaPayables === "partial" : false,
+    classificacaoIncompleta: temNaoClassificados(dreAtual),
     availability: dispPayablesAtual,
   };
 

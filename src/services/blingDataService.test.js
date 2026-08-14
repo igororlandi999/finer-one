@@ -75,9 +75,9 @@ describe("buildSalesDataset — mês âncora das contas a pagar", () => {
   // Cada mês tem uma categoria e um fornecedor próprios: o texto do alerta
   // identifica sem ambiguidade qual mês foi escolhido.
   const payablesMJJ = [
-    pg(1, "2026-05-01", 2000, "Serviços", "Forn A"),
+    pg(1, "2026-05-01", 2000, "Serviços de terceiros", "Forn A"),
     pg(2, "2026-06-01", 9500, "Aluguel", "Forn B"),
-    pg(3, "2026-07-01", 5000, "Compras", "Forn C"),
+    pg(3, "2026-07-01", 5000, "Compras de fornecedores", "Forn C"),
   ];
   // Pedidos fechados até junho em todos os cenários; só a cobertura dos payables muda.
   const base = { firstCompleteMonth: "2026-04", partialMonths: [], closedThroughMonth: "2026-06" };
@@ -103,7 +103,7 @@ describe("buildSalesDataset — mês âncora das contas a pagar", () => {
     expect(ds.financeiro.monthKey).toBe("2026-06");
     expect(ds.financeiro.payables.monthKey).toBe("2026-05");
     const cat = alertaDespesa(ds, "d-cat-conc");
-    expect(cat.description).toContain("Serviços");
+    expect(cat.description).toContain("Serviços de terceiros");
     expect(cat.description).not.toContain("Aluguel"); // junho
     expect(cat.description).not.toContain("Compras"); // julho
     expect(alertaDespesa(ds, "d-forn-alto").description).toContain("Forn A");
@@ -140,7 +140,7 @@ describe("buildSalesDataset — mês âncora das contas a pagar", () => {
   it("sem nenhum mês fechado de payables, usa o parcial e declara-o", () => {
     const ds = buildSalesDataset({
       orders: ordersMJJ,
-      payables: [pg(1, "2026-07-01", 5000, "Compras", "Forn C")], // só julho
+      payables: [pg(1, "2026-07-01", 5000, "Compras de fornecedores", "Forn C")], // só julho
       coverage: { ...base, payables: { closedThroughMonth: "2026-06" } },
     });
     expect(ds.financeiro.payables.monthKey).toBe("2026-07");
@@ -342,6 +342,120 @@ describe("buildResumo — campos legados do Chat não mudam com o novo KPI", () 
       coverage: cov,
     });
     expect(ds.resumo.metrics.despesasDelta).toBe(100); // 20.000 -> 40.000
+  });
+});
+
+/* ====================================================================================
+ * DOIS SINAIS DISTINTOS: parcialidade TEMPORAL vs CLASSIFICAÇÃO incompleta.
+ *
+ * `partial` responde a "o período está aberto?"; `classificacaoIncompleta` responde a
+ * "conheço a natureza dos títulos?". São independentes e podem coexistir. Colapsá-los
+ * num só fazia os alertas chamarem "mês em curso" a um junho fechado só porque as
+ * contas não tinham categoria reconhecida.
+ * ==================================================================================== */
+describe("financeiro.payables — parcialidade temporal separada da classificação", () => {
+  const ord = (id, dataCivil, total) => ({
+    id, date: dataCivil, total, status: "recebida", client: { id: 1, name: "C" }, items: [],
+  });
+  const pg = (id, dataCivil, valor, categoriaNome, fornecedor) => ({
+    id, situacao: 2, dataEmissao: dataCivil, vencimento: dataCivil, valor,
+    categoriaNome, contato: { id: fornecedor, nome: fornecedor },
+  });
+  // Junho fechado; julho fica temporalmente parcial.
+  const cov = { firstCompleteMonth: "2026-04", partialMonths: [], closedThroughMonth: "2026-06" };
+  const covJulhoAberto = { ...cov, payables: { closedThroughMonth: "2026-06" } };
+  const orders = [ord(1, "2026-05-10", 100000), ord(2, "2026-06-10", 180000)];
+  const alertaDespesa = (ds, id) => ds.alertas.list.find((a) => a.id === id);
+
+  it("Caso 1: mês fechado + classificação completa", () => {
+    const ds = buildSalesDataset({
+      orders,
+      payables: [pg(10, "2026-05-05", 20000, "Aluguel", "F"), pg(11, "2026-06-05", 40000, "Aluguel", "F")],
+      coverage: cov,
+    });
+    expect(ds.financeiro.payables).toMatchObject({
+      monthKey: "2026-06", partial: false, classificacaoIncompleta: false, comparable: true,
+    });
+  });
+
+  it("Caso 2: mês FECHADO + classificação incompleta — nunca 'mês em curso'", () => {
+    const ds = buildSalesDataset({
+      orders,
+      payables: [pg(10, "2026-05-05", 20000, null, "Forn A"), pg(11, "2026-06-05", 40000, null, "Forn B")],
+      coverage: cov,
+    });
+    const fp = ds.financeiro.payables;
+    expect(fp.monthKey).toBe("2026-06");
+    expect(fp.partial).toBe(false);                 // junho está fechado
+    expect(fp.classificacaoIncompleta).toBe(true);  // mas não sabemos a natureza
+    expect(fp.comparable).toBe(false);              // comparar mínimos conhecidos seria enganoso
+    expect(fp.availability).toBe("partial");
+
+    const textos = ds.alertas.list.map((a) => `${a.title} ${a.description}`).join(" ");
+    expect(textos).not.toContain("mês em curso");
+    expect(textos).not.toContain("Até ao momento");
+    // Comparação insegura não é afirmada.
+    expect(ds.alertas.list.some((a) => a.id === "d-subida-mes")).toBe(false);
+    expect(ds.alertas.list.some((a) => a.id === "d-cat-mom")).toBe(false);
+    // O alerta de concentração do próprio mês continua, com o texto de mês fechado.
+    expect(alertaDespesa(ds, "d-forn-alto").description).toContain("das despesas do mes");
+  });
+
+  it("Caso 3: mês em CURSO + classificação completa", () => {
+    const ds = buildSalesDataset({
+      orders: [ord(1, "2026-06-10", 180000)],
+      payables: [pg(11, "2026-07-05", 40000, "Aluguel", "F")], // só julho, ainda aberto
+      coverage: covJulhoAberto,
+    });
+    const fp = ds.financeiro.payables;
+    expect(fp.monthKey).toBe("2026-07");
+    expect(fp.partial).toBe(true);
+    expect(fp.classificacaoIncompleta).toBe(false);
+    expect(alertaDespesa(ds, "d-forn-alto").description).toContain("mês em curso");
+  });
+
+  it("Caso 4: mês em curso + classificação incompleta — os dois sinais coexistem", () => {
+    const ds = buildSalesDataset({
+      orders: [ord(1, "2026-06-10", 180000)],
+      payables: [pg(11, "2026-07-05", 40000, null, "F")],
+      coverage: covJulhoAberto,
+    });
+    expect(ds.financeiro.payables).toMatchObject({
+      monthKey: "2026-07", partial: true, classificacaoIncompleta: true, comparable: false,
+    });
+  });
+
+  it("Caso 5: fonte ausente continua unavailable, não vira classificação incompleta", () => {
+    const ds = buildSalesDataset({ orders, payables: undefined, coverage: cov });
+    const fp = ds.financeiro.payables;
+    expect(fp.monthKey).toBeNull();
+    expect(fp.availability).toBeNull();
+    expect(fp.partial).toBe(false);
+    expect(fp.classificacaoIncompleta).toBe(false);
+    expect(fp.comparable).toBe(false);
+  });
+
+  it("exclusões deliberadas (compras) não contam como classificação incompleta", () => {
+    const ds = buildSalesDataset({
+      orders,
+      payables: [pg(10, "2026-05-05", 20000, "Compras de fornecedores", "F"),
+                 pg(11, "2026-06-05", 40000, "Compras de fornecedores", "F")],
+      coverage: cov,
+    });
+    expect(ds.financeiro.payables.classificacaoIncompleta).toBe(false);
+    expect(ds.financeiro.payables.comparable).toBe(true);
+  });
+
+  it("um só título sem categoria basta para marcar o mês", () => {
+    const ds = buildSalesDataset({
+      orders,
+      payables: [pg(10, "2026-05-05", 20000, "Aluguel", "F"),
+                 pg(11, "2026-06-05", 40000, "Aluguel", "F"),
+                 pg(12, "2026-06-06", 100, null, "F")],
+      coverage: cov,
+    });
+    expect(ds.financeiro.payables.partial).toBe(false);
+    expect(ds.financeiro.payables.classificacaoIncompleta).toBe(true);
   });
 });
 

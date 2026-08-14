@@ -313,6 +313,7 @@ export function buildMonthlyDre({ orders, payables, monthKey: mk, manualInputs, 
 
   // ── Classificação das contas a pagar por competência ─────────
   let classificados = [];
+  let naoClassNoMes = [];
   if (temPayables) {
     const canceladas = payables.filter(isCancelledPayable);
     if (canceladas.length) {
@@ -334,11 +335,11 @@ export function buildMonthlyDre({ orders, payables, monthKey: mk, manualInputs, 
         message: `${fallbacksNoMes.length} título(s) de ${mk} sem competência nem vencimento: usada a data de emissão.`,
       });
     }
-    const naoClass = classificados.filter((c) => c.monthKey === mk && c.group === DRE_GROUPS.NAO_CLASSIFICADO);
-    if (naoClass.length) {
+    naoClassNoMes = classificados.filter((c) => c.monthKey === mk && c.group === DRE_GROUPS.NAO_CLASSIFICADO);
+    if (naoClassNoMes.length) {
       warnings.push({
         code: "titulos-nao-classificados",
-        message: `${naoClass.length} título(s) de ${mk} sem categoria reconhecida: fora da DRE.`,
+        message: `${naoClassNoMes.length} título(s) de ${mk} sem categoria reconhecida: fora da DRE.`,
       });
     }
   }
@@ -401,7 +402,23 @@ export function buildMonthlyDre({ orders, payables, monthKey: mk, manualInputs, 
   const dispTotalDeducoes = combineAvailability(dispPagaveis, dispPagaveis, dispFreteVenda, dispPagaveis);
   const dispReceitaLiquida = combineAvailability(dispReceita, dispTotalDeducoes);
   const dispLucroBruto = combineAvailability(dispReceitaLiquida, dispCmv);
-  const dispDespesasOperacionais = combineAvailability(dispPagaveis, dispPagaveis, dispPagaveis);
+
+  /* COMPLETUDE DA CLASSIFICAÇÃO das despesas operacionais.
+   *
+   * A cobertura temporal (dispPagaveis) responde a "o mês está fechado?". Não
+   * responde a "conheço a natureza dos títulos?". Um título sem categoria
+   * reconhecida fica fora das linhas operacionais, pelo que a soma passa a ser
+   * um mínimo conhecido, não o total — e um mínimo conhecido não é "real".
+   *
+   * Só NAO_CLASSIFICADO conta como incompleto: compras/estoque e frete pago são
+   * exclusões DELIBERADAS e conhecidas, não lacunas.
+   *
+   * Sem títulos por classificar no mês, `real` — inclusive quando o mês não tem
+   * títulos nenhuns: aí o zero é verdadeiro. Sem fonte, `unavailable` continua a
+   * dominar por via de combineAvailability. */
+  const dispClassificacaoOpex = naoClassNoMes.length ? "partial" : "real";
+  const dispDespesasOperacionais = combineAvailability(dispPagaveis, dispClassificacaoOpex);
+
   const dispEbitda = combineAvailability(dispLucroBruto, dispDespesasOperacionais);
   const dispResultadoLiquido = combineAvailability(dispEbitda, dispPagaveis);
 
@@ -415,7 +432,9 @@ export function buildMonthlyDre({ orders, payables, monthKey: mk, manualInputs, 
       salesFreight: dispFreteVenda,
       taxes: dispPagaveis,
       cmv: dispCmv,
-      operatingExpenses: dispPagaveis,
+      // Alias da Fase 2 da MESMA linha que `despesasOperacionais` — tem de valer
+      // o mesmo, senão o projeto passa a ter duas verdades para a mesma métrica.
+      operatingExpenses: dispDespesasOperacionais,
       partnerWithdrawals: dispPagaveis,
       // disponibilidade própria de cada linha da DRE
       receitaBruta: dispReceita,
@@ -430,6 +449,13 @@ export function buildMonthlyDre({ orders, payables, monthKey: mk, manualInputs, 
       fixas: dispPagaveis,
       administrativas: dispPagaveis,
       despesasOperacionais: dispDespesasOperacionais,
+      /* COBERTURA TEMPORAL da fonte de contas a pagar, isolada.
+       * Responde só a "o período está fechado?" — nunca a "conheço a natureza dos
+       * títulos?". É o valor de que várias linhas acima já são alias; nomeá-lo
+       * explicitamente evita que quem precise do sinal temporal tenha de o inferir
+       * de `despesasOperacionais` (que agora também carrega a completude da
+       * classificação) ou de espreitar linhas como `retiradasSocios`. */
+      coberturaPayables: dispPagaveis,
       ebitda: dispEbitda,
       retiradasSocios: dispPagaveis,
       resultadoLiquido: dispResultadoLiquido,

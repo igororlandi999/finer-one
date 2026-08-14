@@ -764,3 +764,144 @@ describe("combineAvailability propaga 'mixed'", () => {
     expect(d.availability.resultadoLiquido).toBe("mixed");
   });
 });
+/* ====================================================================================
+ * COMPLETUDE DA CLASSIFICAÇÃO das despesas operacionais.
+ *
+ * A cobertura temporal responde a "o mês está fechado?"; não responde a "conheço a
+ * natureza dos títulos?". Um título sem categoria reconhecida fica fora das linhas
+ * operacionais, e a soma passa a ser um MÍNIMO CONHECIDO — que não pode ser
+ * apresentado como `real`, sob pena de inflacionar o EBITDA quando o CMV existir.
+ * ==================================================================================== */
+describe("buildMonthlyDre — availability das despesas operacionais reflete a classificação", () => {
+  const base = { monthKey: "2026-06", manualInputs: { cmv: 0 } };
+  const pedidos = [order(1, "2026-06-10", 1000, { frete: 0 })];
+
+  it("1. todos classificados => valor conhecido e availability real", () => {
+    const d = buildMonthlyDre({
+      ...base, orders: pedidos,
+      payables: [pay(1, "Salários", 300, vencEm("2026-06-05")), pay(2, "Aluguel", 200, vencEm("2026-06-07"))],
+    });
+    expect(d.despesasOperacionais).toBe(500);
+    expect(d.availability.despesasOperacionais).toBe("real");
+    expect(d.warnings.some((w) => w.code === "titulos-nao-classificados")).toBe(false);
+  });
+
+  it("2. parte classificada => soma só o conhecido e availability partial", () => {
+    const d = buildMonthlyDre({
+      ...base, orders: pedidos,
+      payables: [pay(1, "Aluguel", 10000, vencEm("2026-06-05")), pay(2, "Fixas", 30000, vencEm("2026-06-07"))],
+    });
+    expect(d.despesasOperacionais).toBe(10000); // o valor não é inventado
+    expect(d.availability.despesasOperacionais).toBe("partial");
+    expect(d.warnings.some((w) => w.code === "titulos-nao-classificados")).toBe(true);
+  });
+
+  it("3. nenhum classificado => 0 conhecido, availability partial e warning", () => {
+    const d = buildMonthlyDre({
+      ...base, orders: pedidos,
+      payables: [pay(1, null, 40000, vencEm("2026-06-05")), pay(2, "Fixas", 5000, vencEm("2026-06-07"))],
+    });
+    expect(d.despesasOperacionais).toBe(0);
+    expect(d.availability.despesasOperacionais).toBe("partial"); // zero CONHECIDO, não zero real
+    const w = d.warnings.find((x) => x.code === "titulos-nao-classificados");
+    expect(w).toBeDefined();
+    expect(w.message).toContain("2 título(s)");
+  });
+
+  it("4. fonte presente sem títulos no mês => 0 real (zero verdadeiro)", () => {
+    const d = buildMonthlyDre({ ...base, orders: pedidos, payables: [] });
+    expect(d.despesasOperacionais).toBe(0);
+    expect(d.availability.despesasOperacionais).toBe("real");
+  });
+
+  it("4b. títulos noutro mês não tornam o mês analisado partial", () => {
+    const d = buildMonthlyDre({
+      ...base, orders: pedidos,
+      payables: [pay(1, null, 40000, vencEm("2026-05-05"))], // maio, não junho
+    });
+    expect(d.availability.despesasOperacionais).toBe("real");
+  });
+
+  it("5. fonte ausente continua unavailable, nunca partial", () => {
+    const d = buildMonthlyDre({ ...base, orders: pedidos, payables: null });
+    expect(d.despesasOperacionais).toBeNull();
+    expect(d.availability.despesasOperacionais).toBe("unavailable");
+    expect(d.availability.operatingExpenses).toBe("unavailable");
+  });
+
+  it("exclusões deliberadas não são lacunas: compras e frete pago mantêm real", () => {
+    const d = buildMonthlyDre({
+      ...base, orders: pedidos,
+      payables: [pay(1, "Compras de fornecedores", 50000, vencEm("2026-06-05")),
+                 pay(2, "Frete sobre compras", 800, vencEm("2026-06-06"))],
+    });
+    expect(d.despesasOperacionais).toBe(0);
+    expect(d.availability.despesasOperacionais).toBe("real");
+  });
+
+  it("cancelado sem categoria não torna o mês partial", () => {
+    const d = buildMonthlyDre({
+      ...base, orders: pedidos,
+      payables: [{ ...pay(1, null, 9000, vencEm("2026-06-05")), situacao: 5 }],
+    });
+    expect(d.availability.despesasOperacionais).toBe("real");
+  });
+
+  it("6. parcialidade propaga para EBITDA e resultado líquido", () => {
+    const d = buildMonthlyDre({
+      ...base, orders: pedidos,
+      payables: [pay(1, "Aluguel", 100, vencEm("2026-06-05")), pay(2, null, 900, vencEm("2026-06-06"))],
+    });
+    expect(d.availability.despesasOperacionais).toBe("partial");
+    expect(d.availability.ebitda).toBe("partial");
+    expect(d.availability.resultadoLiquido).toBe("partial");
+    // Linhas anteriores à classificação não são afetadas.
+    expect(d.availability.receitaLiquida).toBe("real");
+    expect(d.availability.lucroBruto).toBe("mixed"); // real + cmv manual, sem parcialidade
+  });
+
+  it("o alias operatingExpenses vale sempre o mesmo que despesasOperacionais", () => {
+    for (const payables of [
+      [pay(1, "Aluguel", 100, vencEm("2026-06-05"))],
+      [pay(1, null, 100, vencEm("2026-06-05"))],
+      [],
+      null,
+    ]) {
+      const d = buildMonthlyDre({ ...base, orders: pedidos, payables });
+      expect(d.availability.operatingExpenses).toBe(d.availability.despesasOperacionais);
+    }
+  });
+});
+
+describe("buildMonthlyDre — coberturaPayables isola o sinal temporal", () => {
+  const covAteJun = { firstCompleteMonth: "2026-04", partialMonths: [], closedThroughMonth: "2026-06" };
+  const REF = new Date(2026, 6, 15, 12, 0, 0);
+
+  it("mês fechado com título sem categoria: opex partial, cobertura real", () => {
+    const d = buildMonthlyDre({
+      orders: [order(1, "2026-06-10", 1000, { frete: 0 })],
+      payables: [pay(1, null, 900, vencEm("2026-06-05"))],
+      monthKey: "2026-06", coverage: covAteJun, referenceDate: REF,
+    });
+    expect(d.availability.despesasOperacionais).toBe("partial"); // classificação
+    expect(d.availability.coberturaPayables).toBe("real");       // tempo
+  });
+
+  it("mês em curso com categoria conhecida: cobertura partial, sem lacuna de classificação", () => {
+    const d = buildMonthlyDre({
+      orders: [order(1, "2026-07-10", 1000, { frete: 0 })],
+      payables: [pay(1, "Aluguel", 900, vencEm("2026-07-05"))],
+      monthKey: "2026-07", coverage: covAteJun, referenceDate: REF,
+    });
+    expect(d.availability.coberturaPayables).toBe("partial");
+    expect(d.warnings.some((w) => w.code === "titulos-nao-classificados")).toBe(false);
+  });
+
+  it("fonte ausente: cobertura unavailable, nunca partial", () => {
+    const d = buildMonthlyDre({
+      orders: [order(1, "2026-06-10", 1000, { frete: 0 })],
+      payables: null, monthKey: "2026-06", coverage: covAteJun, referenceDate: REF,
+    });
+    expect(d.availability.coberturaPayables).toBe("unavailable");
+  });
+});
