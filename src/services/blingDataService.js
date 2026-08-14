@@ -23,6 +23,7 @@ import {
   round2,
   toDate,
   prevMonthKey,
+  monthKey,
 } from "../utils/financialCalculations.js";
 
 import {
@@ -361,13 +362,74 @@ function buildClientes(orders) {
 // Resumo ancorado no mes das receitas. Despesas/resultado so entram com payables reais;
 // sem payables, o mock preenche e os cards mantem o selo Demo.
 // Deltas: MoM honesto; null (oculto) quando a base anterior nao permite % clara.
-function buildResumo(orders, payables) {
+/* Contas a pagar de UM mês, pela data de VENCIMENTO — visão de tesouraria.
+ *
+ * Deliberadamente NÃO usa expenseCalculations.payableDate (dataEmissao || vencimento):
+ * essa regra é a de outras páginas e mudá-la globalmente alteraria Despesas, alertas
+ * e Performance de uma só vez. Aqui a pergunta é outra — "quanto vence neste mês" —
+ * e a resposta é o vencimento, nunca a emissão.
+ *
+ * Também não é a competência da DRE (competencia > vencimentoOriginal > vencimento >
+ * dataEmissao): isto é tesouraria, não resultado. Um título sem vencimento não tem
+ * mês de tesouraria e fica de fora — não é inventado para nenhum mês.
+ * A regra de quais títulos contam (cancelados fora) continua a ser a de totalPayables.
+ */function contasPagarNoMes_(payables, mk) {
+  if (!mk) return 0;
+  return totalPayables(
+    billablePayables(payables).filter((p) => monthKey(p.vencimento) === mk)
+  );
+}
+
+/**
+ * Cards do topo do Resumo.
+ *
+ * DOIS CONTRATOS COEXISTEM AQUI, de propósito:
+ *   - `contasPagar` / `contasPagarMonthKey` — NOVO. Alimenta só o card
+ *     "Contas a pagar este mês". Responde a "quanto tenho de pagar NESTE mês
+ *     civil": operacional, não de fecho. Por isso não usa
+ *     financeiro.payables.monthKey (mês fechado, dependente de closedThroughMonth
+ *     mantido à mão, que ficaria congelado em junho durante agosto), nem
+ *     latestMonthKey(orders), nem competência. Essas âncoras continuam corretas
+ *     noutros contextos e não foram tocadas.
+ *   - `despesas` / `resultado` (+ deltas) — LEGADO DEPRECADO, congelado no
+ *     comportamento anterior enquanto o chatEngine não for migrado. Ver o bloco
+ *     dentro da função.
+ *
+ * `now` é injetável para o mês civil ser testável sem depender do relógio.
+ * Sai de monthKey(now) — o helper já consolidado em financialCalculations, o mesmo
+ * usado no filtro. Não importei currentMonthKey de performanceCalculations: faria
+ * o serviço depender de um módulo de página para uma conversão de data que já
+ * existe na camada base, e seriam duas fontes para a mesma regra na mesma função.
+ */
+function buildResumo(orders, payables, financeiro, now = new Date()) {
   const latest = latestMonthKey(orders);
   const receitas = totalRevenue(ordersInMonth(orders, latest));
   const receitasDelta = monthOverMonthGrowth(orders) ?? 0;
   const metrics = { receitas, receitasDelta };
 
   if (Array.isArray(payables)) {
+    // ── NOVO CONTRATO: card "Contas a pagar este mês" do Resumo ──
+    const mesCivil = monthKey(now);
+    metrics.contasPagarMonthKey = mesCivil;
+    metrics.contasPagar = contasPagarNoMes_(payables, mesCivil);
+    // Sem delta: o mês civil está em curso e o anterior está completo — a
+    // comparação não é limpa. Melhor não afirmar nada do que afirmar mal.
+
+    /* ── CONTRATO LEGADO TEMPORÁRIO — NÃO ALTERAR AQUI ────────────────────────
+     * `despesas`, `despesasDelta`, `resultado` e `resultadoDelta` mantêm, byte a
+     * byte, o comportamento anterior a esta microfase: mês = latestMonthKey(orders)
+     * e datação por payableDate (dataEmissao || vencimento).
+     *
+     * Estão DEPRECADOS e a lógica é reconhecidamente errada — `resultado` é o
+     * pseudo-resultado `receita − contas a pagar`, proibido no Diagnóstico (Fase 3)
+     * e nas respostas do Chat (Fase 4). Ficam intactos porque o chatEngine ainda os
+     * lê (monthMetricsCards); alterá-los aqui mudaria os números do Chat sem que o
+     * Chat fosse revisto — uma alteração silenciosa num módulo já aprovado.
+     *
+     * NÃO os alinhar com `contasPagar`. A remoção e a migração dos consumidores
+     * (chatEngine, performanceCalculations, página Despesas) são a microfase
+     * seguinte, e é lá que estes campos desaparecem.
+     * ──────────────────────────────────────────────────────────────────────── */
     const prev = prevMonthKey(latest);
 
     const despesas = totalPayables(payablesInMonth(payables, latest));
@@ -633,7 +695,7 @@ export function buildSalesDataset({ orders, payables, receivables, coverage: cov
   return {
     receitas: buildReceitas(orders),
     clientes: buildClientes(orders),
-    resumo: buildResumo(orders, payables),
+    resumo: buildResumo(orders, payables, financeiro),
     alertas: buildAlertas(orders, payables, financeiro),
     despesas: hasPayables ? buildDespesas(payables) : null, // null => Despesas usa mock
     fornecedores: hasPayables ? buildFornecedores(payables) : null, // null => Fornecedores usa mock

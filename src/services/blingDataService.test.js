@@ -157,6 +157,194 @@ describe("buildSalesDataset — mês âncora das contas a pagar", () => {
   });
 });
 
+/* ====================================================================================
+ * CONTAS A PAGAR ESTE MÊS — KPI operacional do Resumo.
+ *
+ * Responde a "quanto tenho de pagar neste mês civil". Soma por VENCIMENTO e o mês
+ * é o civil corrente — nunca dataEmissao, nunca competência, nunca
+ * financeiro.payables.monthKey (mês fechado), nunca latestMonthKey(orders).
+ *
+ * "Hoje" nestes testes = 13/08/2026, o cenário real que expôs o defeito: pedidos
+ * em agosto, cobertura fechada em junho, contas a vencer em agosto.
+ * ==================================================================================== */
+describe("buildResumo — contas a pagar do mês civil corrente", () => {
+  const HOJE_AGOSTO = new Date(2026, 7, 13, 12, 0, 0);
+  beforeEach(() => { vi.setSystemTime(HOJE_AGOSTO); });
+
+  const ord = (id, dataCivil, total) => ({
+    id, date: dataCivil, total, status: "recebida", client: { id: 1, name: "C" }, items: [],
+  });
+  const pg = (id, emissao, vencimento, valor, situacao = 1) => ({
+    id, situacao, dataEmissao: emissao, vencimento, valor,
+    categoriaNome: "Fixas", contato: { id: 1, nome: "Forn" },
+  });
+  // Cobertura real da Overcel: fechada em junho enquanto se está em agosto.
+  const cov = { firstCompleteMonth: "2026-04", partialMonths: [], closedThroughMonth: "2026-06" };
+  const orders = [ord(1, "2026-06-10", 180000), ord(2, "2026-08-11", 211448.77)];
+
+  it("1. usa o mês civil de now: emissão em julho, vencimento em agosto", () => {
+    const ds = buildSalesDataset({
+      orders, payables: [pg(10, "2026-07-20", "2026-08-25", 1000)], coverage: cov,
+    });
+    expect(ds.resumo.metrics.contasPagarMonthKey).toBe("2026-08");
+    expect(ds.resumo.metrics.contasPagar).toBe(1000);
+  });
+
+  it("2. independente de closedThroughMonth e da âncora de fecho", () => {
+    const ds = buildSalesDataset({
+      orders,
+      payables: [pg(10, "2026-05-25", "2026-06-10", 40000, 2), pg(11, "2026-07-20", "2026-08-05", 38170.57)],
+      coverage: cov,
+    });
+    // A âncora de fecho continua a existir e a apontar junho — só não manda neste card.
+    expect(ds.financeiro.payables.monthKey).toBe("2026-06");
+    expect(ds.resumo.metrics.contasPagarMonthKey).toBe("2026-08");
+    expect(ds.resumo.metrics.contasPagar).toBe(38170.57);
+    expect(ds.resumo.metrics.contasPagar).not.toBe(40000); // valor do mês fechado
+  });
+
+  it("2b. sem pedidos em agosto, o mês do KPI continua a ser agosto", () => {
+    // Discrimina o mês civil do mês dos PEDIDOS: aqui o último pedido é de junho.
+    const ds = buildSalesDataset({
+      orders: [ord(1, "2026-06-10", 180000)],
+      payables: [pg(10, "2026-05-25", "2026-06-10", 40000, 2), pg(11, "2026-07-20", "2026-08-05", 38170.57)],
+      coverage: cov,
+    });
+    expect(ds.resumo.metrics.contasPagarMonthKey).toBe("2026-08");
+    expect(ds.resumo.metrics.contasPagarMonthKey).not.toBe("2026-06"); // latestMonthKey(orders)
+    expect(ds.resumo.metrics.contasPagar).toBe(38170.57);
+  });
+
+  it("3. título que vence dia 25 entra já no dia 13", () => {
+    const ds = buildSalesDataset({
+      orders,
+      payables: [pg(10, "2026-07-20", "2026-08-05", 38170.57), pg(11, "2026-07-28", "2026-08-25", 97780.27)],
+      coverage: cov,
+    });
+    expect(ds.resumo.metrics.contasPagar).toBe(135950.84); // vencido + ainda por vencer
+  });
+
+  it("4. título de setembro não entra em agosto", () => {
+    const ds = buildSalesDataset({
+      orders, payables: [pg(10, "2026-08-01", "2026-09-10", 5000)], coverage: cov,
+    });
+    expect(ds.resumo.metrics.contasPagarMonthKey).toBe("2026-08");
+    expect(ds.resumo.metrics.contasPagar).toBe(0);
+  });
+
+  it("5. título sem vencimento não entra", () => {
+    const ds = buildSalesDataset({
+      orders,
+      payables: [{ id: 9, situacao: 1, dataEmissao: "2026-08-05", vencimento: null, valor: 700, contato: {} }],
+      coverage: cov,
+    });
+    expect(ds.resumo.metrics.contasPagar).toBe(0);
+  });
+
+  it("6. título cancelado não entra", () => {
+    const ds = buildSalesDataset({
+      orders,
+      payables: [pg(10, "2026-08-01", "2026-08-20", 900), pg(11, "2026-08-01", "2026-08-21", 500, 5)],
+      coverage: cov,
+    });
+    expect(ds.resumo.metrics.contasPagar).toBe(900);
+  });
+
+  it("7. payables [] é zero real, não indisponível", () => {
+    const ds = buildSalesDataset({ orders, payables: [], coverage: cov });
+    expect(ds.resumo.metrics.contasPagar).toBe(0);
+    expect(ds.resumo.metrics.contasPagar).not.toBeNull();
+    expect(ds.resumo.metrics.contasPagarMonthKey).toBe("2026-08");
+  });
+
+  it("8. fonte ausente continua a não existir (mock + Demo na tela)", () => {
+    const ds = buildSalesDataset({ orders, payables: undefined, coverage: cov });
+    expect(ds.resumo.metrics.contasPagar).toBeUndefined();
+    expect(ds.resumo.metrics.contasPagarMonthKey).toBeUndefined();
+    expect(ds.resumo.metrics.despesas).toBeUndefined();
+  });
+
+  it("o novo KPI não expõe delta: mês em curso vs mês completo não compara", () => {
+    const ds = buildSalesDataset({
+      orders,
+      payables: [pg(10, "2026-06-25", "2026-07-10", 45000, 2), pg(11, "2026-07-28", "2026-08-25", 1000)],
+      coverage: cov,
+    });
+    expect(ds.resumo.metrics.contasPagarDelta).toBeUndefined();
+  });
+});
+
+/* ====================================================================================
+ * CONTRATO LEGADO — congelado enquanto o chatEngine não for migrado.
+ *
+ * `despesas` e `resultado` são consumidos pelo chatEngine (monthMetricsCards). Se o
+ * novo KPI os arrastasse consigo, o Chat passaria a mostrar outros números sem ter
+ * sido revisto. Estes testes existem para impedir esse efeito colateral silencioso:
+ * são a fronteira entre o contrato novo e o antigo, não um aval à lógica antiga.
+ * ==================================================================================== */
+describe("buildResumo — campos legados do Chat não mudam com o novo KPI", () => {
+  const HOJE_AGOSTO = new Date(2026, 7, 13, 12, 0, 0);
+  beforeEach(() => { vi.setSystemTime(HOJE_AGOSTO); });
+
+  const ord = (id, dataCivil, total) => ({
+    id, date: dataCivil, total, status: "recebida", client: { id: 1, name: "C" }, items: [],
+  });
+  const pg = (id, emissao, vencimento, valor, situacao = 1) => ({
+    id, situacao, dataEmissao: emissao, vencimento, valor,
+    categoriaNome: "Fixas", contato: { id: 1, nome: "Forn" },
+  });
+  const cov = { firstCompleteMonth: "2026-04", partialMonths: [], closedThroughMonth: "2026-06" };
+
+  /* Fixture desenhada para que os dois contratos NUNCA coincidam:
+   *   pedidos param em junho          -> latestMonthKey(orders) = 2026-06
+   *   "hoje" é 13/08                  -> mês civil               = 2026-08
+   *   título A: emitido e vencido em junho (40.000)  -> só o legado o vê
+   *   título B: emitido em julho, vence em agosto (1.000) -> só o novo KPI o vê
+   * Uma implementação que faça metrics.despesas = metrics.contasPagar morre aqui. */
+  const orders = [ord(1, "2026-05-10", 100000), ord(2, "2026-06-10", 180000)];
+  const payables = [
+    pg(10, "2026-06-05", "2026-06-20", 40000, 2),
+    pg(11, "2026-07-20", "2026-08-25", 1000),
+  ];
+
+  it("contasPagar usa agosto pelo vencimento; despesas mantém junho pela emissão", () => {
+    const ds = buildSalesDataset({ orders, payables, coverage: cov });
+    const m = ds.resumo.metrics;
+
+    expect(m.contasPagarMonthKey).toBe("2026-08");
+    expect(m.contasPagar).toBe(1000);
+
+    // Legado: mês dos pedidos (junho) + payableDate (emissão). Valores diferentes.
+    expect(m.despesas).toBe(40000);
+    expect(m.despesas).not.toBe(m.contasPagar);
+  });
+
+  it("resultado legado continua receita(junho) − despesas(junho)", () => {
+    const ds = buildSalesDataset({ orders, payables, coverage: cov });
+    const m = ds.resumo.metrics;
+    expect(m.receitas).toBe(180000);              // junho
+    expect(m.resultado).toBe(140000);             // 180.000 − 40.000
+    expect(m.resultado).not.toBe(179000);         // seria 180.000 − contasPagar
+  });
+
+  it("os deltas legados continuam a ser calculados", () => {
+    const ds = buildSalesDataset({ orders, payables, coverage: cov });
+    const m = ds.resumo.metrics;
+    // Maio não tem contas a pagar => sem base anterior => delta null (regra antiga).
+    expect(m.despesasDelta).toBeNull();
+    expect(m.resultadoDelta).toBe(40);            // (140.000 − 100.000) / 100.000
+  });
+
+  it("com base anterior, o delta legado mantém a fórmula antiga", () => {
+    const ds = buildSalesDataset({
+      orders,
+      payables: [pg(1, "2026-05-05", "2026-05-20", 20000, 2), ...payables],
+      coverage: cov,
+    });
+    expect(ds.resumo.metrics.despesasDelta).toBe(100); // 20.000 -> 40.000
+  });
+});
+
 describe("buildSalesDataset — catálogo documental (sales.documents)", () => {
   const ord = (id, over = {}) => ({
     id, numero: 1318, date: "2026-06-01", total: 920, status: "recebida",

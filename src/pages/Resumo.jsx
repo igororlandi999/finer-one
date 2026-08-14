@@ -26,6 +26,7 @@ import {
 import { formatMoney as formatEUR, formatMoneyCompact as formatEURCompact, formatMoneyOrDash } from "../lib/currency";
 import { useFinerData } from "../context/FinerDataContext";
 import { buildCashflowForecast, hasCashflowSource } from "../utils/cashflowForecast";
+import { monthLongLabel } from "../utils/performanceCalculations";
 
 // ── Tooltip do gráfico de cashflow ──────────────────────────
 // valueLabel: "Saldo" no gráfico mock (semântica original); "Variação líquida
@@ -124,6 +125,8 @@ export default function Resumo() {
   // Camada financeira central (DRE): mesma fonte da Performance Financeira.
   const fin = sales?.financeiro ?? null;
   const fm = fin?.metrics ?? null;
+  // Contas a pagar reais presentes: sem elas o card cai no mock (com selo Demo).
+  const temContasPagarReais = typeof monthMetrics.contasPagar === "number";
   const legendaDisp = (a) => (
     a === "unavailable" ? "Fonte indispon\u00edvel"
     : a === "partial" ? "Dados parciais"
@@ -204,12 +207,17 @@ export default function Resumo() {
           icon={TrendingUp}
           iconBg="bg-brand-50 text-brand-600"
         />
+        {/* TESOURARIA, não DRE: títulos que VENCEM no mês civil corrente. Responde a
+            "quanto tenho de pagar este mês", não a "qual foi a despesa operacional".
+            Sem delta com dados reais: o mês em curso não se compara com um mês
+            completo. O modo Demo mantém o delta do mock, que é ilustrativo. */}
         <MetricCard
-          label="Despesas (Mês)"
-          value={formatEUR(monthMetrics.despesas)}
-          delta={monthMetrics.despesasDelta}
+          label="Contas a pagar este mês"
+          value={formatEUR(monthMetrics.contasPagar ?? monthMetrics.despesas)}
+          delta={temContasPagarReais ? undefined : monthMetrics.despesasDelta}
           icon={TrendingDown}
           iconBg="bg-rose-50 text-rose-500"
+          helper={temContasPagarReais ? `Vencimentos de ${monthLongLabel(monthMetrics.contasPagarMonthKey)}` : undefined}
           demo={source === "api" && !sales?.despesas}
         />
         <MetricCard
