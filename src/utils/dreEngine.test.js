@@ -905,3 +905,131 @@ describe("buildMonthlyDre — coberturaPayables isola o sinal temporal", () => {
     expect(d.availability.coberturaPayables).toBe("unavailable");
   });
 });
+
+/* ====================================================================================
+ * ÂMBITO TEMPORAL DOS WARNINGS POR TÍTULO (microfase 5D).
+ *
+ * classifyPayable corre sobre TODA a fonte; os warnings que devolve descrevem UM título
+ * concreto e só pertencem à DRE do mês desse título. Este bloco impede a reintrodução
+ * do defeito em que a DRE de junho anunciava factos sobre títulos de abril e maio.
+ *
+ * Os valores das linhas NÃO dependem de warnings: os casos 5 e 6 fixam-nos ao cêntimo
+ * para que qualquer alteração acidental de cálculo morra aqui.
+ * ==================================================================================== */
+describe("buildMonthlyDre — warnings por título respeitam o mês analisado", () => {
+  const COV = { firstCompleteMonth: "2026-04", partialMonths: [], closedThroughMonth: "2026-06" };
+  const REF = new Date(2026, 6, 15, 12, 0, 0); // 15/07/2026
+  const pedidos = [order(1, "2026-06-10", 100000, { frete: 500 })];
+  const base = {
+    orders: pedidos, monthKey: "2026-06", manualInputs: { cmv: 0 },
+    coverage: COV, referenceDate: REF,
+  };
+
+  // Réplica do cenário real da Overcel: retiradas com histórico contraditório
+  // espalhadas por abril, maio e junho.
+  const carteira = [
+    pay(1, "Pró-labore", 9840.00, vencEm("2026-05-10"), "Adiantamento de dividendos"),
+    pay(2, "Pró-labore", 700.00, vencEm("2026-06-10"), "Adiantamento de dividendos"),
+    pay(3, null, 13520.00, vencEm("2026-04-05"), "Retirada dos sócios"),
+    pay(4, "Salários", 2800.00, vencEm("2026-06-05")),
+    pay(5, "Aluguel", 2425.90, vencEm("2026-06-08")),
+    pay(6, "Tarifa bancária", 180.78, vencEm("2026-06-11")),
+    pay(7, "Comissão sobre vendas", 1144.93, vencEm("2026-06-10")),
+    pay(8, "Impostos sobre vendas", 26417.70, vencEm("2026-06-20")),
+  ];
+
+  it("1. título de MAIO com categoria/histórico contraditórios não polui junho", () => {
+    const d = buildMonthlyDre({
+      ...base,
+      payables: [pay(1, "Pró-labore", 9840.00, vencEm("2026-05-10"), "Adiantamento de dividendos")],
+    });
+    expect(d.warnings.some((w) => w.code === "categoria-historico-contraditorios")).toBe(false);
+    expect(d.retiradasSocios).toBe(0); // o valor já não entrava; continua a não entrar
+  });
+
+  it("2. o MESMO título, em JUNHO, continua a gerar o warning", () => {
+    const d = buildMonthlyDre({
+      ...base,
+      payables: [pay(2, "Pró-labore", 700.00, vencEm("2026-06-10"), "Adiantamento de dividendos")],
+    });
+    const w = d.warnings.find((x) => x.code === "categoria-historico-contraditorios");
+    expect(w).toBeDefined();
+    expect(w.payableId).toBe(2);
+    expect(d.retiradasSocios).toBe(700);
+  });
+
+  it("3. título de ABRIL sem categoria com histórico de retirada não gera warning em junho", () => {
+    const d = buildMonthlyDre({
+      ...base,
+      payables: [pay(3, null, 13520.00, vencEm("2026-04-05"), "Retirada dos sócios")],
+    });
+    expect(d.warnings.some((w) => w.code === "retirada-por-historico")).toBe(false);
+  });
+
+  it("3b. título SEM qualquer data não injeta warning em nenhum mês", () => {
+    const semData = { ...pay(9, null, 900, {}, "Retirada de sócio"), vencimento: null };
+    const d = buildMonthlyDre({ ...base, payables: [semData] });
+    expect(d.warnings.some((w) => w.code === "retirada-por-historico")).toBe(false);
+  });
+
+  it("4. os warnings AGREGADOS de junho continuam a funcionar", () => {
+    const d = buildMonthlyDre({
+      ...base,
+      payables: [
+        pay(10, "Categoria XPTO", 500, vencEm("2026-06-05")),                // não classificado
+        pay(11, "Software", 120, { dataEmissao: "2026-06-15" }),             // competência por emissão
+        { ...pay(12, "Salários", 999, vencEm("2026-06-06")), situacao: 5 },  // cancelado
+      ],
+    });
+    expect(d.warnings.some((w) => w.code === "titulos-nao-classificados")).toBe(true);
+    expect(d.warnings.some((w) => w.code === "competencia-por-emissao")).toBe(true);
+    expect(d.warnings.some((w) => w.code === "titulos-cancelados-excluidos")).toBe(true);
+    // A completude da classificação continua a marcar o mês.
+    expect(d.availability.despesasOperacionais).toBe("partial");
+  });
+
+  it("5. os valores de junho não mudam por haver títulos de outros meses na fonte", () => {
+    const d = buildMonthlyDre({ ...base, payables: carteira });
+    expect(d.receitaBruta).toBe(100000);
+    expect(d.comissoes).toBe(1144.93);
+    expect(d.devolucoes).toBe(0);
+    expect(d.freteVenda).toBe(500);
+    expect(d.simplesNacional).toBe(26417.70);
+    expect(d.totalDeducoes).toBe(28062.63);
+    expect(d.receitaLiquida).toBe(71937.37);
+    expect(d.cmv).toBe(0);
+    expect(d.lucroBruto).toBe(71937.37);
+    expect(d.pessoal).toBe(2800);
+    expect(d.fixas).toBe(2425.90);
+    expect(d.administrativas).toBe(180.78);
+    expect(d.despesasOperacionais).toBe(5406.68);
+    expect(d.ebitda).toBe(66530.69);
+    expect(d.retiradasSocios).toBe(700);
+    expect(d.resultadoLiquido).toBe(65830.69);
+  });
+
+  it("6. a availability de junho não muda por causa de títulos de outros meses", () => {
+    const d = buildMonthlyDre({ ...base, payables: carteira });
+    expect(d.availability.revenue).toBe("real");
+    expect(d.availability.freteVenda).toBe("real");
+    expect(d.availability.totalDeducoes).toBe("real");
+    expect(d.availability.receitaLiquida).toBe("real");
+    expect(d.availability.cmv).toBe("manual");
+    expect(d.availability.lucroBruto).toBe("mixed");
+    expect(d.availability.pessoal).toBe("real");
+    expect(d.availability.fixas).toBe("real");
+    expect(d.availability.administrativas).toBe("real");
+    expect(d.availability.despesasOperacionais).toBe("real");
+    expect(d.availability.operatingExpenses).toBe(d.availability.despesasOperacionais);
+    expect(d.availability.coberturaPayables).toBe("real");
+    expect(d.availability.retiradasSocios).toBe("real");
+    expect(d.availability.ebitda).toBe("mixed");
+    expect(d.availability.resultadoLiquido).toBe("mixed");
+  });
+
+  it("7. nenhum warning devolvido tem payableId de título fora do mês", () => {
+    const d = buildMonthlyDre({ ...base, payables: carteira });
+    const ids = d.warnings.filter((w) => w.payableId != null).map((w) => w.payableId);
+    expect(ids).toEqual([2]); // só o Pró-labore de junho
+  });
+});

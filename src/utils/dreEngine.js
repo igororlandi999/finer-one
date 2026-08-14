@@ -325,8 +325,19 @@ export function buildMonthlyDre({ orders, payables, monthKey: mk, manualInputs, 
     classificados = payables.filter((p) => !isCancelledPayable(p)).map((p) => {
       const { group, warnings: w } = classifyPayable(p);
       const comp = payableCompetenceDate(p);
-      if (w && w.length) for (const one of w) warnings.push(one);
-      return { payable: p, group, monthKey: comp.date ? monthKey(comp.date) : null, dateField: comp.field, fallback: comp.fallback };
+      const mkTitulo = comp.date ? monthKey(comp.date) : null;
+      /* ÂMBITO TEMPORAL DOS WARNINGS POR TÍTULO.
+       * classifyPayable corre sobre TODOS os títulos da fonte — tem de correr, porque a
+       * classificação é necessária para somar qualquer mês. Mas os warnings que devolve
+       * descrevem UM título concreto e só pertencem à DRE do mês desse título. Sem este
+       * filtro, a DRE de junho recebia avisos de títulos de abril e maio: o facto descrito
+       * nem sequer existe no mês analisado.
+       * Os warnings AGREGADOS (titulos-nao-classificados, competencia-por-emissao) já
+       * filtravam por mês; esta linha alinha os warnings por título com essa mesma regra.
+       * Um título sem data de competência (mkTitulo null) não pertence a mês nenhum e por
+       * isso não injeta warnings em mês nenhum. */
+      if (mkTitulo === mk && w && w.length) for (const one of w) warnings.push(one);
+      return { payable: p, group, monthKey: mkTitulo, dateField: comp.field, fallback: comp.fallback };
     });
     const fallbacksNoMes = classificados.filter((c) => c.monthKey === mk && c.fallback && c.dateField);
     if (fallbacksNoMes.length) {
