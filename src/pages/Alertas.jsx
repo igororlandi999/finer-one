@@ -8,15 +8,15 @@ import DemoTag  from "../components/ui/DemoTag";
 
 import { alertsMetrics as mockAlertsMetrics, alertsList as mockAlertsList } from "../data/mockData";
 import { useFinerData } from "../context/FinerDataContext";
-import { severityCounts } from "../utils/alertsEngine";
+import { alertsViewModel } from "../utils/alertsView";
 import { downloadCsv } from "../utils/csvExport";
 
-// Categorias que NÃO derivam de vendas — mantêm-se sempre em mock.
-const NON_SALES_CATEGORIES = ["Liquidez", "Margem", "Recebimentos", "Tesouraria", "Fiscal", "Documentos"];
-function composeAlerts(salesList, mockList) {
-  if (!salesList) return mockList;
-  return [...salesList, ...mockList.filter((a) => NON_SALES_CATEGORIES.includes(a.category))];
-}
+/* A composição da lista e das contagens vive em utils/alertsView.js, para poder ser
+ * testada sem montar a página. Aqui fica apenas a ligação ao contexto e ao JSX.
+ *
+ * B1: existia aqui um NON_SALES_CATEGORIES que injetava 7 alertas de mockData por
+ * cima dos reais — alertas com datas, clientes, moeda e valores fictícios. Com fonte
+ * real, a lista passa a ser só real. O modo mock mantém-se inalterado. */
 
 // ── Metadata por severidade ─────────────────────────────────
 const SEV = {
@@ -110,10 +110,9 @@ export default function Alertas() {
       ["Severidade", "Categoria", "Título", "Descrição", "Ação sugerida"], rows);
   }
   const salesList = sales?.alertas?.list ?? null;
-  const alertsList = composeAlerts(salesList, mockAlertsList);
-  const alertsMetrics = salesList
-    ? severityCounts(alertsList, mockAlertsMetrics.resolvidos)
-    : mockAlertsMetrics;
+  const { list: alertsList, metrics: alertsMetrics, isDemo } = alertsViewModel({
+    salesList, mockList: mockAlertsList, mockMetrics: mockAlertsMetrics, source,
+  });
 
   const filtered = useMemo(
     () => filter === "todos" ? alertsList : alertsList.filter((a) => a.severity === filter),
@@ -135,10 +134,10 @@ export default function Alertas() {
 
       {/* Resumo por severidade */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <SeverityCard severity="danger"  count={alertsMetrics.criticos}    description="Requerem ação imediata" demo={source === "api"} />
-        <SeverityCard severity="warning" count={alertsMetrics.atencao}     description="Devem ser monitorizados" demo={source === "api"} />
-        <SeverityCard severity="info"    count={alertsMetrics.informativos} description="Informações relevantes" demo={source === "api"} />
-        <SeverityCard severity="success" count={alertsMetrics.resolvidos}  description="Indicadores positivos" demo={source === "api"} />
+        <SeverityCard severity="danger"  count={alertsMetrics.criticos}    description="Requerem ação imediata" demo={isDemo} />
+        <SeverityCard severity="warning" count={alertsMetrics.atencao}     description="Devem ser monitorizados" demo={isDemo} />
+        <SeverityCard severity="info"    count={alertsMetrics.informativos} description="Informações relevantes" demo={isDemo} />
+        <SeverityCard severity="success" count={alertsMetrics.resolvidos}  description="Indicadores positivos" demo={isDemo} />
       </div>
 
       {/* Lista de alertas */}

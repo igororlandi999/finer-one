@@ -1,7 +1,10 @@
 // Testes dos alertas reais. Data simulada fixa: "hoje" = 15/07/2026.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { buildFinancialAlerts, buildSalesAlerts, buildExpenseAlerts } from "./alertsEngine.js";
+import {
+  buildFinancialAlerts, buildSalesAlerts, buildExpenseAlerts,
+  severityCounts, formatAlertTimestamp, mesPorExtenso,
+} from "./alertsEngine.js";
 import { formatMoney } from "../lib/currency.js";
 
 const HOJE = new Date(2026, 6, 15, 12, 0, 0);
@@ -603,5 +606,254 @@ describe("buildSalesAlerts — v-ticket-info usa o mês âncora, não o históri
     expect(info).toBeTruthy();
     expect(info.description).toContain(formatMoney(3000));
     expect(info.description).not.toContain(formatMoney(5000)); // não é só junho
+  });
+});
+
+/* ====================================================================================
+ * MICROFASE C1 — regressões dos bugs B6, B3 e B2.
+ * ==================================================================================== */
+
+describe("severityCounts — B6: zero real não cai no fallback", () => {
+  const a = (id, severity) => ({ id, severity });
+
+  it("sem alertas positivos, resolvidos é 0 — nunca o fallback", () => {
+    const m = severityCounts([a(1, "danger"), a(2, "warning"), a(3, "info")], 12);
+    expect(m.resolvidos).toBe(0);
+    expect(m.resolvidos).not.toBe(12);
+    expect(m.criticos).toBe(1);
+    expect(m.atencao).toBe(1);
+    expect(m.informativos).toBe(1);
+  });
+
+  it("lista vazia é contagem conhecida: tudo a zero", () => {
+    expect(severityCounts([], 12).resolvidos).toBe(0);
+  });
+
+  it("sem lista (null/undefined) a contagem é desconhecida: usa o fallback", () => {
+    expect(severityCounts(null, 12).resolvidos).toBe(12);
+    expect(severityCounts(undefined, 12).resolvidos).toBe(12);
+    expect(severityCounts(null).resolvidos).toBe(0); // sem fallback declarado
+  });
+
+  it("com alertas positivos, conta-os e ignora o fallback", () => {
+    expect(severityCounts([a(1, "success"), a(2, "success")], 12).resolvidos).toBe(2);
+  });
+
+  it("os 6 alertas reais da Overcel não produzem 12 resolvidos", () => {
+    const reais = [
+      a("v-ticket-info", "info"), a("d-vencidas", "danger"), a("d-proximos7", "warning"),
+      a("d-pendentes", "info"), a("d-cat-conc", "warning"), a("d-forn-alto", "info"),
+    ];
+    const m = severityCounts(reais, 12);
+    expect(m).toEqual({ criticos: 1, atencao: 2, informativos: 3, resolvidos: 0 });
+  });
+});
+
+describe("mesPorExtenso — B3", () => {
+  it("converte a chave de mês para texto em português", () => {
+    expect(mesPorExtenso("2026-06")).toBe("junho de 2026");
+    expect(mesPorExtenso("2026-01")).toBe("janeiro de 2026");
+    expect(mesPorExtenso("2026-03")).toBe("março de 2026");
+    expect(mesPorExtenso("2025-12")).toBe("dezembro de 2025");
+  });
+
+  it("chave inválida devolve null — a frase omite o mês em vez de o inventar", () => {
+    expect(mesPorExtenso(null)).toBeNull();
+    expect(mesPorExtenso("")).toBeNull();
+    expect(mesPorExtenso("2026-13")).toBeNull();
+    expect(mesPorExtenso("junho")).toBeNull();
+  });
+});
+
+describe("B3 — os alertas mensais nomeiam o mês que o motor usou", () => {
+  const pg = (id, dataCivil, valor, categoria, fornecedor) => ({
+    id, situacao: 2, dataEmissao: dataCivil, vencimento: dataCivil,
+    valor, categoriaNome: categoria, contato: { id: fornecedor, nome: fornecedor },
+  });
+  const payables = [
+    pg(1, "2026-05-01", 2000, "Serviços", "Fornecedor A"),
+    pg(4, "2026-06-01", 9500, "Aluguel", "Fornecedor B"),
+    pg(6, "2026-06-20", 900, "Marketing", "Fornecedor B"),
+    pg(7, "2026-07-01", 900, "Compras", "Fornecedor C"),
+  ];
+  const optsJunho = { monthKey: "2026-06", previousMonthKey: "2026-05", comparable: true };
+
+  it("d-cat-conc escreve o mês fechado por extenso", () => {
+    const a = buildExpenseAlerts(payables, optsJunho).find((x) => x.id === "d-cat-conc");
+    expect(a.description).toContain("junho de 2026");
+    expect(a.description).toContain("Aluguel");
+    expect(a.description).not.toContain("mês em curso");
+  });
+
+  it("d-forn-alto escreve o mês fechado por extenso", () => {
+    const a = buildExpenseAlerts(payables, optsJunho).find((x) => x.id === "d-forn-alto");
+    expect(a.description).toContain("junho de 2026");
+    expect(a.description).toContain("Fornecedor B");
+  });
+
+  it("a âncora NÃO mudou: o mês citado é o do motor, não o último mês com títulos", () => {
+    const texto = buildExpenseAlerts(payables, optsJunho)
+      .filter((x) => ["d-cat-conc", "d-forn-alto"].includes(x.id))
+      .map((x) => x.description).join(" ");
+    expect(texto).not.toContain("julho de 2026"); // último mês com títulos
+    expect(texto).not.toContain("agosto");
+    expect(texto).not.toContain("Fornecedor C");
+  });
+
+  it("mês em curso: nomeia o mês E continua a declarar a parcialidade", () => {
+    const out = buildExpenseAlerts(payables, {
+      monthKey: "2026-07", previousMonthKey: "2026-06", comparable: false, partial: true,
+    });
+    const cat = out.find((a) => a.id === "d-cat-conc");
+    expect(cat.description).toContain("julho de 2026");
+    expect(cat.description).toContain("mês em curso");
+    expect(cat.description).toContain("Até ao momento");
+  });
+
+  it("v-ticket-info nomeia o mês âncora quando existe", () => {
+    const orders = [order(1, 5, 10, 4000), order(2, 5, 20, 6000)];
+    const info = buildSalesAlerts(orders, { monthKey: "2026-06", comparable: false })
+      .find((a) => a.id === "v-ticket-info");
+    expect(info.description).toContain("junho de 2026");
+    expect(info.description).toContain(formatMoney(5000));
+  });
+
+  it("sem mês âncora, o ticket é do histórico e nenhum mês é afirmado", () => {
+    const orders = [order(1, 5, 10, 4000), order(2, 5, 20, 6000)];
+    const info = buildSalesAlerts(orders).find((a) => a.id === "v-ticket-info");
+    expect(info.description).not.toContain(" de 2026");
+    expect(info.description).toContain(formatMoney(5000));
+  });
+});
+
+/* ====================================================================================
+ * B2 — TIMESTAMP: contrato e robustez de fuso.
+ *
+ * CONTRATO: `formatAlertTimestamp` rende o instante na HORA LOCAL do ambiente que
+ * gera o alerta (getDate/getMonth/getHours/getMinutes). Não usa toLocaleString, não
+ * fixa timeZone e não usa UTC. É o correto para um carimbo mostrado ao utilizador.
+ *
+ * POR QUE ESTES TESTES NÃO FIXAM "09:05":
+ * um literal de hora só é estável se o instante for construído com a MESMA noção de
+ * local usada na leitura. Ambientes onde a construção e a leitura divergem (foi o
+ * caso reportado, com desvio fixo de +3h) faziam falhar um teste correto. A expetativa
+ * passa a ser DERIVADA do mesmo instante através de Intl.DateTimeFormat — uma segunda
+ * implementação, independente dos getters, do que é "hora local". O teste continua a
+ * validar semântica: se a produção passasse a render em UTC, falharia em qualquer
+ * fuso diferente de UTC (caso coberto explicitamente abaixo).
+ * ==================================================================================== */
+describe("B2 — timestamp é o momento da geração, injetado e determinístico", () => {
+  // Instante EXPLÍCITO (offset declarado): não depende de componentes locais.
+  const GERADO_EM = new Date("2026-08-14T12:05:00Z");
+
+  /* Referência independente: mesma timezone local, mas via Intl em vez dos getters.
+   * Não é tautológica com a produção — é outra via para o mesmo conceito. */
+  const esperadoLocal = (instante) => {
+    const p = new Intl.DateTimeFormat("pt-PT", {
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(instante).reduce((acc, x) => (acc[x.type] = x.value, acc), {});
+    return `${p.day}/${p.month}/${p.year}, ${p.hour === "24" ? "00" : p.hour}:${p.minute}`;
+  };
+
+  const pg = (id, dataCivil, valor, categoria, fornecedor) => ({
+    id, situacao: 2, dataEmissao: dataCivil, vencimento: dataCivil,
+    valor, categoriaNome: categoria, contato: { id: fornecedor, nome: fornecedor },
+  });
+
+  it("formatAlertTimestamp é puro: mesmo instante, mesmo resultado, sem ler o relógio", () => {
+    expect(formatAlertTimestamp(GERADO_EM)).toBe(esperadoLocal(GERADO_EM));
+    expect(formatAlertTimestamp(GERADO_EM)).toBe(formatAlertTimestamp(GERADO_EM));
+    // Chamar noutro "agora" não muda o resultado: não há relógio escondido.
+    vi.setSystemTime(new Date("2027-01-01T00:00:00Z"));
+    expect(formatAlertTimestamp(GERADO_EM)).toBe(esperadoLocal(GERADO_EM));
+    vi.setSystemTime(HOJE);
+  });
+
+  it("rende hora LOCAL e não UTC (verificado quando o ambiente não está em UTC)", () => {
+    const emUtc = "14/08/2026, 12:05";
+    if (GERADO_EM.getTimezoneOffset() !== 0) {
+      expect(formatAlertTimestamp(GERADO_EM)).not.toBe(emUtc);
+    } else {
+      expect(formatAlertTimestamp(GERADO_EM)).toBe(emUtc);
+    }
+  });
+
+  it("o formato é dd/mm/aaaa, hh:mm com zeros à esquerda", () => {
+    expect(formatAlertTimestamp(GERADO_EM)).toMatch(/^\d{2}\/\d{2}\/\d{4}, \d{2}:\d{2}$/);
+  });
+
+  it("instantes distintos produzem carimbos distintos, na ordem correta", () => {
+    const a = new Date("2026-08-14T12:05:00Z");
+    const b = new Date("2026-08-14T13:35:00Z"); // +90 min
+    expect(formatAlertTimestamp(a)).toBe(esperadoLocal(a));
+    expect(formatAlertTimestamp(b)).toBe(esperadoLocal(b));
+    expect(formatAlertTimestamp(a)).not.toBe(formatAlertTimestamp(b));
+  });
+
+  it("data inválida não inventa momento", () => {
+    expect(formatAlertTimestamp(new Date("xpto"))).toBe("—");
+  });
+
+  it("buildExpenseAlerts carimba todos os alertas com o now injetado", () => {
+    const out = buildExpenseAlerts(
+      [pg(1, "2026-06-01", 9500, "Aluguel", "Fornecedor B")],
+      { monthKey: "2026-06", previousMonthKey: "2026-05", comparable: true, now: GERADO_EM },
+    );
+    expect(out.length).toBeGreaterThan(0);
+    for (const a of out) expect(a.timestamp).toBe(esperadoLocal(GERADO_EM));
+  });
+
+  it("buildSalesAlerts carimba com o now injetado", () => {
+    const out = buildSalesAlerts([order(1, 5, 10, 4000)], { monthKey: "2026-06", now: GERADO_EM });
+    expect(out.length).toBeGreaterThan(0);
+    for (const a of out) expect(a.timestamp).toBe(esperadoLocal(GERADO_EM));
+  });
+
+  it("buildFinancialAlerts carimba com o now injetado", () => {
+    const out = buildFinancialAlerts({
+      financialMetrics: { profitability: { netResult: -100, ebitda: -50, availability: { netResult: "real", ebitda: "real" } } },
+      monthKey: "2026-06", now: GERADO_EM,
+    });
+    expect(out.length).toBeGreaterThan(0);
+    for (const a of out) expect(a.timestamp).toBe(esperadoLocal(GERADO_EM));
+  });
+
+  it("o now injetado manda: dois instantes diferentes dão carimbos diferentes", () => {
+    const outro = new Date("2026-09-02T08:00:00Z");
+    const alerta = (now) => buildExpenseAlerts(
+      [pg(1, "2026-06-01", 9500, "Aluguel", "Fornecedor B")],
+      { monthKey: "2026-06", comparable: true, now },
+    )[0].timestamp;
+    expect(alerta(GERADO_EM)).toBe(esperadoLocal(GERADO_EM));
+    expect(alerta(outro)).toBe(esperadoLocal(outro));
+    expect(alerta(GERADO_EM)).not.toBe(alerta(outro));
+  });
+
+  it("todos os alertas da MESMA execução partilham o instante", () => {
+    const out = buildExpenseAlerts(
+      [pg(1, "2026-06-01", 9500, "Aluguel", "Forn B"), pg(2, "2026-06-02", 100, "Aluguel", "Forn B")],
+      { monthKey: "2026-06", comparable: true, now: GERADO_EM },
+    );
+    expect(new Set(out.map((a) => a.timestamp)).size).toBe(1);
+  });
+
+  it("sem now injetado usa o relógio do chamador — nunca a string \"Hoje\"", () => {
+    const out = buildExpenseAlerts(
+      [pg(1, "2026-06-01", 9500, "Aluguel", "Fornecedor B")],
+      { monthKey: "2026-06", comparable: true },
+    );
+    // HOJE é o instante posto por vi.setSystemTime; a expetativa deriva do MESMO instante.
+    expect(out[0].timestamp).toBe(esperadoLocal(HOJE));
+    expect(out[0].timestamp).not.toBe("Hoje");
+  });
+
+  it("o now injetado também manda nos alertas operacionais (vencidas/a vencer)", () => {
+    // Título que vence a 20/08: a vencer se "hoje" for 14/08, vencido se for 25/08.
+    const p = [{ id: 9, situacao: 1, vencimento: "2026-08-20", dataEmissao: "2026-07-01", valor: 500, categoriaNome: "Aluguel", contato: { id: 1, nome: "F" } }];
+    const antes = buildExpenseAlerts(p, { now: new Date("2026-08-14T12:00:00Z") }).map((a) => a.id);
+    const depois = buildExpenseAlerts(p, { now: new Date("2026-08-25T12:00:00Z") }).map((a) => a.id);
+    expect(antes).not.toContain("d-vencidas");
+    expect(depois).toContain("d-vencidas");
   });
 });

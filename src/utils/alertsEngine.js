@@ -30,8 +30,51 @@ import {
   pendingPayables,
 } from "./expenseCalculations.js";
 
+/* ====================================================================================
+ * TIMESTAMP DO ALERTA (B2) — significa o MOMENTO EM QUE O ALERTA FOI GERADO.
+ * NÃO é a data do título, nem o mês de referência, nem o vencimento, nem a
+ * competência. Todos os alertas de uma mesma execução partilham o mesmo instante.
+ *
+ * O relógio é lido UMA vez, na fronteira de cada gerador (opts.now), e injetado.
+ * Nenhuma função interna chama new Date(). O default `new Date()` no parâmetro do
+ * gerador é o padrão já estabelecido no projeto (buildMonthlyDre.referenceDate,
+ * buildResumo.now, payableStatus.now) e mantém os chamadores atuais compatíveis.
+ * ==================================================================================== */
+const pad2_ = (n) => String(n).padStart(2, "0");
+
+export function formatAlertTimestamp(now) {
+  const d = now instanceof Date ? now : new Date(now);
+  if (isNaN(d.getTime())) return "—";
+  return `${pad2_(d.getDate())}/${pad2_(d.getMonth() + 1)}/${d.getFullYear()}, ` +
+         `${pad2_(d.getHours())}:${pad2_(d.getMinutes())}`;
+}
+
+/* Carimba a lista inteira com o instante da geração. Garante que nenhum alerta sai
+ * sem timestamp e que todos os da mesma execução têm o mesmo. */
+function stamp_(list, now) {
+  const ts = formatAlertTimestamp(now);
+  for (const a of list) a.timestamp = ts;
+  return list;
+}
+
+/* "2026-06" -> "junho de 2026" (B3). Puro texto: não escolhe mês nenhum, apenas
+ * escreve por extenso o mês que o motor já escolheu. Chave inválida devolve null e
+ * a frase omite a referência em vez de inventar um mês. */
+const MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+export function mesPorExtenso(monthKey) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(monthKey || ""));
+  if (!m) return null;
+  const idx = Number(m[2]) - 1;
+  if (idx < 0 || idx > 11) return null;
+  return `${MESES_PT[idx]} de ${m[1]}`;
+}
+
+/* timestamp fica null aqui de propósito: é stamp_ que o preenche na saída do
+ * gerador, com o `now` injetado. Assim não há relógio escondido nesta função. */
 function mk(id, severity, category, title, description, acao = "—") {
-  return { id, severity, category, title, description, timestamp: "Hoje", acao };
+  return { id, severity, category, title, description, timestamp: null, acao };
 }
 
 /**
@@ -43,6 +86,7 @@ function mk(id, severity, category, title, description, acao = "—") {
  */
 export function buildSalesAlerts(orders, opts) {
   const out = [];
+  const now = (opts && opts.now) || new Date(); // B2: relógio lido só aqui
   const hasData = billable(orders).length > 0;
   if (!hasData) return out;
 
@@ -98,24 +142,36 @@ export function buildSalesAlerts(orders, opts) {
     const ticketOrders = (opts && opts.monthKey) ? ordersInMonth(orders, opts.monthKey) : orders;
     const t = averageTicket(ticketOrders);
     if (t > 0) {
+      // B3: com mês âncora, a frase diz de que mês fala. Sem âncora, o valor é a
+      // média de todo o histórico e nenhum mês pode ser afirmado.
+      const mesTicket = mesPorExtenso(opts && opts.monthKey);
       out.push(mk("v-ticket-info", "info", "Faturação",
         "Ticket médio",
-        `O valor médio por pedido está em ${formatMoney(t)}.`, "—"));
+        mesTicket
+          ? `O valor médio por pedido em ${mesTicket} está em ${formatMoney(t)}.`
+          : `O valor médio por pedido está em ${formatMoney(t)}.`, "—"));
     }
   }
 
-  return out;
+  return stamp_(out, now);
 }
 
 // Métricas de severidade calculadas a partir de uma lista de alertas.
 export function severityCounts(list, resolvidosFallback = 0) {
+  /* B6 — ZERO REAL versus AUSÊNCIA DE LISTA.
+   * `c.success || resolvidosFallback` fazia zero alertas positivos cair no fallback
+   * (12, do mock), inventando indicadores positivos inexistentes. Zero positivos é
+   * um facto contado, e um facto contado sai 0 — nunca um número de outra fonte.
+   * O fallback passa a servir apenas o caso em que NÃO HÁ LISTA para contar: aí a
+   * contagem é desconhecida, o que é diferente de ser zero. */
+  const semLista = (list === null || list === undefined);
   const c = { danger: 0, warning: 0, info: 0, success: 0 };
   for (const a of list || []) c[a.severity] = (c[a.severity] || 0) + 1;
   return {
     criticos: c.danger,
     atencao: c.warning,
     informativos: c.info,
-    resolvidos: c.success || resolvidosFallback,
+    resolvidos: semLista ? resolvidosFallback : c.success,
   };
 }
 
@@ -142,10 +198,11 @@ export function severityCounts(list, resolvidosFallback = 0) {
  */
 export function buildExpenseAlerts(payables, opts) {
   const out = [];
+  const now = (opts && opts.now) || new Date(); // B2: relógio lido só aqui
   const billables = billablePayables(payables);
   if (!billables.length) return out;
 
-  const today = startOfDay(new Date());
+  const today = startOfDay(now);
   const in7 = new Date(today);
   in7.setDate(in7.getDate() + 7);
 
@@ -207,6 +264,8 @@ export function buildExpenseAlerts(payables, opts) {
 
   // Base do mes analisado para concentracao (categoria/fornecedor).
   const monthTotal = totalPayables(payablesInMonth(payables, mesAlvo));
+  // B3: o mês usado pelo motor passa a estar escrito na frase. NÃO muda a âncora.
+  const mesTexto = mesPorExtenso(mesAlvo);
 
   // E. Categoria concentrada no mes (exclui "Sem categoria").
   if (monthTotal > 0) {
@@ -219,8 +278,8 @@ export function buildExpenseAlerts(payables, opts) {
         out.push(mk("d-cat-conc", "warning", "Despesas",
           "Categoria de despesa concentrada",
           emCurso
-            ? `Até ao momento, ${share}% das despesas do mês em curso estão em ${topCat.name}.`
-            : `${share}% das despesas do mes estao em ${topCat.name}.`,
+            ? `Até ao momento, ${share}% das despesas de ${mesTexto || "mês em curso"} (mês em curso) estão em ${topCat.name}.`
+            : `${share}% das despesas${mesTexto ? ` de ${mesTexto}` : " do mês"} estão em ${topCat.name}.`,
           "Avaliar dependencia desta categoria"));
       }
     }
@@ -243,8 +302,8 @@ export function buildExpenseAlerts(payables, opts) {
         out.push(mk("d-forn-alto", "info", "Despesas",
           "Concentracao num fornecedor",
           emCurso
-            ? `Até ao momento, ${share}% das despesas do mês em curso são para ${topSup.nome}.`
-            : `${share}% das despesas do mes sao para ${topSup.nome}.`,
+            ? `Até ao momento, ${share}% das despesas de ${mesTexto || "mês em curso"} (mês em curso) são para ${topSup.nome}.`
+            : `${share}% das despesas${mesTexto ? ` de ${mesTexto}` : " do mês"} são para ${topSup.nome}.`,
           "Diversificar ou renegociar com o fornecedor"));
       }
     }
@@ -272,7 +331,7 @@ export function buildExpenseAlerts(payables, opts) {
     }
   }
 
-  return out;
+  return stamp_(out, now);
 }
 
 // ── auxiliares internos ───────────────────────────────────────
@@ -365,8 +424,9 @@ function growthEntrePeriodos_(orders, opts) {
  *   - manual/mixed              -> alerta permitido, com a origem indicada no texto.
  * Impacto monetário é SEMPRE null: margem e resultado não são valores recuperáveis.
  * ==================================================================================== */
-export function buildFinancialAlerts({ financialMetrics, monthKey } = {}) {
+export function buildFinancialAlerts({ financialMetrics, monthKey, now } = {}) {
   const out = [];
+  const agora = now || new Date(); // B2: relógio lido só aqui
   const fm = financialMetrics;
   if (!fm) return out;
 
@@ -397,7 +457,7 @@ export function buildFinancialAlerts({ financialMetrics, monthKey } = {}) {
       "Rever despesas operacionais e margem bruta"));
   }
 
-  return out;
+  return stamp_(out, agora);
 }
 
 function pctTxt_(v) {

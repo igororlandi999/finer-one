@@ -398,7 +398,9 @@ describe("financeiro.payables — parcialidade temporal separada da classificaç
     expect(ds.alertas.list.some((a) => a.id === "d-subida-mes")).toBe(false);
     expect(ds.alertas.list.some((a) => a.id === "d-cat-mom")).toBe(false);
     // O alerta de concentração do próprio mês continua, com o texto de mês fechado.
-    expect(alertaDespesa(ds, "d-forn-alto").description).toContain("das despesas do mes");
+    // B3: a frase passou a nomear o mês usado pelo motor. A intenção do teste
+    // mantém-se — texto de mês FECHADO, nunca de mês em curso.
+    expect(alertaDespesa(ds, "d-forn-alto").description).toContain("das despesas de junho de 2026");
   });
 
   it("Caso 3: mês em CURSO + classificação completa", () => {
