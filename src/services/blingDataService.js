@@ -3,11 +3,10 @@
 // Finer One já consomem. As telas continuam a ler as mesmas formas; muda só a
 // origem. Sem API ou em falha, devolve sales:null e as telas usam o mockData.
 
-import { apiGet, isApiConfigured, ApiError } from "./api.js";
+import { isApiConfigured, ApiError } from "./api.js";
 
 import {
   totalRevenue,
-  averageTicket,
   monthOverMonthGrowth,
   revenueByClient,
   topClients,
@@ -31,14 +30,15 @@ import {
   payableDate,
   payableStatus,
   totalPayables,
-  latestPayableMonth,
+  /* latestPayableMonth, payableMoM e avgDailyMoM deixaram de ser usados neste ficheiro
+   * na microfase D4 (a página Despesas passou a ancorar no mês civil). Continuam
+   * exportados e testados em expenseCalculations.js — nada foi removido de lá. */
   payablesInMonth,
-  payableMoM,
   avgDailyForMonth,
-  avgDailyMoM,
   expenseDailySeries,
   topPayable,
   pendingPayables,
+  overduePayables,
   expenseByCategory,
   openPayables,
   payableOpenBalance,
@@ -48,9 +48,6 @@ import {
 } from "../utils/expenseCalculations.js";
 
 import {
-  billableReceivables,
-  receivableDate,
-  receivableStatus,
   pendingReceivables,
   openReceivables,
   receivableOpenBalance,
@@ -60,14 +57,22 @@ import {
 } from "../utils/receivableCalculations.js";
 
 import { buildSalesAlerts, buildExpenseAlerts, buildFinancialAlerts } from "../utils/alertsEngine.js";
+import { buildMonthlyClosing, closedMonthKeys } from "../utils/monthlyClosing.js";
+import { buildFinancialCompleteness, latestAnchorEligibleMonthKey, ANCHOR_SOURCE } from "../utils/financialCompleteness.js";
+import { buildClosingAlerts } from "../utils/closingAlerts.js";
 import { buildFinancialDiagnostic } from "../utils/diagnosticsEngine.js";
-import { buildMonthlyDre, payablesCoverage } from "../utils/dreEngine.js";
+import { buildMonthlyDre, payablesCoverage, coverageComSnapshotParcial } from "../utils/dreEngine.js";
+import { resolveEffectiveCoverage, describeCoverageSource } from "../utils/manualCoverage.js";
 import {
   buildFinancialMetrics, latestUsableFinancialMonth, buildMetricsWithComparison,
   canComparePeriods,
 } from "../utils/financialMetrics.js";
 import { ACTIVE_COMPANY } from "../config/company.js";
+import { createLegacyDataTransport, RECURSOS } from "./dataTransport.js";
 import { buildDocumentCatalog } from "../utils/documentNormalizer.js";
+import { buildClassificationCompleteness } from "../utils/classificationCompleteness.js";
+import { buildCoverageDiagnostics } from "../utils/coverageDiagnostics.js";
+import { fetchManualInputs } from "./manualInputsService.js";
 
 // Mapeamento de estado Bling -> Finer One. Ajustar às situações reais da Overcel.
 // situacao.valor: 9 = atendido/recebido, 1 = em aberto, 12 = cancelado.
@@ -177,6 +182,24 @@ function formatPtDate(value) {
 
 // ── Normalizadores (Bling bruto -> modelo interno) ────────────
 
+/* Número que preserva o ZERO e a AUSÊNCIA. Espelha extrairValorNumerico_ do Apps
+ * Script, que é quem produz estes campos no snapshot.
+ *
+ * Não existe helper equivalente no frontend: o padrão em uso é `Number(x) || 0`, que
+ * colapsa null e "abc" em zero — inaceitável aqui, porque `frete: 0` é um dado real
+ * (539 dos 984 pedidos) e ausência é desconhecimento (215 pedidos ainda não
+ * hidratados). O dreEngine distingue os dois casos com `o.frete != null`. */
+function numOuNull_(v) {
+  // Só número ou string. `Number([])` é 0 e `Number({})` é NaN: coerções silenciosas
+  // que transformariam lixo em dado financeiro. Tipo inesperado é desconhecimento.
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function normalizeOrder(raw) {
   return {
     id: raw.id,
@@ -190,10 +213,14 @@ export function normalizeOrder(raw) {
     // Metadata DOCUMENTAL (Fase 5). O Apps Script preserva notaFiscalId/dataSaida no
     // snapshot; sem os copiar aqui, a camada documental não teria como saber que o
     // pedido tem nota emitida. São metadata: nenhum motor financeiro os lê.
-    // NOTA: o snapshot também traz frete/desconto/totalProdutos/outrasDespesas, que
-    // continuam a NÃO ser copiados — isso é uma pendência da DRE, fora desta fase.
     notaFiscalId: (raw.notaFiscalId != null) ? raw.notaFiscalId : null,
     dataSaida: raw.dataSaida || null,
+    /* FRETE COBRADO ao cliente (F4). Só transporte de dado: desde a F3 o dreEngine
+     * já não o inclui em totalDeducoes, pelo que propagá-lo NÃO altera receita
+     * líquida nenhuma — apenas permite que `freteVenda` deixe de ser unavailable.
+     * `desconto`, `totalProdutos`, `outrasDespesas` e `fretePorConta` continuam
+     * deliberadamente por propagar: fases separadas. */
+    frete: numOuNull_(raw.frete),
     items: (raw.itens || []).map((it) => ({
       productId: it.produto?.id ?? it.codigo ?? null,
       code: it.codigo || "",
@@ -405,7 +432,11 @@ function buildResumo(orders, payables, financeiro, now = new Date()) {
   const latest = latestMonthKey(orders);
   const receitas = totalRevenue(ordersInMonth(orders, latest));
   const receitasDelta = monthOverMonthGrowth(orders) ?? 0;
-  const metrics = { receitas, receitasDelta };
+  /* `receitasMonthKey` é ADITIVO e existe por uma razão só: `receitas` é o total de UM
+   * mês concreto e viajava sem dizer qual. O Chat mostrava um cartão "Receitas (mês)"
+   * sem nomear o mês — e o mês daqui (último com pedidos) não é o mês âncora da DRE
+   * nem o mês civil, pelo que quem o lesse não tinha como o descobrir. */
+  const metrics = { receitas, receitasDelta, receitasMonthKey: latest };
 
   if (Array.isArray(payables)) {
     // ── NOVO CONTRATO: card "Contas a pagar este mês" do Resumo ──
@@ -415,40 +446,27 @@ function buildResumo(orders, payables, financeiro, now = new Date()) {
     // Sem delta: o mês civil está em curso e o anterior está completo — a
     // comparação não é limpa. Melhor não afirmar nada do que afirmar mal.
 
-    /* ── CONTRATO LEGADO TEMPORÁRIO — NÃO ALTERAR AQUI ────────────────────────
-     * `despesas`, `despesasDelta`, `resultado` e `resultadoDelta` mantêm, byte a
-     * byte, o comportamento anterior a esta microfase: mês = latestMonthKey(orders)
-     * e datação por payableDate (dataEmissao || vencimento).
+    /* ── CONTRATO LEGADO REMOVIDO EM 24/08/2026 ───────────────────────────────
+     * Aqui viviam `despesas`, `despesasDelta`, `resultado` e `resultadoDelta`.
      *
-     * Estão DEPRECADOS e a lógica é reconhecidamente errada — `resultado` é o
-     * pseudo-resultado `receita − contas a pagar`, proibido no Diagnóstico (Fase 3)
-     * e nas respostas do Chat (Fase 4). Ficam intactos porque o chatEngine ainda os
-     * lê (monthMetricsCards); alterá-los aqui mudaria os números do Chat sem que o
-     * Chat fosse revisto — uma alteração silenciosa num módulo já aprovado.
+     * `resultado` era `receita − contas a pagar`: exatamente a métrica que este
+     * projeto proíbe. Estava banida do Diagnóstico, foi retirada do Chat — e
+     * continuava a ser CALCULADA aqui, a partir de dados reais, e a viajar no
+     * dataset. O último leitor era o card "Resultado (Mês)" do Resumo, que caía
+     * nela sempre que a DRE não tinha âncora: um número verde, rotulado como
+     * resultado, sem selo Demo e sem ressalva nenhuma. O comentário que aqui
+     * estava dizia que os campos ficavam "congelados enquanto o chatEngine não
+     * for migrado"; o chatEngine foi migrado e os campos ficaram.
      *
-     * NÃO os alinhar com `contasPagar`. A remoção e a migração dos consumidores
-     * (chatEngine, performanceCalculations, página Despesas) são a microfase
-     * seguinte, e é lá que estes campos desaparecem.
+     * `despesas` tinha o mesmo problema de nome: somava contas a pagar por
+     * `dataEmissao || vencimento` e chamava-lhes despesas. Tesouraria não é DRE.
+     *
+     * Quem precisa de resultado lê `financeiro.metrics` (DRE, com availability).
+     * Quem precisa de contas a pagar lê `contasPagar` (mês civil, por vencimento),
+     * que continua acima e diz no nome o que é. O caminho DEMONSTRATIVO do Resumo
+     * continua a funcionar: `monthMetrics` faz spread do mock por baixo, e sem
+     * estes campos é o mock que preenche — que é o que se quer numa demonstração.
      * ──────────────────────────────────────────────────────────────────────── */
-    const prev = prevMonthKey(latest);
-
-    const despesas = totalPayables(payablesInMonth(payables, latest));
-    const prevDespesas = prev ? totalPayables(payablesInMonth(payables, prev)) : 0;
-    const despesasDelta = prevDespesas > 0
-      ? round2(((despesas - prevDespesas) / prevDespesas) * 100)
-      : null;
-
-    const resultado = round2(receitas - despesas);
-    const prevReceitas = prev ? totalRevenue(ordersInMonth(orders, prev)) : 0;
-    const prevResultado = round2(prevReceitas - prevDespesas);
-    const resultadoDelta = prevResultado > 0
-      ? round2(((resultado - prevResultado) / prevResultado) * 100)
-      : null;
-
-    metrics.despesas = despesas;
-    metrics.despesasDelta = despesasDelta;
-    metrics.resultado = resultado;
-    metrics.resultadoDelta = resultadoDelta;
   }
 
   return { metrics };
@@ -466,7 +484,7 @@ function buildResumo(orders, payables, financeiro, now = new Date()) {
  * availability.revenueNet) e podem divergir do lado das contas a pagar.
  * Os alertas operacionais (vencidas, a vencer, pendentes) não são ancorados.
  */
-function buildAlertas(orders, payables, financeiro) {
+function buildAlertas(orders, payables, financeiro, closings) {
   const fin = financeiro || null;
   const finPag = (fin && fin.payables) || null;
   const list = [
@@ -482,13 +500,39 @@ function buildAlertas(orders, payables, financeiro) {
       partial: finPag.partial,
     } : undefined),
     ...buildFinancialAlerts({ financialMetrics: fin ? fin.metrics : null, monthKey: fin ? fin.monthKey : null }),
+    // Pendências de fecho: já apuradas a montante, aqui só se redigem.
+    ...buildClosingAlerts({ closings }),
   ];
   return { list };
 }
 
 // Despesas a partir de contas a pagar (Bling). Formas iguais aos mocks de Despesas.
 // categoria fica "Sem categoria" no MVP-1 (a listagem/detalhe so trazem categoria.id).
-function buildDespesas(payables) {
+/* ÂNCORA OPERACIONAL DA PÁGINA DESPESAS (D4).
+ *
+ * A página responde a "o que estou a gastar NESTE mês", pelo que o mês é o CIVIL
+ * corrente — nunca latestPayableMonth, que era "o último mês que por acaso tem
+ * títulos" e fazia a página inteira saltar para um mês futuro assim que aparecesse
+ * um único título com data à frente.
+ *
+ * `now` é injetável (mesmo padrão de buildResumo): o relógio é lido uma só vez,
+ * aqui, e nunca dentro dos helpers.
+ *
+ * O que segue o mês civil: monthKey, totalMes, mediaDiaria, maiorDespesa, evolution,
+ * byCategory. O que continua GLOBAL, por decisão de produto: pagamentosPendentes,
+ * pendentesQtd e `list`. */
+/* Meses cujos títulos por classificar interessam mostrar: o mês CIVIL corrente (o mês
+ * da página) e os meses da janela de fecho. Os de julho são o caso real que motivou
+ * isto — ficam fora da linha de despesas operacionais da DRE, e não apareciam em lado
+ * nenhum: nem em Despesas (que mostra o mês civil), nem em "Dados a completar" (que só
+ * mostra requisitos do utilizador, e classificar não é um deles). */
+function classificacoesDe_(payables, meses) {
+  return meses
+    .map((mk) => buildClassificationCompleteness({ payables, monthKey: mk }))
+    .filter((c) => c && c.unclassifiedCount > 0);
+}
+
+function buildDespesas(payables, now = new Date(), mesesClassificacao = []) {
   const list = billablePayables(payables)
     .slice()
     .sort((a, b) => {
@@ -508,21 +552,51 @@ function buildDespesas(payables) {
       metodo: (p.formaPagamento && p.formaPagamento.nome) || "—",
     }));
 
-  const latest = latestPayableMonth(payables);
+  const latest = monthKey(now);
   const inMonth = payablesInMonth(payables, latest);
-  const top = topPayable(inMonth) || topPayable(payables);
+  /* D-2: SEM fallback global. Existia `|| topPayable(payables)`, que num mês sem
+   * títulos mostrava o maior título de toda a história sem qualquer marca — ao lado
+   * de um total do mês a zero. Não há "maior despesa" num mês sem despesas: há
+   * ausência, e ausência exprime-se com null, nunca com um valor de outro período. */
+  const top = topPayable(inMonth);
   const pend = pendingPayables(payables);
+  /* EM ATRASO (D5): GLOBAL e "até hoje", como pagamentosPendentes — nunca limitado ao
+   * mês civil. Uma conta vencida em março continua vencida hoje. */
+  const atraso = overduePayables(payables, now);
 
   const metrics = {
+    /* MÊS DE REFERÊNCIA da página: o mês CIVIL corrente (D4). É sempre conhecido
+     * — é o calendário — mesmo quando não há títulos nenhuns nesse mês. Nesse caso
+     * o que falta são dados, e isso diz-se com totalMes: 0 REAL, não com mês null.
+     *
+     * NÃO confundir com:
+     *   - financeiro.payables.monthKey        -> último mês FECHADO (alertas mensais);
+     *   - resumo.metrics.contasPagarMonthKey  -> mês civil, mas por VENCIMENTO. */
+    monthKey: latest,
     totalMes: totalPayables(inMonth),
-    totalDelta: payableMoM(payables) ?? 0,
+    /* DELTAS SUPRIMIDOS (D4). O mês civil está EM CURSO e o anterior está completo:
+     * comparar 14 dias com 31 não é uma variação, é o calendário a andar. É a mesma
+     * regra já aplicada ao card "Contas a pagar este mês" do Resumo.
+     * payableMoM/avgDailyMoM também eram cegos à âncora (comparavam os dois últimos
+     * meses COM TÍTULOS), pelo que descreveriam períodos que a página não mostra.
+     * null e não 0: ausência de comparação, não variação nula. */
+    totalDelta: null,
+    /* mediaDiaria e mediaDelta permanecem no CONTRATO por decisão explícita, embora
+     * a página já não os mostre: o KPI foi substituído por "Contas em Atraso" (D5).
+     * A limpeza destes campos fica para fase posterior. */
     mediaDiaria: avgDailyForMonth(payables, latest),
-    mediaDelta: avgDailyMoM(payables) ?? 0,
-    maiorDespesa: {
-      fornecedor: (top && top.contato && top.contato.nome) || "—",
-      valor: top ? (Number(top.valor) || 0) : 0,
-      data: top ? formatPtDate(payableDate(top)) : "—",
-    },
+    mediaDelta: null,
+    emAtraso: atraso.valor,
+    emAtrasoQtd: atraso.qtd,
+    /* valor null = não há despesas no mês. Nunca 0: zero seria afirmar que existe
+     * uma maior despesa e que ela vale zero. */
+    maiorDespesa: top
+      ? {
+          fornecedor: (top.contato && top.contato.nome) || "—",
+          valor: Number(top.valor) || 0,
+          data: formatPtDate(payableDate(top)),
+        }
+      : { fornecedor: "—", valor: null, data: "—" },
     pagamentosPendentes: pend.valor,
     pendentesQtd: pend.qtd,
   };
@@ -532,6 +606,11 @@ function buildDespesas(payables) {
     evolution: expenseDailySeries(payables, latest),
     byCategory: expenseByCategory(inMonth),
     list,
+    /* MOVIMENTOS POR CLASSIFICAR — aditivo. Só meses que TÊM títulos por classificar
+     * entram; um array vazio significa "nada por classificar", e a página não desenha
+     * secção nenhuma. Não é uma pendência do utilizador dentro do Finer One: a
+     * categoria resolve-se no ERP, e por isso isto informa em vez de pedir. */
+    porClassificar: classificacoesDe_(payables, mesesClassificacao),
   };
 }
 
@@ -619,7 +698,20 @@ function buildRecebiveis(receivables) {
   return { metrics, top, openInvoices, allOpenInvoices: allOpen };
 }
 
-export function buildSalesDataset({ orders, payables, receivables, coverage: coverageOverride }) {
+/* Janela de verificação de fecho: os 3 últimos meses civis terminados. Fixa nesta fase,
+ * para que uma pendência ignorada não desapareça no mês seguinte, sem por isso inundar
+ * um cliente novo com o histórico inteiro. */
+const MESES_JANELA_FECHO = 3;
+
+export function buildSalesDataset({ orders, payables, receivables, coverage: coverageOverride, manualInputsByMonth, manualCoverage, meta }) {
+  /* `manualInputsByMonth` é OPCIONAL: mapa { "aaaa-mm": { cmv?: number } }.
+   * O contrato é POR MÊS, não "por mês fechado": qualquer mês construído aqui recebe
+   * exclusivamente a sua própria entrada — o par fechado/anterior via
+   * buildMetricsWithComparison, e o mês em curso via leitura direta da sua chave.
+   * Aqui não se deriva, não se normaliza chaves, não se completam meses em falta e
+   * não se lê de config/env/armazenamento. Sem mapa, o comportamento é exatamente o
+   * anterior: CMV null e availability unavailable. */
+  const manuaisPorMes = manualInputsByMonth || {};
   // Critério único de dados reais de contas a pagar: array presente (mesmo vazio).
   // undefined/null => falha ou ausência => telas usam mock + Demo.
   // [] => dado real com zero títulos => zeros reais, sem selo.
@@ -631,14 +723,129 @@ export function buildSalesDataset({ orders, payables, receivables, coverage: cov
   // ── Camada financeira central ────────────────────────────
   // Um só sítio escolhe o mês: o último FECHADO (métricas de fecho, diagnóstico
   // e score). O mês em curso fica disponível à parte, para acompanhamento.
-  const coverage = coverageOverride || ACTIVE_COMPANY.historyCoverage;
+  /* A cobertura configurada afirma até que mês o ERP já entregou tudo. Essa afirmação
+   * pressupõe que a LEITURA do ERP correu até ao fim — e quando a fonte se declara
+   * incompleta (`meta.parcial`), o pressuposto cai. `coverageComSnapshotParcial` marca
+   * isso na cobertura para o motor poder vetar; sem nada a vetar devolve a mesma
+   * referência e o comportamento é bit a bit o anterior. */
+  /* ── COBERTURA EFETIVA: configurada + confirmada por uma pessoa ──────────────────
+   * `company.js` deixa de ser fonte OPERACIONAL e passa a ser o que devia ter sido
+   * desde sempre: o fallback. `payables.completeThroughMonth: "2026-06"` era editado à
+   * mão todos os meses — uma operação mensal disfarçada de constante.
+   *
+   * A ORDEM DESTAS DUAS CHAMADAS É A GARANTIA DE SEGURANÇA, e não é permutável:
+   *
+   *   1. `resolveEffectiveCoverage` — a confirmação humana escreve o limite;
+   *   2. `coverageComSnapshotParcial` — o facto técnico veta por cima.
+   *
+   * Invertê-las deixaria uma confirmação humana apagar a marca de um snapshot
+   * incompleto. Assim não há sequer caminho para isso: `sourceAvailability` testa
+   * `snapshotPartial` ANTES de olhar para o limite, e o limite é escrito primeiro.
+   * Uma pessoa pode dizer "os documentos de julho já cá estão"; não pode dizer que a
+   * leitura do ERP chegou ao fim quando o próprio ERP declarou que não. */
+  const coverage = coverageComSnapshotParcial(
+    resolveEffectiveCoverage({
+      configCoverage: coverageOverride || ACTIVE_COMPANY.historyCoverage,
+      manualCoverage,
+      referenceDate: new Date(),
+    }),
+    meta
+  );
   const payablesParaDre = hasPayables ? payables : null;
-  const mesFechado = latestUsableFinancialMonth({ orders, payables: payablesParaDre, coverage });
-  const mesEmCurso = latestUsableFinancialMonth({ orders, payables: payablesParaDre, coverage, allowPartial: true });
+
+  /* DATA DE REFERÊNCIA — injetada, nunca implícita.
+   *
+   * `sourceAvailability` precisa de saber onde está o relógio para recuar ao último
+   * mês civil TERMINADO quando a cobertura não declara limite. Até 24/08/2026 esta
+   * chamada não passava data nenhuma: o recuo nunca acontecia e a ausência de limite
+   * era lida como cobertura ilimitada — o caminho que fez a âncora da DRE saltar para
+   * 2027-07. O motor passou a ser seguro sozinho (limite desconhecido => partial), mas
+   * essa segurança sem data seria conservadora DEMAIS: nenhum mês seria real.
+   * Injetar a data é o que devolve a cobertura correta sem depender de configuração.
+   *
+   * Uma só leitura do relógio por dataset, partilhada por todas as âncoras: duas
+   * leituras separadas podem cair em lados opostos da meia-noite do dia 1. */
+  const referenceDate = new Date();
+
+  /* FECHO MENSAL — janela fixa dos últimos meses civis JÁ TERMINADOS.
+   * A janela vem do calendário, nunca do último mês com movimento: um mês terminado
+   * sem um único documento continua a precisar dos seus dados obrigatórios. Cada mês
+   * é apurado pelo caminho oficial (buildMonthlyDre -> buildFinancialMetrics), pelo que
+   * nenhuma regra de DRE é reimplementada aqui. São poucos meses e cada um percorre os
+   * dados uma vez; se a janela crescer, isto passa a merecer memoização.
+   *
+   * Calculado ANTES das âncoras (era depois, até 24/08/2026) porque a âncora dos KPIs
+   * passou a derivar destes fechos — ver `mesFechado` logo abaixo. */
+  const closings = closedMonthKeys({ now: referenceDate, count: MESES_JANELA_FECHO }).map((mk) => {
+    const metricsDoMes = buildFinancialMetrics(buildMonthlyDre({
+      orders, payables: payablesParaDre, monthKey: mk,
+      manualInputs: manuaisPorMes[mk], coverage, referenceDate,
+    }));
+    const fecho = buildMonthlyClosing({
+      monthKey: mk,
+      metrics: metricsDoMes,
+      // Mesma cobertura histórica da DRE: um mês anterior a firstCompleteMonth não
+      // gera pendência de fecho, sem puxar um mês extra para compensar a janela.
+      coverage,
+      now: referenceDate,
+    });
+    if (!fecho) return fecho;
+    /* ── SEGUNDO EIXO, ADITIVO: completude FINANCEIRA ─────────────────────────────
+     * O fecho responde a "o utilizador preencheu o que lhe foi pedido?". Não responde
+     * a "este mês pode sustentar KPIs de rentabilidade?" — e tratá-lo como se
+     * respondesse fazia julho virar âncora assim que o CMV entrasse, com as deduções
+     * e as despesas operacionais desse mês ainda parciais.
+     *
+     * Anexado ao fecho (e não devolvido à parte) porque descreve o MESMO mês e é
+     * consumido pelos mesmos sítios: Resumo, Dados a completar e alertas já recebem
+     * `closings`. Campo novo, nada renomeado: quem lê `status`, `items` ou
+     * `missingItems` continua a ler exatamente o mesmo. */
+    return { ...fecho, financial: buildFinancialCompleteness({ metrics: metricsDoMes, closing: fecho }) };
+  });
+
+  /* ── ÂNCORA DOS KPIs: o último mês ELEGÍVEL ───────────────────────────────────────
+   * Não é o último mês civil encerrado, e a distinção passou a importar em 24/08/2026,
+   * quando a cobertura da fonte deixou de estar acoplada à validação humana.
+   *
+   * Julho é hoje o último mês civil encerrado, com receita real — e é por isso que a
+   * plataforma já lhe pede o CMV. Mas sem CMV, o seu lucro bruto, EBITDA e resultado
+   * líquido são `null`. Ancorar aqui encheria o Resumo de traços onde antes havia
+   * números, sem que nada tivesse piorado nos dados.
+   *
+   * ELEGIBILIDADE, NÃO REQUISITOS SATISFEITOS. Até esta correção usava-se
+   * `latestCompleteMonthKey`, que só olha para o catálogo de requisitos. Como o
+   * catálogo tem hoje uma entrada, lançar o CMV de julho esgotava-o e julho virava a
+   * âncora — com as deduções e as despesas operacionais desse mês ainda `partial` e um
+   * EBITDA que o próprio motor marcava como parcial. `latestAnchorEligibleMonthKey`
+   * exige as duas coisas: requisitos satisfeitos E linhas essenciais da DRE completas.
+   *
+   * Fallback para `latestUsableFinancialMonth` quando nenhum mês da janela é elegível:
+   * é preferível a `null` — um mês com receita e deduções verdadeiras ainda responde a
+   * perguntas úteis, ao passo que `null` apagaria o Resumo inteiro.
+   *
+   * MAS O RECURSO DEIXA DE SER SILENCIOSO (`anchorSource`, abaixo). Medido na matriz de
+   * `financialAnchor.test.js`: com as contas a pagar ausentes, o recurso elegia o mês
+   * civil com deduções, EBITDA e resultado todos `unavailable` — e `referenciaAtrasada`
+   * ficava `false`, porque a âncora ERA o mês civil. Literalmente verdade, e lido como
+   * "está tudo em dia" sobre um mês que não tem EBITDA nenhum. */
+  const mesCompleto = latestAnchorEligibleMonthKey(closings);
+  const mesUsavel = latestUsableFinancialMonth({ orders, payables: payablesParaDre, coverage, referenceDate });
+  const mesFechado = mesCompleto || mesUsavel;
+  const anchorSource = mesCompleto
+    ? ANCHOR_SOURCE.ELIGIBLE
+    : (mesUsavel ? ANCHOR_SOURCE.FALLBACK : ANCHOR_SOURCE.NONE);
+  const mesEmCurso = latestUsableFinancialMonth({ orders, payables: payablesParaDre, coverage, allowPartial: true, referenceDate });
+
+  /* Último mês civil ENCERRADO, independentemente de estar completo. É a âncora do
+   * "o que falta" — e o mês que o Resumo deve nomear ao dizer que há trabalho por
+   * fazer. Vem do mesmo calendário que gera a janela de fechos, para não haver duas
+   * definições de "mês anterior" no mesmo dataset. */
+  const mesCivilEncerrado = closedMonthKeys({ now: referenceDate, count: 1 })[0] || null;
   const comparacao = mesFechado
     ? buildMetricsWithComparison({
         orders, payables: payablesParaDre, monthKey: mesFechado,
         previousMonthKey: prevMonthKey(mesFechado), coverage,
+        manualInputsByMonth,
       })
     : null;
 
@@ -659,11 +866,11 @@ export function buildSalesDataset({ orders, payables, receivables, coverage: cov
    */
   const coveragePayables = payablesCoverage(coverage);
   const mesPayablesFechado = hasPayables
-    ? latestUsableFinancialMonth({ payables: payablesParaDre, coverage: coveragePayables })
+    ? latestUsableFinancialMonth({ payables: payablesParaDre, coverage: coveragePayables, referenceDate })
     : null;
   const mesPayables = mesPayablesFechado
     || (hasPayables
-      ? latestUsableFinancialMonth({ payables: payablesParaDre, coverage: coveragePayables, allowPartial: true })
+      ? latestUsableFinancialMonth({ payables: payablesParaDre, coverage: coveragePayables, allowPartial: true, referenceDate })
       : null);
   const mesPayablesAnterior = mesPayables ? prevMonthKey(mesPayables) : null;
 
@@ -708,19 +915,78 @@ export function buildSalesDataset({ orders, payables, receivables, coverage: cov
     previous: comparacao ? comparacao.previous : null,
     comparable: comparacao ? comparacao.comparable : false,
     // Mês em curso (parcial), só para acompanhamento — nunca para comparações.
+    // O input manual é por mês, logo aplica-se também aqui: leitura da chave do mês
+    // em curso, sem truthy e sem default. Chave ausente => undefined => CMV null e
+    // availability unavailable; o valor de outro mês nunca é herdado.
     emCurso: (mesEmCurso && mesEmCurso !== mesFechado)
-      ? buildFinancialMetrics(buildMonthlyDre({ orders, payables: payablesParaDre, monthKey: mesEmCurso, coverage }))
+      ? buildFinancialMetrics(buildMonthlyDre({
+          orders, payables: payablesParaDre, monthKey: mesEmCurso,
+          manualInputs: manuaisPorMes[mesEmCurso], coverage,
+        }))
       : null,
     // Contexto das contas a pagar, com cobertura própria (pode divergir de monthKey).
     payables: financeiroPayables,
+
+    /* ── DOIS MESES, DUAS PERGUNTAS (24/08/2026) ──────────────────────────────────
+     * Campos ADITIVOS: nenhum consumidor existente muda de comportamento por eles
+     * existirem, e `monthKey` continua a ser o mês dos KPIs, como sempre foi.
+     *
+     * `monthKey`            -> "de que mês são estes números?"     (último COMPLETO)
+     * `civilMonthKey`       -> "que mês acabou e precisa de mim?"  (último ENCERRADO)
+     *
+     * Enquanto o fecho era avançado à mão só depois de o CMV estar lançado, os dois
+     * coincidiam sempre e um só campo bastava. Separados os eixos de cobertura e de
+     * validação, passam a divergir precisamente quando há trabalho por fazer — que é
+     * quando o utilizador mais precisa de ver os dois.
+     *
+     * `closingPendente` é o fecho do mês civil encerrado, tal como o motor o produziu.
+     * Está aqui para que o Resumo possa nomear o mês e a pendência sem reconstruir
+     * nada nem inventar uma segunda definição de "mês anterior". `null` quando o mês
+     * encerrado não está na janela de fechos. */
+    civilMonthKey: mesCivilEncerrado,
+    closingPendente: closings.find((c) => c.monthKey === mesCivilEncerrado) || null,
+
+    /* ── DE QUE MATERIAL É FEITA A ÂNCORA ─────────────────────────────────────────
+     * `anchorSource` responde a "este mês foi ESCOLHIDO ou foi o que sobrou?".
+     * `anchorEligible` é o mesmo facto em booleano, para quem só precisa do sim/não.
+     * `anchorFinancial` é o veredito completo do mês âncora — com os bloqueios
+     * nomeados — quando esse mês está dentro da janela de fechos. Fora da janela é
+     * `null`: não se inventa um veredito que ninguém apurou.
+     *
+     * NENHUMA UI PODE TRATAR UM `fallback` COMO MÊS OFICIALMENTE COMPLETO. Os números
+     * continuam verdadeiros no que têm; o que não se pode é apresentá-los como fecho. */
+    anchorSource,
+    anchorEligible: anchorSource === ANCHOR_SOURCE.ELIGIBLE,
+
+    /* ── DIAGNÓSTICO DA COBERTURA DECLARADA ──────────────────────────────────────
+     * Contrato INTERNO por agora: nenhuma tela o mostra, e nada na disponibilidade
+     * muda por causa dele. Responde a "há meses civis já encerrados que a cobertura
+     * declarada ainda não alcança?" — a pergunta mecânica que o calendário resolve
+     * sozinho, e que até agora era invisível: uma configuração esquecida durante
+     * meses tinha o mesmo aspeto de uma configuração conservadora e correta.
+     *
+     * NÃO avança cobertura nenhuma. Declarar um mês completo é um facto
+     * contabilístico que nenhum campo do snapshot sabe. */
+    coverageDiagnostics: buildCoverageDiagnostics({ coverage, referenceDate }),
+    anchorFinancial: (closings.find((c) => c.monthKey === mesFechado) || {}).financial || null,
+    /* true quando os KPIs NÃO são do mês que acabou de terminar — ou seja, quando há
+     * um mês encerrado por completar. É o sinal que autoriza o Resumo a dizê-lo. */
+    referenciaAtrasada: Boolean(mesCivilEncerrado && mesFechado && mesCivilEncerrado !== mesFechado),
   };
 
   return {
     receitas: buildReceitas(orders),
     clientes: buildClientes(orders),
     resumo: buildResumo(orders, payables, financeiro),
-    alertas: buildAlertas(orders, payables, financeiro),
-    despesas: hasPayables ? buildDespesas(payables) : null, // null => Despesas usa mock
+    alertas: buildAlertas(orders, payables, financeiro, closings),
+    /* `referenceDate` injetada (era `now` por omissão, uma segunda leitura do relógio
+     * no mesmo dataset — duas leituras podem cair em lados opostos da meia-noite do
+     * dia 1). Os meses de classificação são o mês civil da página mais a janela de
+     * fecho, sem duplicados. */
+    despesas: hasPayables
+      ? buildDespesas(payables, referenceDate,
+          [...new Set([monthKey(referenceDate), ...closings.map((c) => c.monthKey)])])
+      : null, // null => Despesas usa mock
     fornecedores: hasPayables ? buildFornecedores(payables) : null, // null => Fornecedores usa mock
     recebiveis: hasReceivables ? buildRecebiveis(receivables) : null, // null => lado Clientes usa mock
     diagnostico: hasPayables ? buildFinancialDiagnostic(orders, payables, {
@@ -741,12 +1007,117 @@ export function buildSalesDataset({ orders, payables, receivables, coverage: cov
     // Métricas financeiras centrais (DRE). Fonte única de receita, margem e
     // resultado para Resumo, Diagnóstico e Score.
     financeiro,
+    /* FECHO MENSAL — os MESMOS fechos que originaram os alertas acima, expostos para
+     * o Resumo poder mostrar o estado do mês anterior (C7C).
+     *
+     * É a mesma referência passada a buildAlertas: uma só fonte de verdade, apurada
+     * uma só vez. O Resumo não reconstrói o estado a partir do número de alertas —
+     * seria inverter a dependência, e um mês INDETERMINATE (que não gera alerta
+     * nenhum) ficaria indistinguível de um mês completo.
+     *
+     * Ordem: do mês mais recente para o mais antigo, como closedMonthKeys os produz.
+     * Quem precise de um mês concreto procura-o por monthKey, nunca por índice. */
+    closings,
+    /* FRESCURA E COMPLETUDE DA LEITURA (C7F, C7F.3E). Metadata pura, em dois eixos
+     * INDEPENDENTES: `geradoEm` diz QUANDO cada fonte gerou o snapshot (e a mais antiga
+     * das três no agregado); `parcial` diz se o rebuild chegou ao fim. Um snapshot pode
+     * ser recente e estar incompleto — confundir as duas coisas foi um defeito próprio.
+     *
+     * NÃO participa em cálculo nenhum — nenhuma linha da DRE, nenhum mês âncora e
+     * nenhuma disponibilidade a consultam. É consumida pela faixa de frescura
+     * (utils/dataFreshness.js + utils/dataHealth.js -> components/ui/DataHealth.jsx,
+     * montada no AppShell).
+     *
+     * `null` quando a fonte não declara — nunca o relógio local, que descreveria o
+     * momento da leitura e não o da recolha dos dados, e nunca `false` por omissão, que
+     * afirmaria completude sem prova. */
+    meta: meta ?? null,
+
+    /* ── COBERTURA EFETIVA, exposta ────────────────────────────────────────────────
+     * `PerformanceFinanceira` lia `ACTIVE_COMPANY.historyCoverage` DIRETAMENTE para a
+     * série mensal de atividade. Era um segundo leitor da configuração, e a partir do
+     * momento em que a cobertura passa a poder ser confirmada dentro do produto, esse
+     * segundo leitor passaria a discordar do motor: a DRE veria julho como real e a
+     * série ao lado continuaria a chamar-lhe fora de cobertura.
+     *
+     * Expor a cobertura JÁ RESOLVIDA (config + confirmação + veto do snapshot) dá às
+     * páginas exatamente o mesmo objeto que o motor usou. Quem não tiver dataset — modo
+     * demonstrativo — continua a cair na configuração, que ali é o que se quer.
+     *
+     * `coverageOrigem` responde a "isto foi confirmado por alguém ou é o valor de
+     * partida?", que é a pergunta que a UI precisa de fazer e que o limite sozinho não
+     * responde. */
+    coverage,
+    coverageOrigem: describeCoverageSource(coverage),
+
+    /* ── A QUE EMPRESA ESTE DATASET PERTENCE ───────────────────────────────────────
+     * Acrescentado na fundação SaaS. Até aqui a resposta era implícita — havia uma
+     * empresa e era essa — e implícito chega enquanto for uma.
+     *
+     * Deixa de chegar no instante em que existe um seletor de empresas: a leitura
+     * ainda não é escopada por empresa (isso é o passo D do plano de migração), e um
+     * dataset que não diz de quem é pode ser apresentado sob o nome de outra. Este
+     * campo é o que permite a `resolveCompanyDataScope` recusar essa apresentação em
+     * vez de a fazer em silêncio.
+     *
+     * Não muda cálculo nenhum: é uma etiqueta de proveniência. */
+    companyId: ACTIVE_COMPANY.id,
+
+    /* ── ENTRADAS DO REBUILD ───────────────────────────────────────────────────────
+     * `orders` e `payables` já eram expostos; faltavam estes dois para se poder
+     * reconstruir o MESMO dataset com uma cobertura diferente sem voltar à rede.
+     *
+     * Confirmar cobertura não muda um único dado — muda a leitura que o motor faz dos
+     * mesmos dados. Repetir as quatro leituras para aplicar uma string gastaria a quota
+     * do Bling e, pior, arriscaria apanhar um snapshot diferente do que está no ecrã,
+     * tornando o antes/depois incomparável. Ver `rebuildComCobertura`.
+     *
+     * São as entradas CRUAS, não uma segunda vista: nada aqui é uma nova verdade. */
+    rebuildInputs: {
+      receivables: hasReceivables ? receivables : undefined,
+      manualInputsByMonth,
+    },
+
     orders, // exposto para recálculos por período no front (ex.: donut de categorias)
     // Contas a pagar normalizadas, expostas para o motor de DRE (precisa de
     // categoriaNome, historico e datas de competência, que despesas.list não tem).
     // null => fonte indisponível (nunca confundir com lista real vazia).
     payables: hasPayables ? payables : null,
   };
+}
+
+/**
+ * Reconstrói um dataset já carregado, aplicando uma cobertura confirmada.
+ *
+ * ─── PORQUE ISTO EXISTE, EM VEZ DE UM RELOAD ────────────────────────────────────────
+ * Confirmar cobertura não muda um único dado: muda a leitura que o motor faz dos mesmos
+ * dados. Voltar a pedir os quatro snapshots ao backend para aplicar uma string seria
+ * gastar a quota do Bling — e, pior, arriscar que a confirmação apanhasse um snapshot
+ * diferente do que estava no ecrã, tornando o antes/depois impossível de comparar.
+ *
+ * Reaproveita as MESMAS entradas do dataset anterior (`orders`, `payables`, `meta`), que
+ * já estão expostas, e volta a percorrer o caminho oficial. Nenhuma regra é reimplementada.
+ *
+ * `null` quando não há dataset ou lhe faltam as entradas — o chamador mantém o que tem.
+ *
+ * @param {object|null} dataset dataset devolvido por buildSalesDataset
+ * @param {object} manualCoverage bloco de cobertura confirmada (ver utils/manualCoverage)
+ */
+export function rebuildComCobertura(dataset, manualCoverage) {
+  if (!dataset || !Array.isArray(dataset.orders)) return null;
+  const entradas = dataset.rebuildInputs || {};
+  return buildSalesDataset({
+    orders: dataset.orders,
+    /* `?? undefined` e nunca `|| []`: `null` significa FONTE AUSENTE e `[]` significa
+     * fonte real com zero títulos. Colapsar os dois faria um rebuild transformar uma
+     * fonte em falta numa fonte vazia — e o produto passaria a mostrar zeros reais
+     * onde devia mostrar o selo Demo. */
+    payables: dataset.payables ?? undefined,
+    receivables: entradas.receivables,
+    manualInputsByMonth: entradas.manualInputsByMonth,
+    manualCoverage,
+    meta: dataset.meta ?? undefined,
+  });
 }
 
 // Versão testável a partir de dados brutos Bling.
@@ -757,63 +1128,272 @@ export function buildSalesDatasetFromRaw(rawSales = []) {
 
 // ── Carregamento ──────────────────────────────────────────────
 
-async function fetchRawSales() {
+/* FRESCURA DA FONTE (C7F). O backend serve de um snapshot e declara quando o gerou.
+ * Essa informação vinha no payload e era deitada fora — a aplicação não tinha como saber
+ * que estava a mostrar dados de há dias, nem como avisar.
+ *
+ * ─── DOIS CONTRATOS, NÃO UM (C7F.3A) ────────────────────────────────────────────────
+ * A C7F.2 leu apenas `meta.geradoEm`. A auditoria ao payload de PRODUÇÃO mostrou que esse
+ * caminho não existe hoje em fonte nenhuma: pedidos e despesas não declaram data (chaves
+ * de topo: apenas `data`) e recebíveis declara-a em `debug.snapshotMeta.geradoEm`. O
+ * resultado era `geradoEm: null` em todas as leituras — e um UNKNOWN permanente na UI, que
+ * nunca chegava a avisar por mais velho que o snapshot estivesse. A camada de frescura
+ * estava construída e testada, e morta em produção, por um caminho de leitura.
+ *
+ * Aceitam-se agora os dois. `meta.geradoEm` mantém a PRECEDÊNCIA por ser o contrato
+ * canónico para onde o backend deve convergir; `debug.snapshotMeta.geradoEm` é o que ele
+ * emite hoje. Quando o Apps Script passar a declarar `meta` nas três fontes, esta função
+ * continua correta sem mudar uma linha — e só então o ramo de `debug` pode sair.
+ *
+ * Aqui só se LÊ e se transporta. Nenhum cálculo depende disto, nenhuma linha da DRE muda:
+ * é metadata sobre a leitura, não um dado financeiro. Ausência => null, nunca uma data
+ * inventada a partir do relógio nem inferida do último movimento dos dados — dizer
+ * "atualizado agora" sobre um snapshot de origem desconhecida seria exatamente a mentira
+ * que isto vem resolver. */
+function lerGeradoEm(res) {
+  const valor = res?.meta?.geradoEm ?? res?.debug?.snapshotMeta?.geradoEm;
+  return (typeof valor === "string" && valor !== "") ? valor : null;
+}
+
+/* COMPLETUDE DA FONTE (C7F.3E). Frescura e completude são propriedades DIFERENTES e
+ * até agora só uma viajava. Um rebuild de recebíveis que esgote o orçamento de tempo
+ * grava um snapshot com `parcial: true`: é recente e está incompleto ao mesmo tempo.
+ * Sem este campo, a aplicação podia dizer "Atualizado há 5 minutos" sobre um conjunto
+ * a que faltam títulos — verdade na data, engano no conteúdo.
+ *
+ * Só se LÊ e transporta, tal como `geradoEm`. Nenhum cálculo depende disto e nenhuma
+ * linha da DRE muda: quem decidir o que fazer com a informação é a camada de cima.
+ *
+ * Três estados, e a diferença importa: `true` incompleto declarado, `false` completo
+ * declarado, `null` a fonte não se pronunciou. Ausência de declaração NÃO é completude
+ * — é a mesma inversão que a frescura já teve de corrigir. */
+function lerParcial(res) {
+  /* SINAIS DE INCOMPLETUDE, EM OU LÓGICO PESSIMISTA.
+   *
+   * `parcial` era o único campo lido, e no backend significava apenas "o rebuild não
+   * chegou ao fim no eixo do TEMPO". O eixo da PAGINAÇÃO viajava à parte, em
+   * `listagemTruncada`, e ninguém o lia: uma listagem que batesse no teto MAX_PAGES
+   * chegava aqui com `parcial: false` e era declarada COMPLETA em toda a cadeia — o
+   * exato oposto do invariante "partial nunca vira complete".
+   *
+   * O backend passou a agregar os dois em `parcial`, o que resolve o problema na
+   * origem. Esta segunda leitura é deliberadamente redundante e não é desperdício: a
+   * produção corre Apps Script v11, que não tem a correção, e qualquer combinação
+   * futura de versões backend/frontend fica coberta. Um sinal de incompletude que
+   * chegue por QUALQUER um dos caminhos veta a afirmação "completo".
+   *
+   * `enriquecimentoIncompleto` conta pela mesma razão que conta no backend: o seu
+   * efeito é um nome de categoria ERRADO, não ausente.
+   *
+   * Regra dos três estados preservada: `true` incompleto declarado, `false` completo
+   * declarado por TODOS os sinais presentes, `null` a fonte não se pronunciou. Ausência
+   * de declaração continua a não ser completude.
+   *
+   * Lêem-se os DOIS envelopes (`meta` e `debug.snapshotMeta`) em vez de escolher um: o
+   * `??` original escolhia, e escolher perde informação quando um envelope declara um
+   * sinal que o outro não tem. Recolher tudo nunca pode transformar `true` em `false`. */
+  const envelopes = [res?.meta, res?.debug?.snapshotMeta];
+  const sinais = envelopes.flatMap((m) =>
+    (m && typeof m === "object" && !Array.isArray(m))
+      ? [m.parcial, m.listagemTruncada, m.enriquecimentoIncompleto]
+      : []
+  );
+  const booleanos = sinais.filter((s) => typeof s === "boolean");
+  if (booleanos.length === 0) return null;
+  return booleanos.some((s) => s === true);
+}
+
+/* LINHAS OU FALHA — o Apps Script responde HTTP 200 mesmo quando falha.
+ *
+ * O que chegava aqui antes: `res?.data ?? res ?? []`. Perante um payload de erro
+ * (`{ error: true, message }`), `data` é indefinido, o `??` cai para o próprio objeto
+ * de erro, e `rows` passava a ser um objeto. O `.map()` a seguir rebentava com
+ * TypeError — e rebentava FORA do allSettled, no corpo do loadFinerData, apanhado só
+ * pelo catch global. Resultado: uma falha numa fonte secundária (despesas) derrubava
+ * o dataset inteiro para `unavailable`, destruindo o best-effort por fonte que o
+ * allSettled existe precisamente para garantir.
+ *
+ * Passa a rejeitar aqui, de forma explícita. Uma rejeição dentro de allSettled é
+ * exatamente o que o desenho já sabe tratar: aquela fonte fica indisponível, as
+ * outras seguem. Comportamento de sucesso: idêntico ao anterior.
+ *
+ * `[]` continua a ser uma resposta VÁLIDA — zero títulos é um facto, não uma falha.
+ * O que deixa de passar é o que não é lista nenhuma. */
+function linhasOuFalha(res, rotulo) {
+  if (Array.isArray(res)) return res;                 // backend a devolver array cru
+  if (res && res.error === true) {
+    /* `code` existe desde a guarda de recurso desconhecido do doGet; payloads de erro
+     * mais antigos só trazem `message`. Nenhum dos dois é conteúdo do utilizador. */
+    const codigo = (res.code && typeof res.code === "string") ? res.code : "ERRO_BACKEND";
+    throw new ApiError(`${rotulo}: backend devolveu erro (${codigo}).`, { status: 0 });
+  }
+  if (res && Array.isArray(res.data)) return res.data;
+  throw new ApiError(`${rotulo}: resposta sem lista de dados.`, { status: 0 });
+}
+
+/* ─── AS LEITURAS PASSAM POR UM TRANSPORTE (FASE 8) ────────────────────────────────
+ * Estas três funções chamavam o endpoint `pedidos/vendas` diretamente — ou seja, o
+ * motor financeiro conhecia o endpoint anónimo do proxy de hoje. Passam a receber um
+ * TRANSPORTE, e é ele que sabe se a leitura vai pelo caminho legado ou pelo
+ * `/api/companies/:companyId/financial-data` autenticado.
+ *
+ * O que se ganha: no dia em que o BFF existir, nada AQUI muda. A normalização, a
+ * reconciliação e os contratos financeiros deste ficheiro ficam intocados — que é o
+ * objetivo, porque é o sítio onde um erro produz números errados em vez de um ecrã
+ * avariado. Ver `services/dataTransport.js`. */
+async function fetchRawSales(transport) {
   // Backend pode devolver { data: [...] } (padrão Bling v3) ou um array.
-  const res = await apiGet("pedidos/vendas");
-  return res?.data ?? res ?? [];
+  const res = await transport.ler(RECURSOS.PEDIDOS);
+  return { rows: linhasOuFalha(res, "Pedidos"), geradoEm: lerGeradoEm(res), parcial: lerParcial(res) };
 }
 
-async function fetchRawPayables() {
+async function fetchRawPayables(transport) {
   // Mesmo endpoint do proxy, com ?recurso=despesas (contas a pagar).
-  const res = await apiGet("pedidos/vendas", { params: { recurso: "despesas" } });
-  return res?.data ?? res ?? [];
+  const res = await transport.ler(RECURSOS.DESPESAS);
+  return { rows: linhasOuFalha(res, "Despesas"), geradoEm: lerGeradoEm(res), parcial: lerParcial(res) };
 }
 
-async function fetchRawReceivables() {
+async function fetchRawReceivables(transport) {
   // Mesmo endpoint do proxy, com ?recurso=recebiveis (contas a receber).
   // O endpoint serve só do snapshot; sem snapshot devolve { data: [], debug.fonte: "snapshot-vazio" }.
   // Distinguimos "zero títulos reais" de "ausência de snapshot" pelo debug.fonte:
   //   - fonte "snapshot"       + data:[]  => zero real (array vazio segue para o gating).
   //   - fonte "snapshot-vazio"            => ausência => erro controlado => loadFinerData
   //                                          transforma em receivables:undefined (mock + Demo).
-  const res = await apiGet("pedidos/vendas", { params: { recurso: "recebiveis" } });
+  const res = await transport.ler(RECURSOS.RECEBIVEIS);
   if (res && res.debug && res.debug.fonte === "snapshot-vazio") {
     throw new ApiError("Recebíveis sem snapshot (fonte snapshot-vazio).", { status: 0 });
   }
-  return res?.data ?? res ?? [];
+  return { rows: linhasOuFalha(res, "Recebíveis"), geradoEm: lerGeradoEm(res), parcial: lerParcial(res) };
 }
 
-// Devolve { source:'api'|'mock', sales } — sales:null significa usar mockData.
-export async function loadFinerData() {
+/** A data mais ANTIGA das disponíveis, ou null. Um conjunto de dados não é mais fresco
+ *  do que a sua fonte mais velha, e afirmar o contrário seria escolher o número que
+ *  fica melhor. Ordenação lexicográfica de ISO-8601, que é cronológica por construção. */
+function geradoEmMaisAntigo(datas) {
+  const validas = datas.filter((d) => typeof d === "string" && d !== "").sort();
+  return validas.length ? validas[0] : null;
+}
+
+/**
+ * Devolve { source, sales, manualInputs }.
+ *
+ * ─── ESCOLHA vs AVARIA (C7F.1) ──────────────────────────────────────────────────────
+ * `source` distingue três desfechos que antes colapsavam todos em "mock":
+ *
+ *   "api"          leitura bem sucedida.
+ *   "mock"         NÃO existe backend configurado. É uma decisão de quem instalou —
+ *                  .env.example documenta que deixar VITE_API_BASE_URL vazio faz a app
+ *                  correr com os dados de exemplo da Overcel. Intenção explícita.
+ *   "unavailable"  existe backend configurado e a leitura falhou. Avaria.
+ *
+ * A diferença é a única coisa que permite ao produto dizer a verdade: com "mock" a app
+ * afirma que os números são de demonstração; com "unavailable" afirma que perdeu o
+ * acesso aos reais e não mostra número nenhum. Antes, uma quebra de rede era
+ * apresentada como modo demonstração.
+ *
+ * `sales: null` continua a significar "sem dataset" nos dois casos de insucesso; quem
+ * decide o que fazer com isso é a camada de apresentação, olhando para `source`.
+ */
+export async function loadFinerData({ transport, companyId } = {}) {
   if (!isApiConfigured()) {
-    return { source: "mock", sales: null };
+    // Sem backend configurado: demonstração deliberada, não falha.
+    return { source: "mock", sales: null, manualInputs: null };
   }
+  /* Sem transporte injetado usa-se o LEGADO — o comportamento de hoje, byte a byte.
+   * Quem injeta é `FinerDataProvider`, que é a única camada que conhece a sessão e a
+   * empresa ativa. Este ficheiro continua a não saber que existe autenticação. */
+  const transporte = transport || createLegacyDataTransport();
   try {
-    const rawSales = await fetchRawSales();
-    const orders = (rawSales || []).map(normalizeOrder);
+    /* ── LEITURA EM PARALELO (C7F) ────────────────────────────────────────────────
+     * As quatro fontes eram lidas em série, cada uma com 12s de timeout: no pior caso
+     * 48s de espera, e ~10s no caso normal — tempo durante o qual a aplicação mostrava
+     * dados fictícios. São quatro pedidos ao MESMO endpoint, independentes entre si e
+     * sem qualquer ordem de dependência: nada justificava esperar por um para pedir o
+     * seguinte. O tempo total passa a ser o da fonte mais lenta, não a soma.
+     *
+     * `allSettled` e não `all`: `all` rejeitaria à primeira falha e derrubaria as
+     * fontes que responderam bem, destruindo o best-effort por fonte que já existia.
+     * Cada resultado é avaliado isoladamente, exatamente como antes.
+     *
+     * Diferença de comportamento assumida: quando os pedidos falham, as outras três
+     * leituras passam a ocorrer à mesma (antes, a falha dos pedidos abortava tudo).
+     * São pedidos ao mesmo endpoint que já teriam sido feitos no caminho normal, e o
+     * resultado final é idêntico — o dataset continua a não existir. */
+    const [resSales, resPayables, resReceivables, resManual] = await Promise.allSettled([
+      fetchRawSales(transporte),
+      fetchRawPayables(transporte),
+      fetchRawReceivables(transporte),
+      /* fetchManualInputs já absorve rede, timeout e estados de domínio, devolvendo um
+       * envelope de ausência em vez de rejeitar. Entra na mesma rede de segurança que
+       * as outras por consistência, não porque se espere que rejeite. */
+      fetchManualInputs({ transport: transporte, ...(companyId ? { companyId } : {}) }),
+    ]);
+
+    /* Os PEDIDOS são a fonte primária: sem eles não há dataset nenhum a construir.
+     * O backend ESTÁ configurado (verificado acima) e não respondeu — isto é avaria,
+     * nunca demonstração. */
+    if (resSales.status !== "fulfilled") {
+      return { source: "unavailable", sales: null, manualInputs: null };
+    }
+    const orders = (resSales.value.rows || []).map(normalizeOrder);
 
     // Despesas: best-effort. Se falhar, despesas fica undefined => mock no front,
     // sem derrubar pedidos/receitas/clientes.
-    let payables;
-    try {
-      const rawPayables = await fetchRawPayables();
-      payables = (rawPayables || []).map(normalizePayable).filter(Boolean);
-    } catch {
-      payables = undefined;
-    }
+    const payables = resPayables.status === "fulfilled"
+      ? (resPayables.value.rows || []).map(normalizePayable).filter(Boolean)
+      : undefined;
 
     // Recebíveis: best-effort e independente de despesas. Se falhar, receivables fica
     // undefined => lado Clientes segue mock + Demo, sem derrubar o resto.
-    let receivables;
-    try {
-      const rawReceivables = await fetchRawReceivables();
-      receivables = (rawReceivables || []).map(normalizeReceivable).filter(Boolean);
-    } catch {
-      receivables = undefined;
-    }
+    const receivables = resReceivables.status === "fulfilled"
+      ? (resReceivables.value.rows || []).map(normalizeReceivable).filter(Boolean)
+      : undefined;
 
-    return { source: "api", sales: buildSalesDataset({ orders, payables, receivables }) };
+    // Sem documento, o mapa fica undefined e o CMV permanece null/unavailable, tal como
+    // antes desta ligação.
+    const manualInputs = resManual.status === "fulfilled" ? resManual.value : null;
+
+    /* Uma leitura, dois consumidores. O motor recebe SÓ o mapa; o estado e o documento
+     * seguem à parte, para consumo apresentacional. Nunca se funde metadata no mapa:
+     * o contrato que o dreEngine vê é exatamente o mesmo desde a C3. */
+    const manualInputsByMonth = manualInputs ? manualInputs.valuesByMonth : undefined;
+
+    /* Frescura declarada por cada fonte que respondeu. Uma fonte que falhou não tem
+     * data — e não herda a das outras. */
+    const meta = {
+      orders: resSales.value.geradoEm,
+      payables: resPayables.status === "fulfilled" ? resPayables.value.geradoEm : null,
+      receivables: resReceivables.status === "fulfilled" ? resReceivables.value.geradoEm : null,
+    };
+    meta.geradoEm = geradoEmMaisAntigo([meta.orders, meta.payables, meta.receivables]);
+
+    /* Completude por fonte, a par da frescura. `algumParcial` é o resumo pessimista:
+     * basta uma fonte declarar-se incompleta para o conjunto não estar completo. Uma
+     * fonte que não se pronuncia (null) não conta como incompleta — mas também não
+     * autoriza afirmar que está completa, e por isso `todasCompletas` exige que as
+     * três digam explicitamente que não são parciais. */
+    meta.parcial = {
+      orders: resSales.value.parcial ?? null,
+      payables: resPayables.status === "fulfilled" ? (resPayables.value.parcial ?? null) : null,
+      receivables: resReceivables.status === "fulfilled" ? (resReceivables.value.parcial ?? null) : null,
+    };
+    meta.algumParcial = Object.values(meta.parcial).some((p) => p === true);
+    meta.todasCompletas = Object.values(meta.parcial).every((p) => p === false);
+
+    return {
+      source: "api",
+      sales: buildSalesDataset({
+        orders, payables, receivables, manualInputsByMonth,
+        /* Mesma leitura, terceiro consumidor. A cobertura confirmada entra no motor
+         * como cobertura, nunca como rubrica — ver `envelopeManualInputs`. */
+        manualCoverage: manualInputs ? manualInputs.coverage : undefined,
+        meta,
+      }),
+      manualInputs,
+    };
   } catch {
-    return { source: "mock", sales: null };
+    // Qualquer falha inesperada com backend configurado: avaria, não demonstração.
+    return { source: "unavailable", sales: null, manualInputs: null };
   }
 }

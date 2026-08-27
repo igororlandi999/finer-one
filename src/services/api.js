@@ -33,19 +33,52 @@ function buildUrl(path, params) {
   return qs ? `${url}?${qs}` : url;
 }
 
-export async function apiGet(path, { params, headers, timeout = DEFAULT_TIMEOUT } = {}) {
+/**
+ * Pedido HTTP genérico. `apiGet` é o caso particular e continua a ser o que a leitura
+ * de snapshots usa — nada do que já existe muda de comportamento.
+ *
+ * ─── PORQUE ISTO GANHOU MÉTODO E CORPO (fundação SaaS) ──────────────────────────────
+ * O cliente autenticado (`authorizedApi.js`) precisa de POST para as escritas
+ * protegidas. Acrescentar aqui, em vez de um segundo cliente HTTP ao lado, mantém um
+ * só sítio a tratar de timeout, de abortos e da tradução de erros — que é a razão de
+ * este ficheiro existir.
+ *
+ * NOTA DE SEGURANÇA: este módulo não conhece tokens nem sessões e não deve passar a
+ * conhecer. Quem os junta é `authorizedApi.js`, através de `headers`. Um cliente HTTP
+ * que soubesse ir buscar o token sozinho tornaria impossível dizer, olhando para uma
+ * chamada, se ela é autenticada ou não.
+ */
+export async function apiRequest(path, {
+  method = "GET", params, headers, body, timeout = DEFAULT_TIMEOUT,
+} = {}) {
   if (!isApiConfigured()) {
     throw new ApiError("Sem backend configurado (VITE_API_BASE_URL vazio).", { status: 0 });
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   try {
+    const temCorpo = body !== undefined && body !== null;
     const res = await fetch(buildUrl(path, params), {
-      method: "GET",
-      headers: { Accept: "application/json", ...(headers || {}) },
+      method,
+      headers: {
+        Accept: "application/json",
+        ...(temCorpo ? { "Content-Type": "application/json" } : {}),
+        ...(headers || {}),
+      },
+      ...(temCorpo ? { body: JSON.stringify(body) } : {}),
       signal: controller.signal,
     });
-    if (!res.ok) throw new ApiError(`Pedido falhou (${res.status}).`, { status: res.status });
+    if (!res.ok) {
+      /* O CORPO do erro é lido e anexado. 401 e 403 trazem um código estável que o
+       * cliente autenticado precisa de distinguir (reautenticar vs. não tem acesso),
+       * e deitá-lo fora aqui obrigaria a adivinhar pelo estado. */
+      let payload = null;
+      try { payload = await res.json(); } catch { /* erro sem corpo JSON */ }
+      const err = new ApiError(`Pedido falhou (${res.status}).`, { status: res.status });
+      err.payload = payload;
+      err.code = payload && typeof payload.code === "string" ? payload.code : null;
+      throw err;
+    }
     return await res.json();
   } catch (err) {
     if (err instanceof ApiError) throw err;
@@ -56,4 +89,8 @@ export async function apiGet(path, { params, headers, timeout = DEFAULT_TIMEOUT 
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function apiGet(path, { params, headers, timeout = DEFAULT_TIMEOUT } = {}) {
+  return apiRequest(path, { method: "GET", params, headers, timeout });
 }
