@@ -1,0 +1,18 @@
+# Ficheiros que NUNCA devem ser enviados para o projeto Apps Script.
+#
+# Porque isto existe: .clasp.json declara scriptExtensions [".js", ".gs"], rootDir ""
+# e skipSubdirectories false. Sem esta lista, um `clasp push` levaria também os
+# ficheiros de teste desta pasta — que importam vitest e node:fs, módulos que não
+# existem no runtime da Google. O projeto remoto ficaria com ficheiros que não
+# compilam, e a primeira coisa a partir seria o Web App em produção.
+#
+# ANTES DO PRIMEIRO PUSH: confirmar com `clasp status`, que lista exatamente os
+# ficheiros que seriam enviados. Se algum .test.js aparecer nessa lista, PARAR.
+
+*.test.js
+**/*.test.js
+
+# Ferramentas e notas locais que possam vir a viver aqui.
+*.md
+*.mjs
+*.cjs
