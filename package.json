@@ -9,9 +9,13 @@
     "preview": "vite preview",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:data": "node scripts/check-data-pipeline.mjs",
+    "check:supabase": "node scripts/supabase-check.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.4",
     "lucide-react": "^0.451.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
