@@ -36,20 +36,23 @@ const desp = (id, y, m, d, valor, categoria = "Compras") => ({
 });
 
 describe("buildMonthlyPerformance — série mensal", () => {
-  it("ordena cronologicamente e calcula resultado e margem", () => {
+  it("ordena cronologicamente faturação e títulos registados", () => {
     const orders = [order(1, 2026, 5, 10, 1000), order(2, 2026, 6, 10, 2000)];
     const list = [desp(1, 2026, 5, 5, 400), desp(2, 2026, 6, 5, 500)];
     const s = buildMonthlyPerformance({ orders, despesasList: list, now: NOW });
     expect(s.map((p) => p.monthKey)).toEqual(["2026-05", "2026-06"]);
-    expect(s[0]).toMatchObject({ receitas: 1000, despesas: 400, resultado: 600, margem: 60 });
-    expect(s[1]).toMatchObject({ receitas: 2000, despesas: 500, resultado: 1500, margem: 75 });
+    expect(s[0]).toMatchObject({ receitas: 1000, despesas: 400 });
+    expect(s[1]).toMatchObject({ receitas: 2000, despesas: 500 });
+    // O contrato operacional não fala de rentabilidade.
+    expect(s[0].resultado).toBeUndefined();
+    expect(s[0].margem).toBeUndefined();
   });
 
   it("preenche meses sem movimento dentro do intervalo coberto (a zero)", () => {
     const orders = [order(1, 2026, 4, 10, 1000), order(2, 2026, 6, 10, 2000)];
     const s = buildMonthlyPerformance({ orders, despesasList: [], now: NOW });
     expect(s.map((p) => p.monthKey)).toEqual(["2026-04", "2026-05", "2026-06"]);
-    expect(s[1]).toMatchObject({ receitas: 0, despesas: 0, resultado: 0 });
+    expect(s[1]).toMatchObject({ receitas: 0, despesas: 0 });
   });
 
   it("nunca inclui meses futuros", () => {
@@ -59,41 +62,44 @@ describe("buildMonthlyPerformance — série mensal", () => {
     expect(s.some((p) => p.monthKey === "2026-11")).toBe(false);
   });
 
-  it("receitas zero => margem null (nunca NaN nem Infinity)", () => {
+  it("faturação zero não produz NaN nem Infinity em lado nenhum", () => {
     const orders = [order(1, 2026, 5, 10, 1000)];
     const list = [desp(1, 2026, 6, 5, 300)]; // junho só tem despesa
     const s = buildMonthlyPerformance({ orders, despesasList: list, now: NOW });
     const junho = s.find((p) => p.monthKey === "2026-06");
     expect(junho.receitas).toBe(0);
-    expect(junho.margem).toBeNull();
-    expect(Number.isFinite(junho.resultado)).toBe(true);
+    expect(junho.margem).toBeUndefined();
+    expect(Number.isFinite(junho.receitas)).toBe(true);
+    expect(Number.isFinite(junho.despesas)).toBe(true);
   });
 
-  it("mês com receitas e sem despesas => resultado igual às receitas", () => {
+  it("mês com faturação e sem títulos => títulos a zero real", () => {
     const orders = [order(1, 2026, 6, 10, 800)];
     const s = buildMonthlyPerformance({ orders, despesasList: [], now: NOW });
-    expect(s[0]).toMatchObject({ receitas: 800, despesas: 0, resultado: 800, margem: 100 });
+    expect(s[0]).toMatchObject({ receitas: 800, despesas: 0 });
+    expect(s[0].resultado).toBeUndefined();
   });
 
-  it("fonte de despesas indisponível (null) => despesas/resultado/margem a null", () => {
+  it("fonte de títulos indisponível (null) => despesas a null", () => {
     const orders = [order(1, 2026, 6, 10, 800)];
     const s = buildMonthlyPerformance({ orders, despesasList: null, now: NOW });
     expect(s[0].receitas).toBe(800);
     expect(s[0].despesas).toBeNull();
-    expect(s[0].resultado).toBeNull();
-    expect(s[0].margem).toBeNull();
+    expect(s[0].resultado).toBeUndefined();
+    expect(s[0].margem).toBeUndefined();
   });
 
   it("sem dados => série vazia (sem fallback para mock)", () => {
     expect(buildMonthlyPerformance({ orders: [], despesasList: [], now: NOW })).toEqual([]);
   });
 
-  it("margem negativa quando despesas superam receitas", () => {
+  it("títulos acima da faturação: as duas grandezas continuam a ser reportadas", () => {
     const orders = [order(1, 2026, 6, 10, 1000)];
     const list = [desp(1, 2026, 6, 5, 1500)];
     const s = buildMonthlyPerformance({ orders, despesasList: list, now: NOW });
-    expect(s[0].resultado).toBe(-500);
-    expect(s[0].margem).toBe(-50);
+    expect(s[0].receitas).toBe(1000);
+    expect(s[0].despesas).toBe(1500);
+    expect(s[0].resultado).toBeUndefined(); // antes: -500, um pseudo-resultado
   });
 });
 
@@ -107,8 +113,8 @@ describe("buildPerformanceMetrics — mês de referência e deltas", () => {
     expect(m.mesRefLabel).toBe("junho de 2026");
     expect(m.receitas).toBe(2000);
     expect(m.despesas).toBe(500);
-    expect(m.resultado).toBe(1500);
-    expect(m.margem).toBe(75);
+    expect(m.resultado).toBeUndefined();
+    expect(m.margem).toBeUndefined();
   });
 
   it("deltas calculados com base anterior válida", () => {
@@ -116,7 +122,7 @@ describe("buildPerformanceMetrics — mês de referência e deltas", () => {
     expect(m.temAnterior).toBe(true);
     expect(m.receitasDelta).toBe(100);   // 1000 -> 2000
     expect(m.despesasDelta).toBe(25);    // 400 -> 500
-    expect(m.margemDelta).toBe(15);      // 60% -> 75% = +15 p.p.
+    expect(m.margemDelta).toBeUndefined(); // margem saiu do contrato operacional
   });
 
   it("sem período anterior => deltas null (nunca 0%)", () => {
@@ -125,7 +131,7 @@ describe("buildPerformanceMetrics — mês de referência e deltas", () => {
     expect(m.temAnterior).toBe(false);
     expect(m.receitasDelta).toBeNull();
     expect(m.despesasDelta).toBeNull();
-    expect(m.margemDelta).toBeNull();
+    expect(m.margemDelta).toBeUndefined();
   });
 
   it("período anterior a zero => delta null (não divide por zero)", () => {
@@ -137,11 +143,11 @@ describe("buildPerformanceMetrics — mês de referência e deltas", () => {
     expect(Number.isNaN(m.receitasDelta)).toBe(false);
   });
 
-  it("fonte de despesas indisponível => margemCalculavel false", () => {
+  it("fonte de títulos indisponível => despesas a null, sem margem no contrato", () => {
     const m = buildPerformanceMetrics({ orders, despesasList: null, now: NOW });
     expect(m.temDespesas).toBe(false);
-    expect(m.margemCalculavel).toBe(false);
-    expect(m.resultado).toBeNull();
+    expect(m.margemCalculavel).toBeUndefined();
+    expect(m.resultado).toBeUndefined();
   });
 
   it("sem pedidos => null (sem mês de referência)", () => {
@@ -193,8 +199,9 @@ describe("buildPerformanceInsights — frases sem causas inventadas", () => {
     const cats = buildExpenseCategoryPerformance(list, m.mesRef).categorias;
     const frases = buildPerformanceInsights(m, cats);
     const texto = frases.join(" ");
-    expect(texto).toContain("As receitas subiram");
-    expect(texto).toContain("O resultado do mês foi positivo");
+    expect(texto).toContain("A faturação subiu");
+    expect(texto).not.toContain("resultado"); // frase de rentabilidade removida
+    expect(texto).not.toContain("margem");
     // nunca explica porquê
     expect(texto).not.toMatch(/devido a|por causa de|em virtude de|resultado do aumento/i);
   });
@@ -313,7 +320,6 @@ describe("fonte real vazia não é ausência de fonte", () => {
     const semFonte = buildPerformanceMetrics({ orders, despesasList: null, now: NOW });
     expect(comLista.temDespesas).toBe(true);
     expect(comLista.despesas).toBe(0);
-    expect(comLista.resultado).toBe(1000);
     expect(semFonte.temDespesas).toBe(false);
     expect(semFonte.despesas).toBeNull();
   });
@@ -328,9 +334,9 @@ describe("buildPerformanceInsights — base comparável com mês anterior a zero
     expect(m.temAnterior).toBe(true);      // o mês anterior EXISTE
     expect(m.receitasDelta).toBeNull();    // mas a base é zero => não comparável
     const frases = buildPerformanceInsights(m, []);
-    expect(frases).toContain("Sem período anterior comparável para as receitas.");
+    expect(frases).toContain("Sem período anterior comparável para a faturação.");
     // e não inventa uma subida a partir de base zero
-    expect(frases.join(" ")).not.toContain("As receitas subiram");
+    expect(frases.join(" ")).not.toContain("A faturação subiu");
   });
 
   it("mês anterior existe mas com despesas zero => frase de ausência de comparação", () => {
@@ -340,15 +346,15 @@ describe("buildPerformanceInsights — base comparável com mês anterior a zero
     expect(m.temAnterior).toBe(true);
     expect(m.despesasDelta).toBeNull();
     const frases = buildPerformanceInsights(m, []);
-    expect(frases).toContain("Sem período anterior comparável para as despesas.");
-    expect(frases.join(" ")).not.toContain("As despesas subiram");
+    expect(frases).toContain("Sem período anterior comparável para os títulos registados.");
+    expect(frases.join(" ")).not.toContain("Os títulos registados subiram");
   });
 
   it("fonte de despesas ausente => nenhuma frase sobre despesas", () => {
     const orders = [order(1, 2026, 5, 10, 1000), order(2, 2026, 6, 10, 2000)];
     const m = buildPerformanceMetrics({ orders, despesasList: null, now: NOW });
     const frases = buildPerformanceInsights(m, []);
-    expect(frases.some((f) => f.includes("despesas"))).toBe(false);
+    expect(frases.some((f) => f.includes("títulos registados"))).toBe(false);
   });
 
   it("frases de ausência de comparação também não atribuem causas", () => {
@@ -357,5 +363,292 @@ describe("buildPerformanceInsights — base comparável com mês anterior a zero
     const m = buildPerformanceMetrics({ orders, despesasList: list, now: NOW });
     const texto = buildPerformanceInsights(m, []).join(" ");
     expect(texto).not.toMatch(/devido a|por causa de|em virtude de|resultado do aumento|explica-se/i);
+  });
+});
+/* ====================================================================================
+ * P2 — COBERTURA POR FONTE E MÊS EM CURSO.
+ *
+ * Pedidos e contas a pagar têm snapshots independentes. Sem cobertura declarada, um
+ * mês fora do histórico de payables ficava com despesas 0, resultado = receitas e
+ * margem 100% — uma afirmação sobre um mês de que nada se sabe. E o mês em curso era
+ * comparado com um mês completo, produzindo deltas absurdos.
+ * ==================================================================================== */
+describe("buildMonthlyPerformance — cobertura por fonte", () => {
+  // Pedidos desde janeiro; contas a pagar só a partir de abril.
+  const COV = {
+    firstCompleteMonth: "2026-01",
+    partialMonths: [],
+    closedThroughMonth: "2026-06",
+    payables: { firstCompleteMonth: "2026-04" },
+  };
+  const orders = [
+    order(1, 2026, 1, 10, 1000), order(2, 2026, 4, 10, 2000), order(3, 2026, 5, 10, 3000),
+  ];
+  const list = [desp(1, 2026, 4, 5, 800), desp(2, 2026, 5, 5, 900)];
+
+  it("Caso A: mês sem cobertura de payables => despesas null", () => {
+    const s = buildMonthlyPerformance({ orders, despesasList: list, coverage: COV, now: NOW });
+    const jan = s.find((p) => p.monthKey === "2026-01");
+    expect(jan.receitas).toBe(1000);      // a receita existe e é real
+    expect(jan.despesas).toBeNull();      // antes: 0
+    expect(jan.resultado).toBeUndefined(); // o campo já nem existe
+    expect(jan.margem).toBeUndefined();
+    expect(jan.disponibilidade.despesas).toBe("unavailable");
+  });
+
+  it("Caso A: meses cobertos continuam com valores reais", () => {
+    const s = buildMonthlyPerformance({ orders, despesasList: list, coverage: COV, now: NOW });
+    const abr = s.find((p) => p.monthKey === "2026-04");
+    expect(abr).toMatchObject({ receitas: 2000, despesas: 800 });
+    expect(abr.disponibilidade).toEqual({ receitas: "real", despesas: "real" });
+  });
+
+  it("Caso B: mês coberto sem títulos => zero REAL, não ausência", () => {
+    const s = buildMonthlyPerformance({
+      orders: [order(1, 2026, 4, 10, 2000), order(2, 2026, 5, 10, 3000)],
+      despesasList: [desp(1, 2026, 5, 5, 900)], coverage: COV, now: NOW,
+    });
+    const abr = s.find((p) => p.monthKey === "2026-04");
+    expect(abr.despesas).toBe(0);         // fonte cobre abril e não houve movimento
+    expect(abr.disponibilidade.despesas).toBe("real");
+  });
+
+  it("lista vazia continua a ser fonte real com zero movimentos", () => {
+    const s = buildMonthlyPerformance({
+      orders: [order(1, 2026, 4, 10, 2000)], despesasList: [], coverage: COV, now: NOW,
+    });
+    expect(s[0].despesas).toBe(0);
+  });
+
+  it("Caso E: mês em partialMonths não é comparável, mas mantém valores", () => {
+    const cov = { ...COV, partialMonths: ["2026-05"] };
+    const s = buildMonthlyPerformance({ orders, despesasList: list, coverage: cov, now: NOW });
+    const maio = s.find((p) => p.monthKey === "2026-05");
+    expect(maio.despesas).toBe(900);
+    expect(maio.disponibilidade.despesas).toBe("partial");
+    expect(maio.disponibilidade.receitas).toBe("partial");
+  });
+
+  it("mês posterior ao fecho é parcial, nunca 'real'", () => {
+    const s = buildMonthlyPerformance({
+      orders: [order(1, 2026, 6, 10, 1000), order(2, 2026, 7, 10, 1000)],
+      despesasList: [desp(1, 2026, 7, 5, 500)], coverage: COV, now: NOW,
+    });
+    const jul = s.find((p) => p.monthKey === "2026-07");
+    expect(jul.disponibilidade.receitas).toBe("partial"); // closedThroughMonth = 2026-06
+    expect(jul.despesas).toBe(500);                        // valor existe
+  });
+
+  it("sem coverage o comportamento legado é preservado (tudo real)", () => {
+    const s = buildMonthlyPerformance({ orders, despesasList: list, now: NOW });
+    const jan = s.find((p) => p.monthKey === "2026-01");
+    expect(jan.despesas).toBe(0);
+    expect(jan.disponibilidade).toEqual({ receitas: "real", despesas: "real" });
+  });
+
+  it("fonte de despesas ausente (null) continua unavailable em todos os meses", () => {
+    const s = buildMonthlyPerformance({ orders, despesasList: null, coverage: COV, now: NOW });
+    expect(s.every((p) => p.disponibilidade.despesas === "unavailable")).toBe(true);
+    expect(s.every((p) => p.despesas === null)).toBe(true);
+  });
+
+  it("meses futuros continuam excluídos, com ou sem coverage", () => {
+    const s = buildMonthlyPerformance({
+      orders: [order(1, 2026, 6, 10, 1000), order(2, 2026, 12, 10, 9000)],
+      despesasList: [], coverage: COV, now: NOW,
+    });
+    expect(s.some((p) => p.monthKey === "2026-12")).toBe(false);
+  });
+});
+
+describe("buildPerformanceMetrics — mês em curso e comparabilidade", () => {
+  const COV = { firstCompleteMonth: "2026-01", partialMonths: [], closedThroughMonth: "2026-06" };
+  // "Agora" = 14 de agosto de 2026: agosto está em curso.
+  const AGOSTO = new Date(2026, 7, 14, 12, 0, 0);
+  const orders = [order(1, 2026, 7, 10, 3000), order(2, 2026, 8, 11, 1000)];
+  const list = [desp(1, 2026, 7, 5, 1000), desp(2, 2026, 8, 5, 2000)];
+
+  it("Caso C: mês de referência em curso => TODOS os deltas null", () => {
+    const m = buildPerformanceMetrics({ orders, despesasList: list, coverage: COV, now: AGOSTO });
+    expect(m.mesRef).toBe("2026-08");
+    expect(m.mesEmCurso).toBe(true);
+    expect(m.receitas).toBe(1000);          // os valores do mês continuam visíveis
+    expect(m.despesas).toBe(2000);
+    expect(m.receitasDelta).toBeNull();
+    expect(m.despesasDelta).toBeNull();
+    expect(m.resultadoDelta).toBeUndefined(); // antes: +106% e afins
+    expect(m.margemDelta).toBeUndefined();
+    expect(m.comparavel).toBe(false);
+  });
+
+  it("Caso D: mês fechado com anterior fechado => comparações permitidas", () => {
+    const cov = { ...COV, closedThroughMonth: "2026-08" };
+    const JULHO = new Date(2026, 6, 20, 12, 0, 0);
+    const m = buildPerformanceMetrics({
+      orders: [order(1, 2026, 5, 10, 1000), order(2, 2026, 6, 10, 2000)],
+      despesasList: [desp(1, 2026, 5, 5, 400), desp(2, 2026, 6, 5, 500)],
+      coverage: cov, now: JULHO,
+    });
+    expect(m.mesRef).toBe("2026-06");
+    expect(m.mesEmCurso).toBe(false);
+    expect(m.comparavel).toBe(true);
+    expect(m.receitasDelta).toBe(100);
+    expect(m.despesasDelta).toBe(25);
+  });
+
+  it("Caso E: mês anterior parcial => sem deltas, valores preservados", () => {
+    const cov = { ...COV, partialMonths: ["2026-05"], closedThroughMonth: "2026-08" };
+    const JULHO = new Date(2026, 6, 20, 12, 0, 0);
+    const m = buildPerformanceMetrics({
+      orders: [order(1, 2026, 5, 10, 1000), order(2, 2026, 6, 10, 2000)],
+      despesasList: [desp(1, 2026, 5, 5, 400), desp(2, 2026, 6, 5, 500)],
+      coverage: cov, now: JULHO,
+    });
+    expect(m.receitas).toBe(2000);
+    expect(m.receitasDelta).toBeNull();
+    expect(m.despesasDelta).toBeNull();
+    expect(m.comparavel).toBe(false);
+  });
+
+  it("mês de referência sem cobertura de payables => títulos a null", () => {
+    const cov = { ...COV, payables: { firstCompleteMonth: "2026-09" } };
+    const JULHO = new Date(2026, 6, 20, 12, 0, 0);
+    const m = buildPerformanceMetrics({
+      orders: [order(1, 2026, 6, 10, 2000)],
+      despesasList: [desp(1, 2026, 6, 5, 500)], coverage: cov, now: JULHO,
+    });
+    expect(m.despesas).toBeNull();
+    expect(m.resultado).toBeUndefined();
+    expect(m.margem).toBeUndefined();
+    expect(m.margemCalculavel).toBeUndefined();
+  });
+
+  it("sem coverage, um mês de referência em curso ainda bloqueia os deltas", () => {
+    // A regra do mês em curso não depende de cobertura declarada.
+    const m = buildPerformanceMetrics({ orders, despesasList: list, now: AGOSTO });
+    expect(m.mesEmCurso).toBe(true);
+    expect(m.receitasDelta).toBeNull();
+    expect(m.resultadoDelta).toBeUndefined();
+  });
+});
+
+describe("buildMonthlyPerformance — mês parcial ANTES do início do histórico", () => {
+  // Cobertura real da Overcel: março é parcial E anterior a firstCompleteMonth.
+  const COV = { firstCompleteMonth: "2026-04", partialMonths: ["2026-03"], closedThroughMonth: "2026-06" };
+
+  it("mês parcial fora do histórico não vira despesas 0", () => {
+    const s = buildMonthlyPerformance({
+      orders: [order(1, 2026, 3, 15, 90000), order(2, 2026, 4, 15, 150000)],
+      despesasList: [desp(1, 2026, 4, 10, 70000)], coverage: COV, now: NOW,
+    });
+    const mar = s.find((p) => p.monthKey === "2026-03");
+    expect(mar.receitas).toBe(90000);
+    expect(mar.despesas).toBeNull();
+    expect(mar.resultado).toBeUndefined();
+    expect(mar.margem).toBeUndefined();
+    expect(mar.disponibilidade.despesas).toBe("unavailable");
+  });
+
+  it("mês parcial DENTRO do histórico mantém os valores, marcado como partial", () => {
+    const cov = { ...COV, firstCompleteMonth: "2026-01", partialMonths: ["2026-05"] };
+    const s = buildMonthlyPerformance({
+      orders: [order(1, 2026, 5, 15, 1000)],
+      despesasList: [desp(1, 2026, 5, 10, 400)], coverage: cov, now: NOW,
+    });
+    expect(s[0].despesas).toBe(400);
+    expect(s[0].disponibilidade.despesas).toBe("partial");
+  });
+});
+
+/* ====================================================================================
+ * P4 — O CONTRATO OPERACIONAL NÃO FALA DE RENTABILIDADE.
+ *
+ * `resultado` era faturação − títulos a pagar, e `margem` o seu rácio: dois eixos
+ * temporais diferentes subtraídos e apresentados como rentabilidade. Foram removidos.
+ * Lucro, resultado, EBITDA e margem existem num único sítio — o bloco DRE.
+ * ==================================================================================== */
+describe("P4 — contrato operacional sem pseudo-rentabilidade", () => {
+  const orders = [order(1, 2026, 5, 10, 1000), order(2, 2026, 6, 10, 2000)];
+  const list = [desp(1, 2026, 5, 5, 400), desp(2, 2026, 6, 5, 500)];
+  const COV = { firstCompleteMonth: "2026-01", partialMonths: [], closedThroughMonth: "2026-06" };
+
+  it("1 e 2. a série não produz resultado nem margem", () => {
+    const s = buildMonthlyPerformance({ orders, despesasList: list, coverage: COV, now: NOW });
+    for (const p of s) {
+      expect("resultado" in p).toBe(false);
+      expect("margem" in p).toBe(false);
+      // As grandezas medidas continuam lá.
+      expect(typeof p.receitas).toBe("number");
+      expect(typeof p.despesas).toBe("number");
+    }
+  });
+
+  it("3 e 4. as métricas não produzem resultadoDelta nem margemDelta", () => {
+    const m = buildPerformanceMetrics({ orders, despesasList: list, coverage: COV, now: NOW });
+    for (const campo of ["resultado", "margem", "resultadoDelta", "margemDelta", "margemCalculavel"]) {
+      expect(campo in m).toBe(false);
+    }
+    expect(m.receitasDelta).toBe(100);
+    expect(m.despesasDelta).toBe(25);
+  });
+
+  it("5. o gráfico opera só com as duas grandezas medidas", () => {
+    // Nenhuma chave derivada disponível para uma linha calculada.
+    const s = buildMonthlyPerformance({ orders, despesasList: list, coverage: COV, now: NOW });
+    const chaves = Object.keys(s[0]).sort();
+    expect(chaves).toEqual(["despesas", "disponibilidade", "label", "monthKey", "receitas"]);
+  });
+
+  it("10 e 11. a série só expõe as duas grandezas medidas, sem derivados", () => {
+    // Garantia ESTRUTURAL, não numérica: uma coincidência de valores (receitas 100,
+    // títulos 0) não deve fazer falhar um teste que quer provar ausência de campo.
+    const s = buildMonthlyPerformance({ orders, despesasList: list, coverage: COV, now: NOW });
+    for (const p of s) {
+      const numericos = Object.entries(p)
+        .filter(([, v]) => typeof v === "number")
+        .map(([k]) => k)
+        .sort();
+      expect(numericos).toEqual(["despesas", "receitas"]);
+    }
+  });
+
+  it("os insights não falam de resultado nem de margem", () => {
+    const m = buildPerformanceMetrics({ orders, despesasList: list, coverage: COV, now: NOW });
+    const cats = buildExpenseCategoryPerformance(list, m.mesRef).categorias;
+    const texto = buildPerformanceInsights(m, cats).join(" ").toLowerCase();
+    for (const proibido of ["resultado", "margem", "lucro", "ebitda", "rentab"]) {
+      expect(texto).not.toContain(proibido);
+    }
+    expect(texto).toContain("faturação");
+  });
+
+  it("os insights usam vocabulário operacional para os títulos", () => {
+    const m = buildPerformanceMetrics({ orders, despesasList: list, coverage: COV, now: NOW });
+    const texto = buildPerformanceInsights(m, []).join(" ");
+    expect(texto).toContain("títulos registados");
+    expect(texto).not.toContain("As despesas subiram");
+  });
+
+  it("6, 7 e 8. a P2 fica intacta: cobertura, zero real e mês em curso", () => {
+    const cov = { ...COV, payables: { firstCompleteMonth: "2026-06" } };
+    const s = buildMonthlyPerformance({ orders, despesasList: list, coverage: cov, now: NOW });
+    expect(s.find((p) => p.monthKey === "2026-05").despesas).toBeNull();       // sem cobertura
+    expect(s.find((p) => p.monthKey === "2026-06").despesas).toBe(500);        // coberto
+    expect(s.find((p) => p.monthKey === "2026-05").disponibilidade.despesas).toBe("unavailable");
+
+    const zero = buildMonthlyPerformance({
+      orders: [order(1, 2026, 6, 10, 1000)], despesasList: [], coverage: COV, now: NOW,
+    });
+    expect(zero[0].despesas).toBe(0);                                          // zero real
+
+    const AGOSTO = new Date(2026, 7, 14, 12, 0, 0);
+    const emCurso = buildPerformanceMetrics({
+      orders: [order(1, 2026, 7, 10, 1000), order(2, 2026, 8, 10, 500)],
+      despesasList: [desp(1, 2026, 7, 5, 100), desp(2, 2026, 8, 5, 200)],
+      coverage: COV, now: AGOSTO,
+    });
+    expect(emCurso.mesEmCurso).toBe(true);
+    expect(emCurso.receitasDelta).toBeNull();
+    expect(emCurso.despesasDelta).toBeNull();
   });
 });

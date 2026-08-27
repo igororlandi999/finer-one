@@ -60,37 +60,37 @@ describe("buildFinancialMetrics — fixture de junho da Overcel", () => {
 
   it("receita bruta e líquida", () => {
     expect(m.revenue.gross).toBe(206227.15);
-    expect(m.revenue.net).toBe(175566.72);
+    expect(m.revenue.net).toBe(178664.52); // frete cobrado já não é abatido
   });
 
   it("deduções e o seu peso na receita bruta", () => {
-    expect(m.deductions.total).toBe(30660.43);
-    expect(m.deductions.pctOfGrossRevenue).toBeCloseTo(14.87, 2);
+    expect(m.deductions.total).toBe(27562.63); // comissões + devoluções + impostos
+    expect(m.deductions.pctOfGrossRevenue).toBeCloseTo(13.37, 2);
   });
 
   it("CMV e o seu peso na receita líquida", () => {
     expect(m.cmv.value).toBe(116039.70);
-    expect(m.cmv.pctOfNetRevenue).toBeCloseTo(66.09, 2);
+    expect(m.cmv.pctOfNetRevenue).toBeCloseTo(64.95, 2);
   });
 
   it("lucro bruto e margem bruta", () => {
-    expect(m.profitability.grossProfit).toBe(59527.02);
-    expect(m.profitability.grossMarginPct).toBeCloseTo(33.91, 2);
+    expect(m.profitability.grossProfit).toBe(62624.82);
+    expect(m.profitability.grossMarginPct).toBeCloseTo(35.05, 2);
   });
 
   it("despesas operacionais e o seu peso", () => {
     expect(m.operatingExpenses.total).toBe(8406.68);
-    expect(m.operatingExpenses.pctOfNetRevenue).toBeCloseTo(4.79, 2);
+    expect(m.operatingExpenses.pctOfNetRevenue).toBeCloseTo(4.71, 2);
   });
 
   it("EBITDA e margem EBITDA", () => {
-    expect(m.profitability.ebitda).toBe(51120.34);
-    expect(m.profitability.ebitdaMarginPct).toBeCloseTo(29.12, 2);
+    expect(m.profitability.ebitda).toBe(54218.14);
+    expect(m.profitability.ebitdaMarginPct).toBeCloseTo(30.35, 2);
   });
 
   it("resultado líquido e margem líquida", () => {
-    expect(m.profitability.netResult).toBe(522.50);
-    expect(m.profitability.netMarginPct).toBeCloseTo(0.30, 2);
+    expect(m.profitability.netResult).toBe(3620.30);
+    expect(m.profitability.netMarginPct).toBeCloseTo(2.03, 2);
   });
 
   it("retiradas ficam à parte das operacionais", () => {
@@ -101,9 +101,10 @@ describe("buildFinancialMetrics — fixture de junho da Overcel", () => {
 
 describe("buildFinancialMetrics — null e zero", () => {
   it("receita líquida null => todas as margens null", () => {
-    // sem frete nos pedidos, a receita líquida não é calculável
+    // A receita líquida deixou de depender do frete. Fica null quando falta a fonte
+    // das deduções: sem contas a pagar não há comissões, devoluções nem impostos.
     const dre = buildMonthlyDre({
-      orders: [order(1, "2026-06-05", 1000)], payables: payablesJun,
+      orders: [order(1, "2026-06-05", 1000, { frete: 10 })], payables: null,
       monthKey: "2026-06", manualInputs: { cmv: 100 }, coverage: COV, referenceDate: REF,
     });
     const m = buildFinancialMetrics(dre);
@@ -259,5 +260,108 @@ describe("buildMetricsWithComparison", () => {
     const r = buildMetricsWithComparison({ orders, payables: [], monthKey: "2026-06", coverage: COV, referenceDate: REF });
     expect(r.previous).toBeNull();
     expect(r.comparable).toBe(false);
+  });
+});
+
+/* ====================================================================================
+ * CMV C3 — contrato manualInputsByMonth.
+ * O que estes testes protegem NÃO é a implementação, é o contrato: cada mês recebe
+ * exclusivamente o seu próprio input manual. Antes da C3, buildMetricsWithComparison
+ * aplicava um único objeto manualInputs aos dois meses, pelo que um CMV informado só
+ * para junho contaminava maio.
+ * ==================================================================================== */
+describe("buildMetricsWithComparison — manualInputsByMonth (isolamento entre meses)", () => {
+  // payables: [] => deduções, operacionais e retiradas são zeros REAIS.
+  // Assim a única fonte não-real possível é o CMV, e a availability derivada é legível.
+  const ordersMJ = [
+    order(1, "2026-05-10", 1000),
+    order(2, "2026-06-10", 2000),
+  ];
+  const comparar = (manualInputsByMonth) => buildMetricsWithComparison({
+    orders: ordersMJ, payables: [], monthKey: "2026-06", previousMonthKey: "2026-05",
+    manualInputsByMonth, coverage: COV, referenceDate: REF,
+  });
+
+  it("T1 — junho e maio no mapa: cada mês recebe apenas o seu valor", () => {
+    const r = comparar({ "2026-06": { cmv: 500 }, "2026-05": { cmv: 300 } });
+    expect(r.current.cmv.value).toBe(500);
+    expect(r.previous.cmv.value).toBe(300);
+    // O valor de um mês nunca aparece no outro.
+    expect(r.current.cmv.value).not.toBe(300);
+    expect(r.previous.cmv.value).not.toBe(500);
+  });
+
+  it("T2 — só junho no mapa: maio fica sem CMV, não herda junho", () => {
+    const r = comparar({ "2026-06": { cmv: 500 } });
+    expect(r.current.cmv.value).toBe(500);
+    expect(r.current.availability.cmv).toBe("manual");
+    expect(r.previous.cmv.value).toBeNull();
+    expect(r.previous.availability.cmv).toBe("unavailable");
+  });
+
+  it("T3 — só maio no mapa: junho fica sem CMV, não herda maio", () => {
+    const r = comparar({ "2026-05": { cmv: 300 } });
+    expect(r.previous.cmv.value).toBe(300);
+    expect(r.previous.availability.cmv).toBe("manual");
+    expect(r.current.cmv.value).toBeNull();
+    expect(r.current.availability.cmv).toBe("unavailable");
+  });
+
+  it("T4 — cmv 0 em junho é valor real informado, e não escorrega para maio", () => {
+    const r = comparar({ "2026-06": { cmv: 0 } });
+    expect(r.current.cmv.value).toBe(0);
+    expect(r.current.availability.cmv).toBe("manual"); // zero informado != ausência
+    expect(r.current.profitability.grossProfit).toBe(2000); // receita líquida - 0
+    expect(r.previous.cmv.value).toBeNull();
+    expect(r.previous.availability.cmv).toBe("unavailable");
+  });
+
+  it("T5 — cmv 0 em junho com maio preenchido: 0 não é lido como ausência", () => {
+    const r = comparar({ "2026-06": { cmv: 0 }, "2026-05": { cmv: 300 } });
+    expect(r.current.cmv.value).toBe(0);
+    expect(r.current.availability.cmv).toBe("manual");
+    expect(r.previous.cmv.value).toBe(300);
+    // O 0 de junho não silencia nem substitui o valor de maio.
+    expect(r.previous.cmv.value).not.toBe(0);
+  });
+
+  it("T6 — sem mapa e com mapa vazio: comportamento idêntico ao anterior à C3", () => {
+    const semMapa = comparar(undefined);
+    const mapaVazio = comparar({});
+    for (const r of [semMapa, mapaVazio]) {
+      expect(r.current.cmv.value).toBeNull();
+      expect(r.previous.cmv.value).toBeNull();
+      expect(r.current.availability.cmv).toBe("unavailable");
+      expect(r.previous.availability.cmv).toBe("unavailable");
+      // Nenhum valor inventado nas linhas que dependem do CMV.
+      expect(r.current.profitability.grossProfit).toBeNull();
+      expect(r.current.profitability.ebitda).toBeNull();
+      expect(r.current.profitability.netResult).toBeNull();
+    }
+  });
+
+  it("T7 — com CMV manual e restantes fontes reais, derivados calculáveis e mixed", () => {
+    const r = comparar({ "2026-06": { cmv: 500 } });
+    expect(r.current.profitability.grossProfit).toBe(1500);
+    expect(r.current.profitability.ebitda).toBe(1500);
+    expect(r.current.profitability.netResult).toBe(1500);
+    expect(r.current.availability.grossProfit).toBe("mixed");
+    expect(r.current.availability.ebitda).toBe("mixed");
+    expect(r.current.availability.netResult).toBe("mixed");
+    // Sem CMV, as mesmas linhas continuam indisponíveis no outro mês.
+    expect(r.previous.availability.grossProfit).toBe("unavailable");
+    expect(r.previous.availability.ebitda).toBe("unavailable");
+    expect(r.previous.availability.netResult).toBe("unavailable");
+  });
+
+  it("T8 — sem previousMonthKey: previous null, sem erro, mesmo com mapa presente", () => {
+    const r = buildMetricsWithComparison({
+      orders: ordersMJ, payables: [], monthKey: "2026-06",
+      manualInputsByMonth: { "2026-06": { cmv: 500 }, "2026-05": { cmv: 300 } },
+      coverage: COV, referenceDate: REF,
+    });
+    expect(r.previous).toBeNull();
+    expect(r.comparable).toBe(false);
+    expect(r.current.cmv.value).toBe(500);
   });
 });

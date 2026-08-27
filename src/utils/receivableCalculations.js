@@ -4,7 +4,7 @@
 // situacao (Bling /contas/receber): 1 = em aberto | 2 = recebido/baixado.
 // (Só 1 e 2 confirmados no diagnóstico real; cancelado, se existir, fica fora dos totais.)
 
-import { round2, toDate, monthKey, MONTHS_PT, startOfDay } from "./financialCalculations.js";
+import { round2, toDate, monthKey, startOfDay } from "./financialCalculations.js";
 
 export const RECEIVABLE_COUNTED = [1, 2]; // situações que entram nos totais
 

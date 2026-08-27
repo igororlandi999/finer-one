@@ -120,3 +120,45 @@ describe("alertsViewModel — B5 e B6", () => {
     expect(vm.metrics).toEqual({ criticos: 0, atencao: 0, informativos: 0, resolvidos: 0 });
   });
 });
+
+/* ====================================================================================
+ * C7F.3D — avaria e ausência de veredito não são modo demonstração.
+ *
+ * Antes, `isDemo: !real` fazia com que `unavailable` (fonte em avaria) e `loading`
+ * (leitura por concluir) mostrassem a lista de alertas do mockData com selo Demo — ou
+ * seja, apresentavam uma falha de ligação como se fosse uma escolha. O AppShell já
+ * impede esses estados de chegarem à página; estes testes garantem que a camada pura
+ * também não mente se algum dia o portão desaparecer.
+ * ==================================================================================== */
+describe("alertsViewModel — avaria e ausência de veredito (C7F.3D)", () => {
+  const MOCK_LIST = [{ id: 1, severity: "danger" }, { id: 2, severity: "warning" }];
+  const MOCK_METRICS = { criticos: 9, atencao: 9, informativos: 9, resolvidos: 9 };
+
+  for (const estado of ["unavailable", "loading"]) {
+    it(`"${estado}" não devolve alertas fictícios nem selo Demo`, () => {
+      const vm = alertsViewModel({ salesList: null, mockList: MOCK_LIST, mockMetrics: MOCK_METRICS, source: estado });
+      expect(vm.list).toEqual([]);
+      expect(vm.isDemo).toBe(false);
+      // As contagens saem da lista vazia, nunca das métricas do mock.
+      expect(vm.metrics).toEqual({ criticos: 0, atencao: 0, informativos: 0, resolvidos: 0 });
+    });
+
+    it(`composeAlerts devolve lista vazia em "${estado}"`, () => {
+      expect(composeAlerts(null, MOCK_LIST, estado)).toEqual([]);
+    });
+  }
+
+  it('"mock" continua a mostrar a demonstração completa, marcada', () => {
+    const vm = alertsViewModel({ salesList: null, mockList: MOCK_LIST, mockMetrics: MOCK_METRICS, source: "mock" });
+    expect(vm.list).toEqual(MOCK_LIST);
+    expect(vm.isDemo).toBe(true);
+    expect(vm.metrics).toEqual(MOCK_METRICS);
+  });
+
+  it('"api" com lista real continua real e sem selo', () => {
+    const reais = [{ id: 7, severity: "danger" }];
+    const vm = alertsViewModel({ salesList: reais, mockList: MOCK_LIST, mockMetrics: MOCK_METRICS, source: "api" });
+    expect(vm.list).toEqual(reais);
+    expect(vm.isDemo).toBe(false);
+  });
+});

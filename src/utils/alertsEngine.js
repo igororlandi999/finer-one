@@ -92,15 +92,23 @@ export function buildSalesAlerts(orders, opts) {
 
   // Quebra de faturação: só entre períodos comparáveis.
   const growth = growthEntrePeriodos_(orders, opts);
+  /* DE QUE MÊS É ESTA VARIAÇÃO. A frase dizia só "face ao mês anterior" — e o mês
+   * comparado aqui é o MÊS ÂNCORA, que não é o mês civil nem o último mês com pedidos.
+   * No Resumo, este alerta aparecia ao lado de um card de receitas que anunciava uma
+   * variação de sinal contrário, calculada sobre outro par de meses, e nenhum dos dois
+   * dizia de que meses falava. O card passou a nomear o seu; este nomeia o dele.
+   * Sem mês âncora injetado, a frase fica como estava — nunca se inventa um mês. */
+  const mesAlvo = (opts && opts.monthKey) ? mesPorExtenso(opts.monthKey) : null;
+  const emRelacao = mesAlvo ? ` Refere-se a ${mesAlvo}, face ao mês anterior.` : "";
   if (growth !== null && growth <= -10) {
     out.push(mk("v-queda", "danger", "Faturação",
       "Quebra de faturação",
-      `A faturação caiu ${Math.abs(growth)}% face ao mês anterior.`,
+      `A faturação caiu ${Math.abs(growth)}% face ao mês anterior.${emRelacao}`,
       "Rever pipeline comercial e reativar clientes"));
   } else if (growth !== null && growth >= 15) {
     out.push(mk("v-subida", "success", "Crescimento",
       "Faturação em crescimento",
-      `A faturação subiu ${growth}% face ao mês anterior.`,
+      `A faturação subiu ${growth}% face ao mês anterior.${emRelacao}`,
       "Manter o ritmo comercial"));
   }
 

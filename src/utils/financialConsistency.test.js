@@ -15,6 +15,8 @@ import { answerQuestion } from "./chatEngine.js";
 const REF = new Date(2026, 6, 15);
 const COV = { firstCompleteMonth: "2026-04", partialMonths: ["2026-03"], closedThroughMonth: "2026-06" };
 const MES = "2026-06";
+/** O mesmo mes, na grafia que o produto mostra ao utilizador. */
+const MES_LABEL = "junho de 2026";
 
 const order = (id, dateISO, total, extra = {}) => ({
   id: String(id), date: dateISO, total, status: "recebida",
@@ -50,9 +52,12 @@ const metrics = buildFinancialMetrics(dre);
 
 describe("Consistência entre módulos — uma só verdade financeira", () => {
   it("a fixture continua a fechar nos valores de referência", () => {
-    expect(metrics.revenue.net).toBe(175566.72);
-    expect(metrics.profitability.netResult).toBe(522.50);
-    expect(metrics.profitability.ebitda).toBe(51120.34);
+    // Valores da política F3: o frete cobrado ao cliente está dentro do order.total
+    // e NÃO é dedução da receita. Antes desta política eram 175.566,72 / 522,50 /
+    // 51.120,34 — a diferença é exatamente os 3.097,80 de frete que se abatiam.
+    expect(metrics.revenue.net).toBe(178664.52);
+    expect(metrics.profitability.netResult).toBe(3620.30);
+    expect(metrics.profitability.ebitda).toBe(54218.14);
   });
 
   it("Diagnóstico usa o MESMO resultado líquido e o MESMO mês", () => {
@@ -60,26 +65,26 @@ describe("Consistência entre módulos — uma só verdade financeira", () => {
       financialMetrics: metrics, monthKey: MES,
     });
     // o resumo executivo cita o resultado líquido da DRE, não receitas - payables
-    expect(diag.resumoExecutivo).toContain("522,50");
-    expect(diag.resumoExecutivo).toContain("175.566,72");
+    expect(diag.resumoExecutivo).toContain("3.620,30");
+    expect(diag.resumoExecutivo).toContain("178.664,52");
     // e nunca a pseudo-margem antiga
     expect(diag.resumoExecutivo).not.toMatch(/com um resultado de/);
   });
 
   it("Alertas: junho saudável não gera qualquer alerta financeiro", () => {
     const alertas = buildFinancialAlerts({ financialMetrics: metrics, monthKey: MES });
-    expect(alertas.some((a) => a.id === "f-resultado")).toBe(false); // 522,50 é positivo
-    expect(alertas.some((a) => a.id === "f-ebitda")).toBe(false);    // EBITDA 51.120,34 é positivo
+    expect(alertas.some((a) => a.id === "f-resultado")).toBe(false); // 3.620,30 é positivo
+    expect(alertas.some((a) => a.id === "f-ebitda")).toBe(false);    // EBITDA 54.218,14 é positivo
     // Não existe alerta de margem líquida: ela é apurada após as retiradas dos
-    // sócios, pelo que 0,3% aqui NÃO significa baixa rentabilidade operacional
-    // (a margem EBITDA do mesmo mês é de ~29%).
+    // sócios, pelo que 2,03% aqui NÃO significa baixa rentabilidade operacional
+    // (a margem EBITDA do mesmo mês é de ~30%).
     expect(alertas.some((a) => a.id === "f-margem")).toBe(false);
     expect(alertas).toEqual([]);
   });
 
   it("a margem EBITDA de junho mostra a rentabilidade operacional real", () => {
-    expect(metrics.profitability.ebitdaMarginPct).toBeCloseTo(29.12, 2);
-    expect(metrics.profitability.netMarginPct).toBeCloseTo(0.30, 2);
+    expect(metrics.profitability.ebitdaMarginPct).toBeCloseTo(30.35, 2);
+    expect(metrics.profitability.netMarginPct).toBeCloseTo(2.03, 2);
     // as retiradas explicam a diferença entre as duas margens
     expect(metrics.withdrawals.total).toBe(50597.84);
   });
@@ -87,11 +92,16 @@ describe("Consistência entre módulos — uma só verdade financeira", () => {
   it("Chat responde o MESMO resultado líquido e a MESMA margem", () => {
     const sales = { financeiro: { monthKey: MES, metrics, previous: null, comparable: false, emCurso: null } };
     const res = answerQuestion("qual foi o meu resultado?", sales);
-    expect(res.content).toContain("522,50");
-    expect(res.content).toContain(MES);
+    expect(res.content).toContain("3.620,30");
+    /* O Chat nomeia o mes por EXTENSO ("junho de 2026"), como a Performance e o Resumo.
+     * Escrevia a chave crua ("2026-06") — a forma como a base de dados fala, nao a
+     * forma como se responde a um empresario. O mes tem de ser o mesmo; a grafia e
+     * que passou a ser a do produto. */
+    expect(res.content).toContain(MES_LABEL);
+    expect(res.content).not.toContain(MES);
 
     const mar = answerQuestion("qual a minha margem?", sales);
-    expect(mar.content).toContain("0,3%");
+    expect(mar.content).toContain("2,03%");
   });
 
   it("os quatro módulos concordam no mês de referência", () => {
@@ -101,7 +111,12 @@ describe("Consistência entre módulos — uma só verdade financeira", () => {
     const chat = answerQuestion("qual foi o meu resultado?", sales);
 
     expect(metrics.monthKey).toBe(MES);
-    expect(diag.resumoExecutivo).toContain("mês de referência");
+    /* O resumo executivo passou a NOMEAR o mês (24/08/2026). A asserção anterior exigia
+     * a perífrase "mês de referência" — que era exatamente o defeito: o motor sabia qual
+     * era o mês e escrevia à volta dele. Exigir o nome é a versão forte deste teste:
+     * antes, os quatro módulos podiam "concordar" sem que nenhum dissesse qual era. */
+    expect(diag.resumoExecutivo).toContain(MES_LABEL);
+    expect(diag.resumoExecutivo).not.toContain("No mês de referência");
     // sem alertas em junho, provamos o mês com um cenário de resultado negativo
     const alertasNeg = buildFinancialAlerts({
       financialMetrics: { ...metrics, profitability: { ...metrics.profitability, netResult: -100 } },
@@ -109,7 +124,7 @@ describe("Consistência entre módulos — uma só verdade financeira", () => {
     });
     expect(alertasNeg.find((a) => a.id === "f-resultado").description).toContain(MES);
     expect(alertas).toEqual([]);
-    expect(chat.content).toContain(MES);
+    expect(chat.content).toContain(MES_LABEL);
   });
 
   it("sem CMV, TODOS se calam sobre o resultado — nenhum inventa um número", () => {

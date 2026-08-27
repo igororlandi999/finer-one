@@ -9,6 +9,10 @@
 
 import { round2, MONTHS_PT, monthKey, revenueByMonth } from "./financialCalculations.js";
 import { parsePtDate } from "./cashflowForecast.js";
+// Cobertura: reutiliza a semântica JÁ existente do motor (firstCompleteMonth,
+// partialMonths, closedThroughMonth e o override coverage.payables). Não existe aqui
+// nenhuma regra de cobertura própria — seria uma segunda verdade sobre os mesmos dados.
+import { payablesCoverage, sourceAvailability } from "./dreEngine.js";
 
 // Rótulo curto do mês a partir de "aaaa-mm" (ex.: "Mai 26").
 export function monthLabel(key) {
@@ -88,14 +92,23 @@ export function expensesByMonthFromList(list) {
 }
 
 /**
- * Série mensal real de performance.
- * @param {{orders: array, despesasList: array|null, now?: Date}} args
- *   despesasList null => fonte de despesas indisponível (despesas/resultado/margem ficam null).
- * @returns {Array<{monthKey, label, receitas, despesas, resultado, margem}>}
+ * Série mensal de ATIVIDADE OPERACIONAL.
+ *
+ * Devolve faturação e títulos registados, e mais nada. `resultado` e `margem` foram
+ * REMOVIDOS: eram `faturação − títulos a pagar` e o seu rácio — uma pseudo-DRE que
+ * misturava faturação por data do pedido com títulos por data de emissão, e chamava
+ * ao resto "resultado". Rentabilidade vive só no bloco DRE (financialMetrics).
+ * @param {{orders: array, despesasList: array|null, coverage?: object|null, now?: Date}} args
+ *   despesasList null => fonte de títulos indisponível (despesas fica null).
+ *   coverage      cobertura declarada do histórico (ACTIVE_COMPANY.historyCoverage).
+ *                 Omitida => comportamento legado, todos os meses tratados como reais.
+ * @returns {Array<{monthKey, label, receitas, despesas, disponibilidade}>}
  *   Ordenada cronologicamente. Só meses dentro do intervalo comprovadamente coberto
  *   pelos dados; nunca meses futuros; nunca meses inventados fora do intervalo.
+ *   despesas a null quando a fonte não cobre o mês — nunca zero.
  */
-export function buildMonthlyPerformance({ orders, despesasList, now = new Date() } = {}) {
+export function buildMonthlyPerformance({ orders, despesasList, coverage = null, now = new Date() } = {}) {
+  const temFonteReceitas = Array.isArray(orders);
   const temDespesas = Array.isArray(despesasList);
   const receitasPorMes = new Map(revenueByMonth(orders).map((r) => [r.month, r.value]));
   const despesasPorMes = temDespesas ? expensesByMonthFromList(despesasList) : new Map();
@@ -107,37 +120,69 @@ export function buildMonthlyPerformance({ orders, despesasList, now = new Date()
   const dentroDoIntervalo = chaves.filter((k) => k <= limite); // nunca meses futuros
   if (!dentroDoIntervalo.length) return [];
 
-  // Preenche os meses do intervalo coberto (primeiro..último com dados). Meses sem
-  // movimento ficam a zero porque estão comprovadamente dentro do período coberto.
+  /* Cobertura por FONTE. Pedidos e contas a pagar têm snapshots independentes: o
+   * intervalo da série é a UNIÃO dos dois, não a interseção. Sem isto, um mês com
+   * receitas mas fora do histórico de payables ficava com despesas = 0, resultado =
+   * receitas e margem = 100% — uma afirmação sobre um mês de que não sabemos nada.
+   *
+   * `coverage` omitido => comportamento legado (tudo "real"). É deliberado: uma lista
+   * vazia continua a ser fonte REAL com zero movimentos, e zero real não é ausência.
+   * Só uma cobertura declarada pode dizer que um mês está fora do histórico. */
+  const covDespesas = coverage ? payablesCoverage(coverage) : null;
+
+  /* sourceAvailability testa partialMonths ANTES de firstCompleteMonth, pelo que um mês
+   * listado como parcial e anterior ao início do histórico devolve "partial". Para a
+   * DRE isso serve; aqui não: um mês fora do histórico com zero títulos produziria
+   * despesas 0 e margem 100%. A pergunta desta série é outra — "a fonte chega sequer a
+   * este mês?" — e a resposta é firstCompleteMonth. Não é uma regra nova nem um segundo
+   * coverage: é o mesmo campo, aplicado à pergunta certa, com o motor intocado. */
+  const foraDoHistorico = (cov, k) => !!(cov && cov.firstCompleteMonth && k < cov.firstCompleteMonth);
+  const dispDe = (cov, k, presente) => {
+    if (!presente) return "unavailable";
+    if (!coverage) return "real";
+    if (foraDoHistorico(cov, k)) return "unavailable";
+    return sourceAvailability(k, cov, now, true);
+  };
+
   const primeiro = dentroDoIntervalo[0];
   const ultimo = dentroDoIntervalo[dentroDoIntervalo.length - 1];
   const serie = [];
   for (let k = primeiro; k && k <= ultimo; k = shiftKey(k, 1)) {
+    const dispReceitas = dispDe(coverage, k, temFonteReceitas);
+    const dispDespesas = dispDe(covDespesas, k, temDespesas);
+
     const receitas = round2(receitasPorMes.get(k) || 0);
-    const despesas = temDespesas ? round2(despesasPorMes.get(k) || 0) : null;
-    const resultado = temDespesas ? round2(receitas - despesas) : null;
-    const margem = temDespesas && receitas > 0 ? round2((resultado / receitas) * 100) : null;
-    serie.push({ monthKey: k, label: monthLabel(k), receitas, despesas, resultado, margem });
+    // Fora do histórico coberto não há zero: há desconhecimento.
+    const despesas = dispDespesas === "unavailable" ? null : round2(despesasPorMes.get(k) || 0);
+
+    serie.push({
+      monthKey: k, label: monthLabel(k), receitas, despesas,
+      // "real" = mês fechado e coberto; "partial" = em curso ou declarado parcial;
+      // "unavailable" = fora do histórico da fonte. Só "real" autoriza comparação.
+      disponibilidade: { receitas: dispReceitas, despesas: dispDespesas },
+    });
   }
   return serie;
 }
 
 /**
+ * Métricas de ATIVIDADE OPERACIONAL do mês de referência.
+ * Sem resultado, sem margem: essas afirmações pertencem ao bloco DRE.
  * Métricas do mês de referência (mesmo âncora do Resumo/Diagnóstico: mês das receitas).
  * @returns {{
- *   mesRef, mesRefLabel, receitas, despesas, resultado, margem,
- *   receitasDelta, despesasDelta, resultadoDelta, margemDelta,
- *   temAnterior, temDespesas, margemCalculavel
+ *   mesRef, mesRefLabel, receitas, despesas,
+ *   receitasDelta, despesasDelta,
+ *   temAnterior, temDespesas, mesEmCurso, disponibilidade, comparavel
  * } | null}
  * Deltas a null quando não existe base anterior válida (ausente ou zero).
  */
-export function buildPerformanceMetrics({ orders, despesasList, now = new Date() } = {}) {
+export function buildPerformanceMetrics({ orders, despesasList, coverage = null, now = new Date() } = {}) {
   const temDespesas = Array.isArray(despesasList);
   // Mês âncora: último mês faturável NÃO futuro (nunca latestMonthKey cru).
   const mesRef = latestRevenueMonthAtOrBefore(orders, now);
   if (!mesRef) return null;
 
-  const serie = buildMonthlyPerformance({ orders, despesasList, now });
+  const serie = buildMonthlyPerformance({ orders, despesasList, coverage, now });
   const idx = serie.findIndex((p) => p.monthKey === mesRef);
   const atual = idx >= 0 ? serie[idx] : null;
   if (!atual) return null;
@@ -147,22 +192,34 @@ export function buildPerformanceMetrics({ orders, despesasList, now = new Date()
   const pctDelta = (novo, velho) =>
     (velho != null && velho !== 0 && novo != null) ? round2(((novo - velho) / Math.abs(velho)) * 100) : null;
 
+  /* COMPARABILIDADE.
+   *
+   * 1) Mês em curso: comparar 14 dias decorridos com um mês completo não é uma
+   *    variação, é o calendário a andar. Foi o que produziu "resultado +106%" e
+   *    "margem +133,9 p.p." em agosto. Mesma regra já aplicada em D4 (Resumo e
+   *    Despesas): nenhum delta, e não zero — ausência de comparação.
+   * 2) Cobertura: só se comparam meses "real". Um mês parcial ou fora do histórico
+   *    não é base de comparação, mesmo que tenha valores.
+   * Cada delta usa a cobertura da SUA fonte. */
+  const mesEmCurso = mesRef === currentMonthKey(now);
+  const dispOk = (p, fonte) => !!p && p.disponibilidade && p.disponibilidade[fonte] === "real";
+  const compReceitas = !mesEmCurso && !!anterior && dispOk(atual, "receitas") && dispOk(anterior, "receitas");
+  const compDespesas = !mesEmCurso && !!anterior && temDespesas
+    && dispOk(atual, "despesas") && dispOk(anterior, "despesas");
   return {
     mesRef,
     mesRefLabel: monthLongLabel(mesRef),
     receitas: atual.receitas,
     despesas: atual.despesas,
-    resultado: atual.resultado,
-    margem: atual.margem,
-    receitasDelta: anterior ? pctDelta(atual.receitas, anterior.receitas) : null,
-    despesasDelta: anterior && temDespesas ? pctDelta(atual.despesas, anterior.despesas) : null,
-    resultadoDelta: anterior && temDespesas ? pctDelta(atual.resultado, anterior.resultado) : null,
-    // Margem compara-se em pontos percentuais, não em %.
-    margemDelta: (anterior && atual.margem != null && anterior.margem != null)
-      ? round2(atual.margem - anterior.margem) : null,
+    receitasDelta: compReceitas ? pctDelta(atual.receitas, anterior.receitas) : null,
+    despesasDelta: compDespesas ? pctDelta(atual.despesas, anterior.despesas) : null,
     temAnterior: !!anterior,
     temDespesas,
-    margemCalculavel: temDespesas && atual.receitas > 0,
+    // Expostos para a página poder explicar a ausência de deltas sem a recalcular.
+    mesEmCurso,
+    disponibilidade: atual.disponibilidade,
+    // As duas grandezas operacionais são comparáveis com o mês anterior.
+    comparavel: compReceitas && compDespesas,
   };
 }
 
@@ -211,44 +268,35 @@ export function buildPerformanceInsights(metrics, categorias) {
   if (!metrics) return [];
   const out = [];
   const pct1 = (v) => `${Math.abs(v).toFixed(1).replace(".", ",")}%`;
-  const pp1 = (v) => `${Math.abs(v).toFixed(1).replace(".", ",")} p.p.`;
 
   // Receitas: delta numérico => subida/queda; delta null => sem base comparável
   // (cobre também o caso de existir mês anterior mas com base zero).
   if (metrics.receitasDelta != null) {
     out.push(metrics.receitasDelta >= 0
-      ? `As receitas subiram ${pct1(metrics.receitasDelta)} face ao mês anterior.`
-      : `As receitas caíram ${pct1(metrics.receitasDelta)} face ao mês anterior.`);
+      ? `A faturação subiu ${pct1(metrics.receitasDelta)} face ao mês anterior.`
+      : `A faturação caiu ${pct1(metrics.receitasDelta)} face ao mês anterior.`);
   } else {
-    out.push("Sem período anterior comparável para as receitas.");
+    out.push("Sem período anterior comparável para a faturação.");
   }
 
   // Despesas: só quando a fonte existe. Mesma regra de base comparável.
   if (metrics.temDespesas) {
     if (metrics.despesasDelta != null) {
       out.push(metrics.despesasDelta >= 0
-        ? `As despesas subiram ${pct1(metrics.despesasDelta)} face ao mês anterior.`
-        : `As despesas desceram ${pct1(metrics.despesasDelta)} face ao mês anterior.`);
+        ? `Os títulos registados subiram ${pct1(metrics.despesasDelta)} face ao mês anterior.`
+        : `Os títulos registados desceram ${pct1(metrics.despesasDelta)} face ao mês anterior.`);
     } else {
-      out.push("Sem período anterior comparável para as despesas.");
+      out.push("Sem período anterior comparável para os títulos registados.");
     }
   }
 
-  if (metrics.temDespesas && metrics.resultado != null) {
-    out.push(metrics.resultado >= 0
-      ? "O resultado do mês foi positivo."
-      : "O resultado do mês foi negativo.");
-  }
-
-  if (metrics.margemDelta != null) {
-    out.push(metrics.margemDelta >= 0
-      ? `A margem subiu ${pp1(metrics.margemDelta)} face ao mês anterior.`
-      : `A margem caiu ${pp1(metrics.margemDelta)} face ao mês anterior.`);
-  }
+  /* Não há aqui frases sobre resultado ou margem. Eram derivadas do pseudo-resultado
+   * (faturação − títulos) e afirmavam rentabilidade a partir de dados operacionais.
+   * Rentabilidade só se comenta com base na DRE. */
 
   const top = categorias && categorias[0];
   if (top) {
-    out.push(`${top.name} é a categoria com maior peso nas despesas do mês (${pct1(top.pct)}).`);
+    out.push(`${top.name} é a categoria com maior peso nos títulos do mês (${pct1(top.pct)}).`);
   }
 
   return out;

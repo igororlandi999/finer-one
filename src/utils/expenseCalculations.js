@@ -176,6 +176,31 @@ export function payableDaysOverdue(p, now = new Date()) {
   return Math.floor((today - startOfDay(v)) / (1000 * 60 * 60 * 24));
 }
 
+/* ====================================================================================
+ * TÍTULOS EM ATRASO (D5) — abertos cujo vencimento já passou.
+ *
+ * REUSO, não duplicação: a regra "está vencido?" NÃO é reimplementada aqui. Sai de
+ * payableDaysOverdue(p, now) > 0, que já é a única definição do projeto e já trata
+ * o limite do dia (vence hoje NÃO é atraso) e a ausência de vencimento. O filtro de
+ * situação sai de openPayables. O valor sai de payableOpenBalance (saldo restante),
+ * como em pendingPayables e suppliersByOpenBalance.
+ *
+ * DIFERENÇA CONHECIDA face ao alerta `d-vencidas`: o alerta soma p.valor (valor
+ * original do título) e esta função soma o saldo em aberto. Coincidem sempre que não
+ * houver pagamentos parciais. Está fixado por teste de paridade — se um dia divergirem,
+ * é porque existe um título parcialmente pago, e aí a diferença é REAL e desejada:
+ * o cartão da página mostra o que falta pagar, não o que o título valia.
+ *
+ * `now` injetável; nenhum relógio escondido. Lista vazia devolve zeros REAIS.
+ * ==================================================================================== */
+export function overduePayables(payables, now = new Date()) {
+  const list = openPayables(payables).filter((p) => payableDaysOverdue(p, now) > 0);
+  return {
+    valor: round2(list.reduce((a, p) => a + payableOpenBalance(p), 0)),
+    qtd: list.length,
+  };
+}
+
 // Top fornecedores por saldo em aberto: [{ id, nome, faturasAbertas, saldo }].
 // Exclui títulos sem nome de fornecedor (não dá para "topar" sem nome).
 export function suppliersByOpenBalance(payables) {

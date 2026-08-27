@@ -14,6 +14,7 @@ import {
   availableDreMonths,
   revenueAvailability,
   buildMonthlyDre,
+  monthKeyOf,
 } from "./dreEngine.js";
 
 /**
@@ -123,6 +124,15 @@ export function buildFinancialMetrics(dre) {
       ebitda: a.ebitda,
       netResult: a.resultadoLiquido,
       withdrawals: a.retiradasSocios,
+      /* COBERTURA TEMPORAL isolada das contas a pagar — aditivo, nenhum consumidor
+       * existente muda de comportamento por existir.
+       *
+       * `operatingExpenses` combina DOIS factos: o período fechou na fonte, e a
+       * natureza dos títulos é conhecida. Quem só precise do primeiro (para dizer ao
+       * utilizador se o que falta é tempo ou classificação) tinha de o inferir da
+       * linha combinada — ou seja, adivinhar. É o sinal que financialCompleteness
+       * usa para decompor a causa da parcialidade. */
+      payablesCoverage: a.coberturaPayables,
     },
     warnings: dre.warnings || [],
   };
@@ -141,13 +151,37 @@ export function buildFinancialMetrics(dre) {
  *   allowPartial=true: aceita o mês corrente em curso — para acompanhamento
  *     operacional (ex.: "julho em andamento" no Resumo).
  * @returns {string|null}
+ *
+ * ─── TETO CIVIL (P0.3) ──────────────────────────────────────────────────────────────
+ * Meses POSTERIORES ao mês civil de referência nunca são candidatos, seja qual for a
+ * cobertura. Um mês que ainda não começou não está fechado nem está "em curso": não é
+ * utilizável em nenhum dos dois sentidos que esta função serve.
+ *
+ * Sem este teto, `allowPartial: true` devolvia o mês mais TARDIO presente nos dados —
+ * e os dados contêm meses futuros que não representam atividade nenhuma: uma conta a
+ * pagar com vencimento em 2027-07 cria a chave "2027-07" em `availableDreMonths`. Em
+ * 23/08/2026, com `closedThroughMonth` CORRETO, o Resumo exibia «2027-07 em andamento».
+ * Um vencimento futuro é uma obrigação futura, não um mês de atividade em curso.
+ *
+ * O teto NÃO substitui a cobertura nem afrouxa o critério de mês fechado: só remove
+ * candidatos que a cobertura, sozinha, não conseguia eliminar. Com uma cobertura bem
+ * declarada, o mês fechado escolhido é exatamente o mesmo de antes desta correção.
  */
 export function latestUsableFinancialMonth({ orders, payables, coverage, referenceDate, allowPartial = false } = {}) {
   const meses = availableDreMonths({ orders, payables });
+
+  /* Fronteira do relógio. `referenceDate` continua a ser o caminho preferido e é o que
+   * os testes injetam; a leitura de `new Date()` existe porque a alternativa — deixar o
+   * teto por aplicar quando ninguém injeta data — reintroduziria exatamente o defeito
+   * que este teto corrige, e é esse o caminho que produção percorre hoje. */
+  const tetoCivil = monthKeyOf(referenceDate || new Date());
+
   for (let i = meses.length - 1; i >= 0; i--) {
-    const disp = revenueAvailability(meses[i], coverage, referenceDate);
-    if (disp === "real") return meses[i];
-    if (allowPartial && disp === "partial") return meses[i];
+    const mk = meses[i];
+    if (tetoCivil && mk > tetoCivil) continue;   // mês futuro: nunca utilizável
+    const disp = revenueAvailability(mk, coverage, referenceDate);
+    if (disp === "real") return mk;
+    if (allowPartial && disp === "partial") return mk;
   }
   return null;
 }
@@ -165,15 +199,28 @@ export function canComparePeriods(atual, anterior) {
 /**
  * Métricas de um mês + do mês anterior, com a indicação de se são comparáveis.
  * Não produz variações: apenas entrega as duas fotografias e o veredito.
+ *
+ * INPUTS MANUAIS SÃO POR MÊS.
+ * `manualInputsByMonth` é um mapa { "aaaa-mm": { cmv?: number } }. Cada mês recebe
+ * EXCLUSIVAMENTE a sua própria entrada; um mês ausente do mapa fica sem input manual
+ * (=> CMV null / unavailable) e nunca herda o valor de outro mês.
+ *
+ * O parâmetro singular `manualInputs` foi REMOVIDO desta função de propósito: era um
+ * só objeto aplicado aos dois meses, pelo que um CMV informado apenas para junho
+ * contaminava maio. `buildMonthlyDre` continua a receber `manualInputs` porque
+ * representa um único mês, onde o contrato singular é o correto.
  */
-export function buildMetricsWithComparison({ orders, payables, monthKey, previousMonthKey, manualInputs, coverage, referenceDate } = {}) {
+export function buildMetricsWithComparison({ orders, payables, monthKey, previousMonthKey, manualInputsByMonth, coverage, referenceDate } = {}) {
   if (!monthKey) return null;
+  // Ausência de mapa => ausência de inputs manuais. Nunca um objeto partilhado.
+  const manuaisPorMes = manualInputsByMonth || {};
   const atual = buildFinancialMetrics(buildMonthlyDre({
-    orders, payables, monthKey, manualInputs, coverage, referenceDate,
+    orders, payables, monthKey, manualInputs: manuaisPorMes[monthKey], coverage, referenceDate,
   }));
   const anterior = previousMonthKey
     ? buildFinancialMetrics(buildMonthlyDre({
-        orders, payables, monthKey: previousMonthKey, manualInputs, coverage, referenceDate,
+        orders, payables, monthKey: previousMonthKey,
+        manualInputs: manuaisPorMes[previousMonthKey], coverage, referenceDate,
       }))
     : null;
 

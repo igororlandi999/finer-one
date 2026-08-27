@@ -461,3 +461,82 @@ describe("Concentração de cliente e moeda respeitam o mês âncora", () => {
     expect(typeof d.score).toBe("number");
   });
 });
+/* ══════════════════════════════════════════════════════════════════════════════════
+ * "O QUE MUDOU" — encontrado a olhar para o produto a correr (FASE 13).
+ *
+ * Esta lista alimenta duas superfícies: "O que mudou desde o mês passado" no Resumo e
+ * "Insights inteligentes" no Chat Financeiro. No ecrã do Chat lia-se, com dados reais:
+ *
+ *     Faturação: -56,01% (vs mês anterior).
+ *     Despesas:  -79,44% (vs mês anterior).
+ *
+ * Dois problemas, ambos do género que este projeto trata como grave:
+ *
+ *   1. "Despesas" era `totalPayables` de dois meses — CONTAS A PAGAR. Tesouraria com o
+ *      nome de uma linha da DRE, ao lado de "Faturação" e "Resultado", sem nada que a
+ *      distinguisse.
+ *   2. Nenhuma linha dizia de que mês falava. E o mês destas linhas é o mês ÂNCORA, que
+ *      no Resumo aparece ao lado de um card de contas a pagar do mês CIVIL e de um card
+ *      de receitas do último mês com pedidos. Três meses, três "vs mês anterior", zero
+ *      referências.
+ * ════════════════════════════════════════════════════════════════════════════════ */
+describe("diagnóstico — 'o que mudou' nomeia o mês e chama as coisas pelo nome", () => {
+  const mudanca = (d, label) => (d.mudancasUltimoMes || []).find((m) => m.label === label);
+
+  it("contas a pagar não são chamadas 'Despesas'", () => {
+    const { orders, payables } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, payables);
+    expect(mudanca(d, "Despesas")).toBeUndefined();
+    expect(mudanca(d, "Contas a pagar")).toBeDefined();
+  });
+
+  it("cada linha comparativa nomeia o mês a que se refere", () => {
+    const { orders, payables } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, payables);
+    const comparativas = (d.mudancasUltimoMes || [])
+      .filter((m) => /vs mês anterior/.test(m.detalhe || ""));
+    expect(comparativas.length).toBeGreaterThan(0);
+    for (const m of comparativas) {
+      expect(m.detalhe, `"${m.label}" não nomeia o mês`).toMatch(/^[a-zç]+ de \d{4} vs mês anterior$/);
+    }
+  });
+
+  /* Um mês cujas despesas operacionais estão `partial` — por cobertura ou por títulos
+   * por classificar — é um MÍNIMO CONHECIDO. "As contas a pagar caíram 79%" calculado
+   * sobre dois mínimos é uma afirmação insegura, e o produto tem um só critério para
+   * isto: `canComparePeriods`. */
+  it("com períodos não comparáveis, a variação de contas a pagar cala-se", () => {
+    const { orders, payables } = cenarioSaudavel();
+    const metrics = (disp) => ({
+      monthKey: "2026-07",
+      revenue: { net: 10000, gross: 10500 },
+      cmv: { value: 4000 },
+      operatingExpenses: { total: 3500 },
+      profitability: { netResult: 1200, netMarginPct: 12, ebitda: 1500, availability: {} },
+      availability: { operatingExpenses: disp, revenueNet: "real" },
+    });
+    const naoComparavel = buildFinancialDiagnostic(orders, payables, {
+      financialMetrics: metrics("partial"),
+      previousFinancialMetrics: metrics("partial"),
+      financialComparable: false,
+      monthKey: "2026-07",
+    });
+    expect(mudanca(naoComparavel, "Contas a pagar")).toBeUndefined();
+
+    const comparavel = buildFinancialDiagnostic(orders, payables, {
+      financialMetrics: metrics("real"),
+      previousFinancialMetrics: metrics("real"),
+      financialComparable: true,
+      monthKey: "2026-07",
+    });
+    expect(mudanca(comparavel, "Contas a pagar")).toBeDefined();
+  });
+
+  /* Sem DRE injetada nada nesta camada sabe o suficiente para vetar: mantém-se o
+   * comportamento anterior em vez de calar uma linha por precaução mal fundamentada. */
+  it("sem métricas da DRE o comportamento anterior mantém-se", () => {
+    const { orders, payables } = cenarioSaudavel();
+    const d = buildFinancialDiagnostic(orders, payables);
+    expect(mudanca(d, "Contas a pagar")).toBeDefined();
+  });
+});

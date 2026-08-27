@@ -11,6 +11,8 @@
 //   items: [ { productId, code, name, qty, unitValue, total } ]
 // }
 
+import { formatMoney } from "../lib/currency.js";
+
 export const MONTHS_PT = [
   "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
   "Jul", "Ago", "Set", "Out", "Nov", "Dez",
@@ -198,7 +200,19 @@ export function recentOrders(orders, n = 10) {
 // ── primitivos partilhados (consolidação de helpers duplicados) ───────────
 // Corpos copiados byte a byte das cópias locais dos engines — saída idêntica.
 export function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
-export function eur(n) { return (Number(n) || 0).toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"; }
+/* MOEDA DA EMPRESA ATIVA em texto corrido.
+ *
+ * Chamava-se `eur` e fazia jus ao nome: `toLocaleString("pt-PT")` com " €" concatenado
+ * à mão. Os consumidores são os ALERTAS OPERACIONAIS e o DIAGNÓSTICO FINANCEIRO — as
+ * duas superfícies que descrevem dados reais em frases ("X tem 3 faturas vencidas, no
+ * total de ..."). Numa empresa em reais, cada uma dessas frases afirmava um valor em
+ * euros sobre um saldo em reais.
+ *
+ * `eur` fica como alias para não partir chamadores; o nome novo é o que descreve o que
+ * a função faz. A formatação delega em `lib/currency`, para que exista UM formatador
+ * monetário na aplicação e não dois que possam divergir. */
+export function money(n) { return formatMoney(n); }
+export const eur = money;
 export function pct(n) { return String(n).replace(".", ","); }
 // Mes anterior de uma chave "YYYY-MM".
 export function prevMonthKey(key) {

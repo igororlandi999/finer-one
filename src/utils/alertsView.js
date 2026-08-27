@@ -14,6 +14,7 @@
 // zero alertas positivos tem de mostrar 0, e não os 12 do mock.
 
 import { severityCounts } from "./alertsEngine.js";
+import { sourceIsIndeterminate } from "./dataSourceStates.js";
 
 /** Fonte real quando existe lista de alertas vinda da API. */
 export function isRealSource(source, salesList) {
@@ -26,7 +27,12 @@ export function isRealSource(source, salesList) {
  * Fonte mock  -> a lista demonstrativa completa, como antes.
  */
 export function composeAlerts(salesList, mockList, source) {
-  return isRealSource(source, salesList) ? salesList : (mockList || []);
+  if (isRealSource(source, salesList)) return salesList;
+  /* Sem veredito sobre a fonte (loading) ou fonte em avaria (unavailable) NÃO é modo
+   * demonstração: devolve-se lista vazia em vez do mock. Mostrar os alertas fictícios
+   * porque a ligação caiu seria apresentar uma avaria como se fosse intencional. */
+  if (sourceIsIndeterminate(source)) return [];
+  return mockList || [];
 }
 
 /**
@@ -37,10 +43,13 @@ export function composeAlerts(salesList, mockList, source) {
 export function alertsViewModel({ salesList, mockList, mockMetrics, source } = {}) {
   const real = isRealSource(source, salesList);
   const list = composeAlerts(salesList, mockList, source);
+  /* O selo Demo marca conteúdo DEMONSTRATIVO. Em loading/unavailable não há conteúdo
+   * demonstrativo nenhum (a lista vem vazia), logo também não há nada a selar. */
+  const demo = !real && !sourceIsIndeterminate(source);
   return {
     list,
     // Real: contagem verdadeira da lista, sem fallback. Mock: as métricas do mock.
-    metrics: real ? severityCounts(list) : (mockMetrics || severityCounts(list)),
-    isDemo: !real,
+    metrics: real ? severityCounts(list) : (demo ? (mockMetrics || severityCounts(list)) : severityCounts(list)),
+    isDemo: demo,
   };
 }

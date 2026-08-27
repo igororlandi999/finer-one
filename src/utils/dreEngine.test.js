@@ -137,12 +137,25 @@ describe("revenueAvailability — cobertura histórica configurável", () => {
   it("mês declarado parcial => partial", () => {
     expect(revenueAvailability("2026-03", cov)).toBe("partial");
   });
-  it("meses cobertos => real", () => {
-    expect(revenueAvailability("2026-04", cov)).toBe("real");
-    expect(revenueAvailability("2026-06", cov)).toBe("real");
+  /* ATUALIZADO em 24/08/2026 (via B da coverageContract). `cov` aqui não declara
+   * limite superior nenhum e estas chamadas não injetam `referenceDate`: a cobertura
+   * é DESCONHECIDA acima de firstCompleteMonth, e desconhecida nunca é `real`.
+   * Com o limite declarado — ou com a data injetada — os mesmos meses são reais, o que
+   * os dois testes seguintes demonstram. */
+  it("meses cobertos, com limite declarado => real", () => {
+    const comLimite = { ...cov, completeThroughMonth: "2026-06" };
+    expect(revenueAvailability("2026-04", comLimite)).toBe("real");
+    expect(revenueAvailability("2026-06", comLimite)).toBe("real");
   });
-  it("sem configuração, tudo é real (contrato explícito)", () => {
-    expect(revenueAvailability("2020-01")).toBe("real");
+  it("meses cobertos, com referenceDate injetada => real até ao mês anterior", () => {
+    const REF_JUL = new Date(2026, 6, 15);
+    expect(revenueAvailability("2026-04", cov, REF_JUL)).toBe("real");
+    expect(revenueAvailability("2026-06", cov, REF_JUL)).toBe("real");
+    expect(revenueAvailability("2026-07", cov, REF_JUL)).toBe("partial"); // mês corrente
+  });
+  it("sem configuração NENHUMA, nada é real — ausência não é prova", () => {
+    // Era `real` até 24/08/2026. Ver dreEngine.sourceAvailability para a história.
+    expect(revenueAvailability("2020-01")).toBe("partial");
   });
 });
 
@@ -236,13 +249,14 @@ describe("buildMonthlyDre — null versus zero", () => {
     expect(d.resultadoLiquido).toBe(600);
   });
 
-  it("frete de venda sem campo nos pedidos => null e warning (nunca zero)", () => {
+  it("frete de venda sem campo nos pedidos => null e warning INFORMATIVO", () => {
     const d = buildMonthlyDre({ orders: [order(1, "2026-06-10", 1000)], payables: [], monthKey: "2026-06" });
-    expect(d.freteVenda).toBeNull();
+    expect(d.freteVenda).toBeNull();                 // não se inventa zero
     expect(d.availability.salesFreight).toBe("unavailable");
-    expect(d.totalDeducoes).toBeNull();
-    expect(d.receitaLiquida).toBeNull(); // não se inventa dedução
     expect(d.warnings.some((w) => w.code === "frete-venda-sem-fonte")).toBe(true);
+    // O frete saiu das deduções: a ausência do campo já não bloqueia a receita líquida.
+    expect(d.totalDeducoes).toBe(0);                 // comissões/devoluções/impostos zero reais
+    expect(d.receitaLiquida).toBe(1000);
   });
 
   it("frete presente só em alguns pedidos => partial", () => {
@@ -321,19 +335,24 @@ describe("Referência Overcel — junho/2026 fecha centavo a centavo", () => {
   it("receita bruta = 206.227,15", () => expect(dre.receitaBruta).toBe(206227.15));
   it("comissões = 1.144,93", () => expect(dre.comissoes).toBe(1144.93));
   it("devoluções = 0,00 (zero real)", () => expect(dre.devolucoes).toBe(0));
-  it("frete de venda = 3.097,80 (dos pedidos, não das contas a pagar)", () => expect(dre.freteVenda).toBe(3097.80));
+  // Continua medido e exposto — só não entra nas deduções.
+  it("frete de venda = 3.097,80 (informativo, fora das deduções)", () => {
+    expect(dre.freteVenda).toBe(3097.80);
+    // As deduções são só comissões + devoluções + impostos sobre vendas.
+    expect(dre.totalDeducoes).toBe(dre.comissoes + dre.devolucoes + dre.simplesNacional);
+  });
   it("Simples Nacional = 26.417,70", () => expect(dre.simplesNacional).toBe(26417.70));
-  it("total de deduções = 30.660,43", () => expect(dre.totalDeducoes).toBe(30660.43));
-  it("receita líquida = 175.566,72", () => expect(dre.receitaLiquida).toBe(175566.72));
+  it("total de deduções = 27.562,63 (sem o frete cobrado)", () => expect(dre.totalDeducoes).toBe(27562.63));
+  it("receita líquida = 178.664,52 (o frete cobrado não é abatido)", () => expect(dre.receitaLiquida).toBe(178664.52));
   it("CMV manual = 116.039,70", () => expect(dre.cmv).toBe(116039.70));
-  it("lucro bruto = 59.527,02", () => expect(dre.lucroBruto).toBe(59527.02));
+  it("lucro bruto = 62.624,82", () => expect(dre.lucroBruto).toBe(62624.82));
   it("pessoal = 2.800,00", () => expect(dre.pessoal).toBe(2800));
   it("fixas = 2.925,90", () => expect(dre.fixas).toBe(2925.90));
   it("administrativas = 2.680,78", () => expect(dre.administrativas).toBe(2680.78));
   it("despesas operacionais = 8.406,68", () => expect(dre.despesasOperacionais).toBe(8406.68));
-  it("EBITDA = 51.120,34", () => expect(dre.ebitda).toBe(51120.34));
+  it("EBITDA = 54.218,14", () => expect(dre.ebitda).toBe(54218.14));
   it("retiradas de sócios = 50.597,84", () => expect(dre.retiradasSocios).toBe(50597.84));
-  it("RESULTADO LÍQUIDO = 522,50", () => expect(dre.resultadoLiquido).toBe(522.50));
+  it("RESULTADO LÍQUIDO = 3.620,30", () => expect(dre.resultadoLiquido).toBe(3620.30));
 
   it("o pró-labore com histórico de dividendos gerou warning", () => {
     expect(dre.warnings.some((w) => w.code === "categoria-historico-contraditorios")).toBe(true);
@@ -497,22 +516,23 @@ describe("combineAvailability e disponibilidade por linha", () => {
     expect(combineAvailability("manual", "real")).toBe("mixed");
   });
 
-  it("receita real + frete parcial => receita líquida PARCIAL", () => {
+  it("receita real + frete parcial => receita líquida REAL (o frete não entra)", () => {
     const d = buildMonthlyDre({
       orders: [order(1, "2026-06-10", 1000, { frete: 10 }), order(2, "2026-06-11", 500)],
       payables: [], monthKey: "2026-06",
     });
-    expect(d.availability.freteVenda).toBe("partial");
-    expect(d.availability.receitaLiquida).toBe("partial");
+    expect(d.availability.freteVenda).toBe("partial");   // continua a ser medido
+    expect(d.availability.receitaLiquida).toBe("real");  // mas já não contamina
+    expect(d.receitaLiquida).toBe(1500);                 // faturação inteira, frete incluído
   });
 
-  it("receita real + frete indisponível => receita líquida INDISPONÍVEL", () => {
+  it("receita real + frete indisponível => receita líquida REAL", () => {
     const d = buildMonthlyDre({
       orders: [order(1, "2026-06-10", 1000)], payables: [], monthKey: "2026-06",
     });
     expect(d.availability.freteVenda).toBe("unavailable");
-    expect(d.availability.receitaLiquida).toBe("unavailable");
-    expect(d.receitaLiquida).toBeNull();
+    expect(d.availability.receitaLiquida).toBe("real");
+    expect(d.receitaLiquida).toBe(1000);
   });
 
   it("CMV manual + restantes reais => lucro bruto MIXED (legenda honesta)", () => {
@@ -525,14 +545,13 @@ describe("combineAvailability e disponibilidade por linha", () => {
     expect(d.availability.lucroBruto).toBe("mixed");
   });
 
-  it("frete PARCIAL propaga parcialidade até ao EBITDA (a origem é o frete)", () => {
+  it("frete PARCIAL já NÃO propaga parcialidade ao EBITDA", () => {
     const d = buildMonthlyDre({
       orders: [order(1, "2026-06-10", 1000, { frete: 10 }), order(2, "2026-06-11", 500)],
       payables: [], monthKey: "2026-06", manualInputs: { cmv: 100 },
     });
-    expect(d.availability.ebitda).toBe("partial");
-    // prova de que a parcialidade vem do frete e NÃO das despesas operacionais
-    expect(d.availability.freteVenda).toBe("partial");
+    expect(d.availability.freteVenda).toBe("partial");   // o campo continua incompleto
+    expect(d.availability.ebitda).toBe("mixed");         // mas a parcialidade não sobe a cascata
     expect(d.availability.despesasOperacionais).toBe("real");
   });
 
@@ -995,17 +1014,17 @@ describe("buildMonthlyDre — warnings por título respeitam o mês analisado", 
     expect(d.devolucoes).toBe(0);
     expect(d.freteVenda).toBe(500);
     expect(d.simplesNacional).toBe(26417.70);
-    expect(d.totalDeducoes).toBe(28062.63);
-    expect(d.receitaLiquida).toBe(71937.37);
+    expect(d.totalDeducoes).toBe(27562.63);   // sem o frete cobrado (500)
+    expect(d.receitaLiquida).toBe(72437.37);
     expect(d.cmv).toBe(0);
-    expect(d.lucroBruto).toBe(71937.37);
+    expect(d.lucroBruto).toBe(72437.37);
     expect(d.pessoal).toBe(2800);
     expect(d.fixas).toBe(2425.90);
     expect(d.administrativas).toBe(180.78);
     expect(d.despesasOperacionais).toBe(5406.68);
-    expect(d.ebitda).toBe(66530.69);
+    expect(d.ebitda).toBe(67030.69);
     expect(d.retiradasSocios).toBe(700);
-    expect(d.resultadoLiquido).toBe(65830.69);
+    expect(d.resultadoLiquido).toBe(66330.69);
   });
 
   it("6. a availability de junho não muda por causa de títulos de outros meses", () => {
@@ -1031,5 +1050,110 @@ describe("buildMonthlyDre — warnings por título respeitam o mês analisado", 
     const d = buildMonthlyDre({ ...base, payables: carteira });
     const ids = d.warnings.filter((w) => w.payableId != null).map((w) => w.payableId);
     expect(ids).toEqual([2]); // só o Pró-labore de junho
+  });
+});
+/* ====================================================================================
+ * FRETE F3 — O FRETE COBRADO AO CLIENTE NÃO É DEDUÇÃO DA RECEITA.
+ *
+ * Medido em dados reais (F1): 230 pedidos com frete != 0, todos com fretePorConta = 0
+ * (CIF) e todos reconciliando totalProdutos − desconto + frete + outrasDespesas = total.
+ * O frete cobrado está DENTRO do order.total: é preço de venda, não abatimento.
+ *
+ * O frete PAGO pela empresa (FRETE_PAGO, contas a pagar) é outra grandeza e continua
+ * fora de todas as linhas — a sua integração é microfase separada.
+ * ==================================================================================== */
+describe("buildMonthlyDre — frete cobrado fora das deduções", () => {
+  const COVF = { firstCompleteMonth: "2026-01", partialMonths: [], closedThroughMonth: "2026-06" };
+
+  it("A. pedidos SEM campo frete: receita líquida NÃO fica unavailable por isso", () => {
+    const d = buildMonthlyDre({
+      orders: [order(1, "2026-06-10", 1000)], payables: [], monthKey: "2026-06", coverage: COVF,
+    });
+    expect(d.availability.receitaLiquida).toBe("real");
+    expect(d.receitaLiquida).toBe(1000);
+    expect(d.freteVenda).toBeNull();                    // continua não inventado
+    expect(d.availability.freteVenda).toBe("unavailable");
+  });
+
+  it("B. frete: 0 dá o mesmo resultado económico que campo ausente", () => {
+    const semCampo = buildMonthlyDre({
+      orders: [order(1, "2026-06-10", 1000)], payables: [], monthKey: "2026-06", coverage: COVF,
+    });
+    const comZero = buildMonthlyDre({
+      orders: [order(1, "2026-06-10", 1000, { frete: 0 })], payables: [], monthKey: "2026-06", coverage: COVF,
+    });
+    expect(comZero.receitaLiquida).toBe(semCampo.receitaLiquida);
+    expect(comZero.totalDeducoes).toBe(semCampo.totalDeducoes);
+    // O que muda é só a medição informativa do campo.
+    expect(comZero.freteVenda).toBe(0);
+    expect(comZero.availability.freteVenda).toBe("real");
+  });
+
+  it("C. frete > 0 NÃO reduz a receita líquida", () => {
+    // total 1130 = totalProdutos 1000 + frete 130 (estrutura medida na F1).
+    const d = buildMonthlyDre({
+      orders: [order(1, "2026-06-10", 1130, { frete: 130 })], payables: [], monthKey: "2026-06", coverage: COVF,
+    });
+    expect(d.receitaBruta).toBe(1130);
+    expect(d.receitaLiquida).toBe(1130);   // antes: 1000
+    expect(d.totalDeducoes).toBe(0);       // zero real: não há comissões nem impostos
+    expect(d.freteVenda).toBe(130);        // medido, mas fora da conta
+  });
+
+  it("C2. com deduções reais, só elas abatem — o frete não entra", () => {
+    const d = buildMonthlyDre({
+      orders: [order(1, "2026-06-10", 1130, { frete: 130 })],
+      payables: [pay(1, "Comissão sobre vendas", 30, vencEm("2026-06-05")),
+                 pay(2, "Impostos sobre vendas", 100, vencEm("2026-06-06"))],
+      monthKey: "2026-06", coverage: COVF,
+    });
+    expect(d.totalDeducoes).toBe(130);        // 30 + 100, coincidência de valor com o frete
+    expect(d.receitaLiquida).toBe(1000);      // 1130 − 130, nunca 870
+  });
+
+  it("D. frete-venda-sem-fonte é informativo e não bloqueia a receita líquida", () => {
+    const d = buildMonthlyDre({
+      orders: [order(1, "2026-06-10", 1000)], payables: [], monthKey: "2026-06", coverage: COVF,
+    });
+    const w = d.warnings.find((x) => x.code === "frete-venda-sem-fonte");
+    expect(w).toBeDefined();
+    expect(w.message).toContain("informativo");
+    expect(d.receitaLiquida).not.toBeNull();
+  });
+
+  it("D2. frete-venda-parcial também não bloqueia", () => {
+    const d = buildMonthlyDre({
+      orders: [order(1, "2026-06-10", 1000, { frete: 10 }), order(2, "2026-06-11", 500)],
+      payables: [], monthKey: "2026-06", coverage: COVF,
+    });
+    expect(d.warnings.some((x) => x.code === "frete-venda-parcial")).toBe(true);
+    expect(d.availability.receitaLiquida).toBe("real");
+    expect(d.receitaLiquida).toBe(1500);
+  });
+
+  it("E. o CMV continua independente: receita líquida real, lucro bruto unavailable", () => {
+    const d = buildMonthlyDre({
+      orders: [order(1, "2026-06-10", 1000, { frete: 100 })], payables: [], monthKey: "2026-06", coverage: COVF,
+    });
+    expect(d.availability.receitaLiquida).toBe("real");
+    expect(d.receitaLiquida).toBe(1000);
+    // Corrigir o frete NÃO inventa rentabilidade.
+    expect(d.cmv).toBeNull();
+    expect(d.lucroBruto).toBeNull();
+    expect(d.availability.lucroBruto).toBe("unavailable");
+    expect(d.ebitda).toBeNull();
+    expect(d.resultadoLiquido).toBeNull();
+  });
+
+  it("FRETE_PAGO continua classificado e fora de todas as linhas", () => {
+    const d = buildMonthlyDre({
+      orders: [order(1, "2026-06-10", 1000, { frete: 0 })],
+      payables: [pay(1, "Fretes e seguros", 250, vencEm("2026-06-05")),
+                 pay(2, "Aluguel", 100, vencEm("2026-06-06"))],
+      monthKey: "2026-06", coverage: COVF,
+    });
+    expect(d.despesasOperacionais).toBe(100);  // só o aluguel; o frete pago fica fora
+    expect(d.totalDeducoes).toBe(0);           // e também não vira dedução
+    expect(d.receitaLiquida).toBe(1000);
   });
 });

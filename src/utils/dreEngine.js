@@ -7,7 +7,8 @@
 // warning, em vez de um número enganoso.
 //
 // Estrutura:
-//   Receita bruta − comissões − devoluções − frete de venda − Simples = Receita líquida
+//   Receita bruta − comissões − devoluções − Simples = Receita líquida
+//   (o frete cobrado ao cliente está DENTRO do order.total e NÃO é dedução)
 //   Receita líquida − CMV                                            = Lucro bruto
 //   Lucro bruto − pessoal − fixas − administrativas                  = EBITDA
 //   EBITDA − retiradas de sócios                                     = Resultado líquido
@@ -175,7 +176,18 @@ export function payableCompetenceMonth(p) {
  * COBERTURA HISTÓRICA — configurável e documentada, nunca embutida no motor.
  * Determina se o mês tem dados reais, parciais ou indisponíveis.
  * ==================================================================================== */
-export const EMPTY_COVERAGE = { firstCompleteMonth: null, partialMonths: [], closedThroughMonth: null };
+export const EMPTY_COVERAGE = {
+  firstCompleteMonth: null,
+  partialMonths: [],
+  /* Até que mês a FONTE tem dados completos. Eixo TÉCNICO: responde a "o ERP já me
+   * entregou tudo o que este mês teve?", nunca a "alguém validou este mês?". */
+  completeThroughMonth: null,
+  /* Alias LEGADO de completeThroughMonth. Ver sourceAvailability para a história. */
+  closedThroughMonth: null,
+  /* Até que mês um HUMANO validou o fecho. Eixo CONTABILÍSTICO, deliberadamente SEM
+   * efeito na disponibilidade: uma validação em atraso não torna a fonte incompleta. */
+  validatedThroughMonth: null,
+};
 
 /** "aaaa-mm" de uma data. Puro: recebe a data, não a inventa. */
 export function monthKeyOf(date) {
@@ -201,11 +213,31 @@ function previousMonthKey(mk) {
  *   0. fonte ausente                    -> unavailable  (cobertura nunca "salva" fonte ausente)
  *   1. mês declarado parcial            -> partial
  *   2. antes do primeiro mês completo   -> unavailable
- *   3. depois do último mês fechado     -> partial  (inclui o mês corrente aberto)
+ *   3. depois do limite de COBERTURA    -> partial  (inclui o mês corrente aberto)
  *   4. caso contrário                   -> real
  *
- * O limite de fecho vem de coverage.closedThroughMonth; sem ele, usa-se o mês
- * anterior ao da referenceDate — porque o mês civil corrente ainda está aberto.
+ * ─── O LIMITE É DE COBERTURA, NÃO DE VALIDAÇÃO ──────────────────────────────────────
+ * `completeThroughMonth` responde a UMA pergunta: "até que mês é que esta fonte já
+ * entregou tudo o que o mês teve?". É um facto sobre o ERP e sobre o calendário, não
+ * uma opinião sobre contabilidade.
+ *
+ * Até 24/08/2026 este limite vinha de `closedThroughMonth`, um campo que respondia ao
+ * mesmo tempo a essa pergunta E a "até que mês é que um humano validou o fecho?".
+ * Ao encolher a segunda (validação em atraso), encolhia também a primeira — e um mês
+ * civil terminado, com a fonte inteira em mãos, aparecia como `partial`. A jusante isso
+ * tornava a aplicabilidade do CMV INDETERMINADA, e o produto ficava sem autorização
+ * para PEDIR o dado que faltava. Só editar código quebrava o ciclo.
+ * A validação humana mudou-se para `validatedThroughMonth`, que NÃO entra aqui.
+ * `closedThroughMonth` continua a ser lido como alias, para não partir configurações
+ * e testes existentes — ver docs/MONTHLY_CLOSING_CONTRACT.md.
+ *
+ * ─── AUSÊNCIA DE LIMITE É COBERTURA DESCONHECIDA, NUNCA ILIMITADA ───────────────────
+ * Sem limite configurado usa-se o mês anterior ao da `referenceDate` (o mês civil
+ * corrente está sempre aberto). Se nem isso houver, o mês é `partial`: não há base
+ * para afirmar que a fonte está completa. Antes, esse caso saltava a guarda por
+ * inteiro e devolvia `real` para TODOS os meses — foi o que fez a âncora da DRE saltar
+ * para 2027-07, um mês que só existia por contas a pagar com vencimento futuro.
+ * É a mesma regra do resto do projeto: ausência de prova nunca é prova.
  */
 export function sourceAvailability(mk, coverage = EMPTY_COVERAGE, referenceDate, present = true) {
   if (!present) return "unavailable";
@@ -214,8 +246,30 @@ export function sourceAvailability(mk, coverage = EMPTY_COVERAGE, referenceDate,
   if (parciais.indexOf(mk) !== -1) return "partial";
   if (cov.firstCompleteMonth && mk < cov.firstCompleteMonth) return "unavailable";
 
-  const limiteFechado = cov.closedThroughMonth || previousMonthKey(monthKeyOf(referenceDate));
-  if (limiteFechado && mk > limiteFechado) return "partial";
+  /* ── VETO DO SNAPSHOT INCOMPLETO ────────────────────────────────────────────────
+   * `completeThroughMonth` é uma afirmação sobre o CALENDÁRIO: "o ERP já entregou
+   * tudo o que estes meses tiveram". Vale enquanto a leitura do ERP tiver corrido até
+   * ao fim. Quando a fonte se declara incompleta — rebuild interrompido pelo orçamento
+   * de tempo, ou listagem truncada no teto MAX_PAGES — a premissa cai, e a cobertura
+   * configurada passa a descrever um mundo que não foi lido.
+   *
+   * Vetar TODOS os meses, e não só os recentes, é a única leitura defensável: as
+   * listagens de `/contas/pagar` e `/contas/receber` não são pedidas por data nem
+   * chegam ordenadas por competência, portanto os títulos que ficaram do lado de lá do
+   * teto podem pertencer a QUALQUER mês. Restringir o veto aos últimos meses seria
+   * assumir uma ordenação que a fonte nunca prometeu.
+   *
+   * Depois da guarda de `firstCompleteMonth` de propósito: `unavailable` é mais forte
+   * do que `partial` e não deve ser suavizado. Esta regra só pode tornar um mês MENOS
+   * disponível, nunca mais — a direção segura. Ver docs/SOURCE_COVERAGE_CONTRACT.md. */
+  if (cov.snapshotPartial === true) return "partial";
+
+  const limiteCobertura = cov.completeThroughMonth
+    || cov.closedThroughMonth
+    || previousMonthKey(monthKeyOf(referenceDate));
+  // Limite desconhecido => nada se pode declarar completo.
+  if (!limiteCobertura) return "partial";
+  if (mk > limiteCobertura) return "partial";
 
   return "real";
 }
@@ -236,6 +290,51 @@ export function payablesCoverage(coverage) {
   return cov.payables ? { ...cov, ...cov.payables } : cov;
 }
 
+/**
+ * Marca na COBERTURA que a fonte se declarou incompleta, para que `sourceAvailability`
+ * possa vetar. Função PURA: recebe a cobertura e o `meta.parcial` que o serviço já
+ * transporta, e devolve cobertura — não lê configuração, não lê relógio, não conhece
+ * o Apps Script.
+ *
+ * ─── PORQUE ISTO FALTAVA ────────────────────────────────────────────────────────────
+ * `meta.parcial` viajava do Apps Script até `dataHealth` e morria ali: dava uma faixa
+ * ("atualização parcial") e mais nada. O motor financeiro nunca soube. Uma fonte
+ * truncada continuava a produzir meses `real`, KPIs elegíveis para âncora e um
+ * "Resultado líquido" afirmado sem ressalva — a faixa dizia que faltavam dados e o
+ * número ao lado dizia que estava tudo apurado.
+ *
+ * ─── PORQUE OS RECEBÍVEIS NÃO ENTRAM ────────────────────────────────────────────────
+ * Contas a receber são tesouraria, não DRE. Um snapshot de recebíveis truncado
+ * corrompe saldos em aberto e prazos, não a receita nem o resultado. Vetar a DRE por
+ * causa deles seria misturar os dois universos — exatamente o erro que este projeto
+ * corrige noutros sítios. Quem consome recebíveis lê `meta.parcial.receivables`.
+ *
+ * @param {object|null} coverage cobertura de partida.
+ * @param {{parcial?: {orders?: boolean|null, payables?: boolean|null}}|null} meta
+ * @returns {object} a MESMA referência quando não há nada a vetar.
+ */
+export function coverageComSnapshotParcial(coverage, meta) {
+  const base = coverage || EMPTY_COVERAGE;
+  const porFonte = meta?.parcial;
+  if (!porFonte || typeof porFonte !== "object" || Array.isArray(porFonte)) return base;
+
+  /* Só `true` veta. `null` é "a fonte não se pronunciou" e já é tratado a montante:
+   * transformá-lo aqui em veto tornaria qualquer backend antigo inutilizável, e
+   * transformá-lo em "completo" seria a inversão que este projeto proíbe. */
+  const ordersParcial = porFonte.orders === true;
+  const payablesParcial = porFonte.payables === true;
+  if (!ordersParcial && !payablesParcial) return base;
+
+  /* Cada eixo leva a SUA marca: pedidos incompletos não tornam as contas a pagar
+   * incompletas. Sem isto, o spread de `payablesCoverage` herdaria a marca dos
+   * pedidos e contaminaria o outro lado. */
+  return {
+    ...base,
+    snapshotPartial: ordersParcial,
+    payables: { ...(base.payables || {}), snapshotPartial: payablesParcial },
+  };
+}
+
 /* ====================================================================================
  * Agregações auxiliares.
  * ==================================================================================== */
@@ -246,8 +345,9 @@ function receitaBrutaDoMes(orders, mk) {
   return { valor: round2(doMes.reduce((a, o) => a + (Number(o.total) || 0), 0)), pedidos: doMes };
 }
 
-// Frete de VENDA: campo enriquecido do pedido. Sem o campo em nenhum pedido do mês,
-// a fonte é indisponível (null) — nunca zero, e nunca por diferença residual.
+// Frete de VENDA cobrado ao cliente: campo enriquecido do pedido. Sem o campo em
+// nenhum pedido do mês, a fonte é indisponível (null) — nunca zero, e nunca por
+// diferença residual. INFORMATIVO: não entra em totalDeducoes (ver `deducoes`).
 function freteVendaDoMes(pedidosDoMes) {
   if (!pedidosDoMes.length) return { valor: null, availability: "unavailable", comCampo: 0 };
   const comCampo = pedidosDoMes.filter((o) => o.frete != null);
@@ -303,12 +403,16 @@ export function buildMonthlyDre({ orders, payables, monthKey: mk, manualInputs, 
     ? freteVendaDoMes(pedidosDoMes)
     : { valor: null, availability: "unavailable", comCampo: 0 };
   sources.freteVenda = frete.availability === "unavailable"
-    ? null : "campo frete do pedido (enriquecido no snapshot)";
+    ? null : "campo frete do pedido (enriquecido no snapshot), informativo";
+  /* Os dois avisos passaram a ser DIAGNÓSTICO, não bloqueio: medem a hidratação do
+   * campo no snapshot e já não afetam receita líquida nenhuma. Mantidos (opção B)
+   * porque continuam a dizer algo verdadeiro e útil — 215 dos 984 pedidos ainda não
+   * têm o campo — mas a mensagem deixou de afirmar indisponibilidade da DRE. */
   if (frete.availability === "unavailable" && dispReceita !== "unavailable") {
-    warnings.push({ code: "frete-venda-sem-fonte", message: `Sem campo de frete nos pedidos de ${mk}: frete de venda indisponível.` });
+    warnings.push({ code: "frete-venda-sem-fonte", message: `Sem campo de frete nos pedidos de ${mk}: frete cobrado não medido (informativo, não afeta a receita líquida).` });
   }
   if (frete.availability === "partial") {
-    warnings.push({ code: "frete-venda-parcial", message: `Só ${frete.comCampo} de ${pedidosDoMes.length} pedidos de ${mk} têm frete.` });
+    warnings.push({ code: "frete-venda-parcial", message: `Só ${frete.comCampo} de ${pedidosDoMes.length} pedidos de ${mk} têm frete: valor informativo subavaliado (não afeta a receita líquida).` });
   }
 
   // ── Classificação das contas a pagar por competência ─────────
@@ -385,7 +489,16 @@ export function buildMonthlyDre({ orders, payables, monthKey: mk, manualInputs, 
   }
 
   // ── Fórmulas, com propagação estrita de null ─────────────────
-  const deducoes = [comissoes, devolucoes, frete.valor, simplesNacional];
+  /* O FRETE COBRADO AO CLIENTE NÃO É DEDUÇÃO.
+   * Medido em dados reais (F1): nos pedidos da Overcel o frete está DENTRO do
+   * order.total, com fretePorConta = 0 (CIF). É preço de venda cobrado ao cliente,
+   * não um abatimento à receita. Deduzi-lo reduzia a receita líquida pelo valor que
+   * o cliente efetivamente pagou — e, pior, sem que o frete PAGO pela empresa
+   * (FRETE_PAGO, contas a pagar) entrasse em lado nenhum: abatia-se uma ponta e
+   * ignorava-se a outra.
+   * `freteVenda` continua a ser medido e exposto, como informação; simplesmente não
+   * entra nesta soma. A integração económica do frete pago é microfase separada. */
+  const deducoes = [comissoes, devolucoes, simplesNacional];
   const totalDeducoes = deducoes.every((v) => v != null)
     ? round2(deducoes.reduce((a, v) => a + v, 0)) : null;
 
@@ -410,7 +523,10 @@ export function buildMonthlyDre({ orders, payables, monthKey: mk, manualInputs, 
   // fiável do que ela. freteVendaDoMes mede apenas a completude do campo dentro
   // do dataset recebido; a disponibilidade final combina-a com a da receita.
   const dispFreteVenda = combineAvailability(dispReceita, frete.availability);
-  const dispTotalDeducoes = combineAvailability(dispPagaveis, dispPagaveis, dispFreteVenda, dispPagaveis);
+  // As deduções vêm SÓ das contas a pagar (comissões, devoluções, impostos sobre
+  // vendas). O frete deixou de entrar, logo a sua disponibilidade também não entra:
+  // um pedido sem campo de frete já não torna a receita líquida indisponível.
+  const dispTotalDeducoes = combineAvailability(dispPagaveis, dispPagaveis, dispPagaveis);
   const dispReceitaLiquida = combineAvailability(dispReceita, dispTotalDeducoes);
   const dispLucroBruto = combineAvailability(dispReceitaLiquida, dispCmv);
 
