@@ -1,3 +1,47 @@
 node_modules
 dist
 .env
+# Vite carrega .env.local por cima do .env e ele tem precedencia. So o `.env`
+# estava protegido: um `.env.local` com as credenciais reais era versionavel.
+.env.local
+.env*.local
+
+# Dumps de snapshot para análise local. São dados financeiros REAIS da empresa —
+# títulos, valores, fornecedores — e este repositório é público. Um `git add .`
+# distraído bastava para os publicar.
+#
+# Motivado por diagnostico/despesas_snapshot.json (293 títulos, gerado em
+# 2026-08-14), que estava por rastrear e sem qualquer regra a protegê-lo.
+#
+# Os scripts .mjs de diagnóstico ficam versionados de propósito: são a ferramenta,
+# e não contêm dados.
+diagnostico/*.json
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# Configuração local do clasp (Apps Script).
+#
+# `.clasp.json` tem o `scriptId` do projeto. Não é uma credencial — não dá acesso a
+# ninguém por si — mas identifica a infraestrutura num repositório PÚBLICO, e é
+# configuração de máquina, não do produto. Quem clonar corre `clasp clone` ou pede o id.
+#
+# O irmão perigoso já não está em lado nenhum: os deployment IDs foram redigidos de
+# docs/PUBLICACAO_P0_CHECKLIST.md, porque o URL de leitura ANYONE_ANONYMOUS constrói-se
+# diretamente a partir deles.
+# ─────────────────────────────────────────────────────────────────────────────────────
+apps-script/.clasp.json
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# UM script de diagnóstico que NÃO pode ser público.
+#
+# `diagnostico/opexJunho.mjs` traz um bloco `REFERENCIA_MANUAL` com os números REAIS da
+# Overcel de 2026-06 — salários, aluguel, EBITDA, resultado líquido e o pró-labore
+# (50 597,84). Não são dados de teste: são a referência contra a qual a reconciliação
+# corre, e num repositório público seriam a remuneração do sócio à vista de qualquer um.
+#
+# Os outros 11 scripts de `diagnostico/` ficam versionados: usam nomes GENÉRICOS de
+# categoria, dados sintéticos, e leem os valores dos snapshots `.json` — que já estavam
+# protegidos pela regra acima. A ferramenta é a lógica, não os números.
+#
+# O ficheiro continua no disco e continua a funcionar. Só não é publicado.
+# ─────────────────────────────────────────────────────────────────────────────────────
+diagnostico/opexJunho.mjs
