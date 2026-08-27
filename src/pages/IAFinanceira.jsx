@@ -9,7 +9,7 @@ import {
 import PageHeader from "../layouts/PageHeader";
 
 import { aiInsights, aiDetail, aiRecommendations, aiConversation, aiQuestions } from "../data/mockData";
-import { formatEUR } from "../lib/format";
+import { formatMoney, currencySymbol } from "../lib/currency";
 import { useFinerData } from "../context/FinerDataContext";
 import { usePlan } from "../context/PlanContext";
 import { SCREENS } from "../config/planConfig";
@@ -89,7 +89,11 @@ export default function IAFinanceira() {
     ? d.acoes.map((a) => ({ id: a.id, title: a.titulo, desc: `${a.descricao} Prazo sugerido: ${a.prazo}.`, impact: a.impacto }))
     : aiRecommendations;
   const recsDemo = source === "api" && !d?.acoes?.length;
-  const recSubtitulo = d?.acoes?.length ? "Com base no diagnóstico atual da empresa" : "Impacto estimado em €";
+  const recSubtitulo = d?.acoes?.length
+    ? "Com base no diagnóstico atual da empresa"
+    // O subtítulo nomeia a moeda dos valores da coluna ao lado; escrevê-la à mão fazia-o
+    // anunciar euros sobre montantes na moeda da empresa.
+    : `Impacto estimado em ${currencySymbol()}`;
 
   // Sugestão da IA no rodapé do detalhe: primeira ação real quando existir.
   const sugestao = d?.acoes?.[0]
@@ -152,7 +156,7 @@ export default function IAFinanceira() {
                 {typeof detImpacto === "number" && (
                   <div className="mt-3 pt-3 border-t border-rose-200">
                     <div className="text-xs text-slate-500">{topProblema ? "Valor identificado" : "Impacto estimado"}</div>
-                    <div className="text-xl font-semibold text-rose-600 mt-0.5">{formatEUR(detImpacto)}</div>
+                    <div className="text-xl font-semibold text-rose-600 mt-0.5">{formatMoney(detImpacto)}</div>
                     <div className="text-xs text-slate-500 mt-1">{detNota}</div>
                   </div>
                 )}
@@ -223,7 +227,7 @@ export default function IAFinanceira() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-slate-800">{r.title}</p>
                       <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{r.desc}</p>
-                      {typeof r.impact === "number" && <div className="text-xs font-semibold text-brand-700 mt-1.5">+ {formatEUR(r.impact)}</div>}
+                      {typeof r.impact === "number" && <div className="text-xs font-semibold text-brand-700 mt-1.5">+ {formatMoney(r.impact)}</div>}
                     </div>
                   </div>
                 );

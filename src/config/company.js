@@ -29,16 +29,54 @@ export const ACTIVE_COMPANY = {
   historyCoverage: {
     firstCompleteMonth: "2026-04",
     partialMonths: ["2026-03"],
-    // Último mês FECHADO. Meses posteriores (incluindo o mês civil corrente,
-    // ainda aberto) são apresentados como parciais. Atualizar ao fechar o mês;
-    // deixar a null faz o motor assumir que só o mês anterior ao atual está fechado.
-    closedThroughMonth: "2026-06",
 
-    // Opcional: cobertura própria das CONTAS A PAGAR. Pedidos e contas a pagar
-    // vêm de snapshots distintos, com cadências de rebuild próprias — se um dos
-    // lados fechar antes do outro, declarar aqui (os campos omitidos são
-    // herdados da cobertura acima). Hoje ambos partilham a mesma cobertura.
-    // payables: { closedThroughMonth: "2026-05" },
+    /* ── EIXO 1: COBERTURA DA FONTE (técnico) ─────────────────────────────────────
+     * Até que mês é que o ERP já entregou TUDO o que o mês teve.
+     *
+     * `null` = deriva do relógio: o último mês civil TERMINADO. Para os PEDIDOS isto
+     * é o valor correto e não precisa de manutenção — um pedido nasce no ato da
+     * venda, pelo que um mês civil terminado tem os seus pedidos todos no snapshot.
+     *
+     * `null` só é seguro porque, em 24/08/2026, se corrigiram DUAS coisas ao mesmo
+     * tempo (ver docs/MONTHLY_CLOSING_CONTRACT.md):
+     *   1. `buildSalesDataset` passou a injetar `referenceDate` — sem ela não há
+     *      relógio de onde derivar o mês anterior;
+     *   2. `sourceAvailability` passou a devolver `partial` quando não consegue
+     *      determinar limite nenhum, em vez de libertar todos os meses como `real`.
+     * Antes destas duas, `null` aqui fazia a âncora da DRE saltar para 2027-07.
+     */
+    completeThroughMonth: null,
+
+    /* ── EIXO 2: VALIDAÇÃO HUMANA (contabilístico) ────────────────────────────────
+     * Até que mês é que uma pessoa reviu e validou o fecho. NÃO afeta a
+     * disponibilidade das fontes e NÃO impede a plataforma de pedir dados em falta.
+     *
+     * Era exatamente esta a confusão de `closedThroughMonth`: ao mantê-lo em
+     * "2026-06" (validação em atraso), julho — um mês civil terminado, com todos os
+     * pedidos no snapshot — aparecia como `partial`. Isso tornava a aplicabilidade
+     * do CMV indeterminada e a Finer One deixava de PEDIR o CMV de julho. Só editar
+     * este ficheiro quebrava o ciclo, e é isso que deixou de ser preciso.
+     *
+     * Informativo enquanto não existir uma ação de "validar mês" no produto. Não é
+     * lido por nenhum motor — quem o quiser mostrar, lê-o daqui explicitamente.
+     */
+    validatedThroughMonth: "2026-06",
+
+    /* ── Cobertura própria das CONTAS A PAGAR ─────────────────────────────────────
+     * Pedidos e contas a pagar vêm de snapshots distintos e, mais importante, com
+     * naturezas distintas: um pedido nasce no ato da venda, uma fatura de fornecedor
+     * pode chegar semanas depois do mês a que respeita. Um mês civil terminado tem
+     * os pedidos todos, mas não necessariamente as despesas todas.
+     *
+     * Por isso as despesas mantêm o limite CONSERVADOR e explícito em junho,
+     * enquanto a receita passa a derivar do calendário. Consequência desejada: as
+     * despesas de julho continuam a apresentar-se como parciais — que é a verdade —
+     * sem que isso impeça o pedido do CMV, que depende só da receita.
+     *
+     * Avançar para "2026-07" quando se confirmar que as faturas de julho entraram
+     * todas. Os campos omitidos são herdados da cobertura acima.
+     */
+    payables: { completeThroughMonth: "2026-06" },
   },
 };
 

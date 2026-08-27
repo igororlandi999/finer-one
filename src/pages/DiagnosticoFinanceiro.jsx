@@ -19,7 +19,7 @@ import { SUPPORTED_QUESTIONS, PENDING_CHAT_QUESTION_KEY } from "../utils/chatEng
 import { usePlan }       from "../context/PlanContext";
 import { SCREENS }       from "../config/planConfig";
 import { diagnostic as mockDiagnostic } from "../data/mockData";
-import { formatEUR }     from "../lib/format";
+import { formatMoney } from "../lib/currency";
 import { useFinerData }  from "../context/FinerDataContext";
 import DemoTag           from "../components/ui/DemoTag";
 
@@ -116,7 +116,7 @@ export default function DiagnosticoFinanceiro() {
         {!isRealDiag ? (
           <MetricCard
             label="Impacto Identificado"
-            value={formatEUR(diagnostic.impactoFinanceiro)}
+            value={formatMoney(diagnostic.impactoFinanceiro)}
             icon={TrendingDown}
             iconBg="bg-amber-50 text-amber-600"
             helper="A recuperar com ações sugeridas"
@@ -126,7 +126,7 @@ export default function DiagnosticoFinanceiro() {
         ) : diagnostic.impactIsQuantified ? (
           <MetricCard
             label="Impacto Identificado"
-            value={formatEUR(diagnostic.impactAmount)}
+            value={formatMoney(diagnostic.impactAmount)}
             icon={TrendingDown}
             iconBg="bg-amber-50 text-amber-600"
             helper={(diagnostic.impactBreakdown || []).map((b) => b.label).join(" · ") || diagnostic.impactLabel}
@@ -278,7 +278,7 @@ export default function DiagnosticoFinanceiro() {
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-sm font-semibold text-slate-800">{i + 1}. {p.titulo}</p>
                       <span className={`text-xs font-semibold shrink-0 ${SEV_TEXT[p.severidade]}`}>
-                        {typeof p.impacto === "number" ? formatEUR(p.impacto) : "\u2014"}
+                        {typeof p.impacto === "number" ? formatMoney(p.impacto) : "\u2014"}
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 mt-1 leading-relaxed">{p.descricao}</p>
@@ -294,7 +294,7 @@ export default function DiagnosticoFinanceiro() {
           <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5">Ações recomendadas{demoDiag && <DemoTag />}</h3>
           <p className="text-xs text-slate-500 mb-4">
             {totalAcoes > 0
-              ? <>Impacto estimado se agir agora:{" "}<strong className="text-brand-700">+{formatEUR(totalAcoes)}</strong></>
+              ? <>Impacto estimado se agir agora:{" "}<strong className="text-brand-700">+{formatMoney(totalAcoes)}</strong></>
               : "Recomendações operacionais com base no diagnóstico"}
           </p>
           <div className="space-y-3">
@@ -306,7 +306,7 @@ export default function DiagnosticoFinanceiro() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-semibold text-slate-800">{i + 1}. {a.titulo}</p>
-                    <span className="text-xs font-semibold text-brand-700 shrink-0">{typeof a.impacto === "number" ? "+" + formatEUR(a.impacto) : "\u2014"}</span>
+                    <span className="text-xs font-semibold text-brand-700 shrink-0">{typeof a.impacto === "number" ? "+" + formatMoney(a.impacto) : "\u2014"}</span>
                   </div>
                   <p className="text-xs text-slate-600 mt-1 leading-relaxed">{a.descricao}</p>
                   <p className="text-[11px] text-slate-500 mt-2">Prazo sugerido: <strong>{a.prazo}</strong></p>

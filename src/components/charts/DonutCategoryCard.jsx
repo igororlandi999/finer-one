@@ -1,5 +1,5 @@
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
-import { formatEUR } from "../../lib/format";
+import { formatMoney } from "../../lib/currency";
 
 // Donut com total ao centro e legenda lateral com valores e percentagens.
 // Reutilizado em Receitas, Despesas e em qualquer tela com distribuição por categoria.
@@ -8,8 +8,14 @@ import { formatEUR } from "../../lib/format";
 //   - data           (array de { name, value, color })
 //   - centerLabel    (string opcional, default: "Total")
 //   - action         (ReactNode opcional, ex: seletor de período)
-//   - valueFormatter (fn opcional para formatar valores na legenda; default: formatEUR)
-//   - centerValue    (string opcional para mostrar no centro; default: total formatado em €)
+//   - valueFormatter (fn opcional para formatar valores na legenda; default: formatMoney)
+//   - centerValue    (string opcional para mostrar no centro; default: total na moeda da empresa)
+//
+// A MOEDA NUNCA É ESCOLHIDA AQUI. Um componente genérico de distribuição por categoria
+// não sabe de que empresa são os dados que recebe. O default era `formatEUR`, e por isso
+// qualquer tela que o reutilizasse mostrava € independentemente da moeda configurada —
+// foi assim que o donut da página Despesas de uma empresa em reais acabou em euros.
+// Quem precisar de outra formatação continua a passar `valueFormatter`.
 
 export default function DonutCategoryCard({
   title,
@@ -20,8 +26,8 @@ export default function DonutCategoryCard({
   centerValue,
 }) {
   const total  = data.reduce((acc, d) => acc + d.value, 0);
-  const fmt    = valueFormatter ?? formatEUR;
-  const center = centerValue ?? formatEUR(total);
+  const fmt    = valueFormatter ?? formatMoney;
+  const center = centerValue ?? formatMoney(total);
 
   return (
     <div className="card p-5 h-full">

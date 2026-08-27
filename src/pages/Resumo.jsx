@@ -5,6 +5,7 @@ import {
 import {
   Wallet, TrendingUp, TrendingDown, BarChart3,
   Plus, Upload, Stethoscope, ArrowRight, Building2, FileText, Send,
+  CalendarCheck,
 } from "lucide-react";
 
 import PageHeader   from "../layouts/PageHeader";
@@ -23,10 +24,15 @@ import {
   monthMetrics as mockMonthMetrics,
   alerts       as mockAlerts,
 } from "../data/mockData";
-import { formatMoney as formatEUR, formatMoneyCompact as formatEURCompact, formatMoneyOrDash } from "../lib/currency";
+import { formatMoney, formatMoneyCompact, formatMoneyOrDash } from "../lib/currency";
 import { useFinerData } from "../context/FinerDataContext";
+import { useAuth } from "../auth/AuthContext";
+import { useCompany } from "../auth/CompanyContext";
 import { buildCashflowForecast, hasCashflowSource } from "../utils/cashflowForecast";
+import { SUPPORTED_QUESTIONS } from "../utils/chatEngine";
 import { monthLongLabel } from "../utils/performanceCalculations";
+import { resolveClosingSummary, CLOSING_TONE } from "../utils/closingSummaryView";
+import { buildAnchorNotice } from "../utils/performanceView";
 
 // ── Tooltip do gráfico de cashflow ──────────────────────────
 // valueLabel: "Saldo" no gráfico mock (semântica original); "Variação líquida
@@ -36,7 +42,7 @@ function CashflowTooltip({ active, payload, label, valueLabel = "Saldo" }) {
   return (
     <div className="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white shadow-lg">
       <div className="text-slate-300">{label}</div>
-      <div className="font-semibold mt-0.5">{valueLabel} {formatEUR(payload[0].value)}</div>
+      <div className="font-semibold mt-0.5">{valueLabel} {formatMoney(payload[0].value)}</div>
     </div>
   );
 }
@@ -79,10 +85,10 @@ function DiagnosticHighlight({ onOpen, diag, demo }) {
                 Mock: preserva impactoFinanceiro (o bloco já leva o selo Demo acima). */}
             {diag.impactIsQuantified === true && typeof diag.impactAmount === "number" ? (
               <>Impacto financeiro identificado de{" "}
-              <strong className="text-white">{formatEUR(diag.impactAmount)}</strong>.{" "}</>
+              <strong className="text-white">{formatMoney(diag.impactAmount)}</strong>.{" "}</>
             ) : diag.impactIsQuantified === undefined && typeof diag.impactoFinanceiro === "number" ? (
               <>Impacto financeiro identificado de{" "}
-              <strong className="text-white">{formatEUR(diag.impactoFinanceiro)}</strong>.{" "}</>
+              <strong className="text-white">{formatMoney(diag.impactoFinanceiro)}</strong>.{" "}</>
             ) : null}
             Prioridade: {diag.prioridadeMaxima.toLowerCase()}.
           </p>
@@ -110,6 +116,62 @@ function DiagnosticHighlight({ onOpen, diag, demo }) {
   );
 }
 
+// ── Fecho mensal do mês anterior ────────────────────────────
+/* Banner horizontal compacto, deliberadamente mais leve que o Diagnóstico: informa
+ * sem competir com ele nem empurrar os KPIs para fora da primeira dobra.
+ *
+ * Toda a decisão (que mês, que estado, que texto, se há ação) vem de
+ * resolveClosingSummary. Aqui só se escolhe a cor a partir do TOM já decidido e se
+ * desenha — a página não conhece CLOSING_STATUS nem missingItems.
+ *
+ * Mobile: empilha (flex-col) e o botão passa a largura total; a partir de sm volta a
+ * ser uma linha só, com o CTA à direita. */
+const TONE_STYLES = {
+  [CLOSING_TONE.POSITIVO]:    { badge: "success", icone: "bg-brand-50 text-brand-600" },
+  [CLOSING_TONE.ATENCAO]:     { badge: "warning", icone: "bg-amber-50 text-amber-600" },
+  [CLOSING_TONE.INFORMATIVO]: { badge: "info",    icone: "bg-sky-50 text-sky-600" },
+  [CLOSING_TONE.NEUTRO]:      { badge: "neutral", icone: "bg-slate-100 text-slate-500" },
+};
+
+function FechoMensalCard({ fecho, onVerPendencias }) {
+  const estilo = TONE_STYLES[fecho.tone] ?? TONE_STYLES[CLOSING_TONE.NEUTRO];
+
+  return (
+    <div className="card p-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+        <div className={`flex h-10 w-10 items-center justify-center rounded-lg shrink-0 ${estilo.icone}`}>
+          <CalendarCheck size={18} />
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="label-uppercase">Fecho mensal</span>
+            <StatusBadge variant={estilo.badge}>{fecho.badge}</StatusBadge>
+          </div>
+          <p className="text-sm font-semibold text-slate-800 mt-1">{fecho.estado}</p>
+          <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+            {fecho.detalhe}
+            {fecho.itens.length > 0 && (
+              <span className="text-slate-600"> {fecho.itens.join(" · ")}.</span>
+            )}
+          </p>
+        </div>
+
+        {/* CTA só existe quando há mesmo o que fazer — ver resolveClosingSummary. */}
+        {fecho.cta && (
+          <button
+            onClick={onVerPendencias}
+            className="btn-secondary justify-center w-full sm:w-auto shrink-0"
+          >
+            {fecho.cta.label}
+            <ArrowRight size={15} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Tela principal ───────────────────────────────────────────
 export default function Resumo() {
   const { navigateTo } = usePlan();
@@ -117,6 +179,21 @@ export default function Resumo() {
   // Fontes reais no Resumo: receita/faturação e alertas (de vendas), despesas/resultado
   // (contas a pagar) e faturas em atraso (contas a receber). O restante fica mock + Demo.
   const { sales, source } = useFinerData();
+
+  /* SUGESTÕES DE PERGUNTA — as que o Chat SABE responder, não as do mock.
+   *
+   * O cartão "Pergunte à Finer" mostrava três perguntas fixas de `mockData`. Duas delas
+   * o Chat recusa por desenho ("previsão de saldo para os próximos 3 meses" exige Open
+   * Banking; "posso suportar uma despesa..." é tesouraria prospetiva) e a terceira
+   * trazia "4.500 €" a uma empresa cuja moeda é o real. Ou seja: em dados reais, o
+   * produto convidava o utilizador a fazer perguntas a que ia responder que não sabe
+   * responder — e numa moeda que não é a dele.
+   *
+   * `SUPPORTED_QUESTIONS` é a lista que o próprio motor publica, e é a MESMA de que a
+   * página do Chat já se serve em modo real (`ChatFinanceiro`, `isLive`). Uma só fonte:
+   * uma pergunta que deixe de ser suportada desaparece dos dois sítios ao mesmo tempo.
+   * Sem dados reais mantém-se o mock, que é o que o selo Demo descreve. */
+  const chatSugestoes = source === "api" ? SUPPORTED_QUESTIONS.slice(0, 3) : chatSuggestions;
   const monthMetrics = { ...mockMonthMetrics, ...(sales?.resumo?.metrics ?? {}) };
   const alerts = sales?.alertas?.list ?? mockAlerts;
   // Faturas em atraso: dos recebíveis reais (títulos abertos já vencidos), senão mock.
@@ -127,12 +204,42 @@ export default function Resumo() {
   const fm = fin?.metrics ?? null;
   // Contas a pagar reais presentes: sem elas o card cai no mock (com selo Demo).
   const temContasPagarReais = typeof monthMetrics.contasPagar === "number";
+
+  /* O mês das receitas está EM CURSO? Compara-se com `contasPagarMonthKey`, que o
+   * serviço calcula a partir do mês civil — uma só leitura do relógio, feita lá, em vez
+   * de uma segunda leitura aqui que pode cair do outro lado da meia-noite do dia 1.
+   * Sem contrato real de contas a pagar não se afirma nada: `false` mantém o
+   * comportamento demonstrativo intacto. */
+  const receitasEmCurso = Boolean(
+    monthMetrics.receitasMonthKey
+    && monthMetrics.contasPagarMonthKey
+    && monthMetrics.receitasMonthKey === monthMetrics.contasPagarMonthKey
+  );
+  // "agosto de 2026" -> "Agosto de 2026": o rótulo abre a linha do helper.
+  const capitalizarMes = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
   const legendaDisp = (a) => (
     a === "unavailable" ? "Fonte indispon\u00edvel"
     : a === "partial" ? "Dados parciais"
     : a === "manual" ? "Valor manual"
     : a === "mixed" ? "Inclui valor manual"
     : null
+  );
+
+  /* Fecho do mês civil anterior. Os fechos vêm já apurados no dataset (os MESMOS que
+   * originaram os alertas): a página não recalcula o motor nem infere o estado a
+   * partir da lista de alertas. Sem fonte real, `sales` é null e o bloco não existe —
+   * não há fecho demonstrativo, porque um fecho inventado não é ilustrativo, é falso. */
+  const fechoMensal = useMemo(
+    () => resolveClosingSummary({ closings: sales?.closings }),
+    [sales?.closings]
+  );
+
+  /* Ressalva do mês âncora — a MESMA decisão que a Performance usa, importada em vez
+   * de reescrita: duas leituras do mesmo facto divergem no dia em que uma for tocada.
+   * `null` quando a âncora é elegível, que é o caso normal. */
+  const anchorNotice = useMemo(
+    () => buildAnchorNotice(sales?.financeiro),
+    [sales?.financeiro]
   );
 
   const overdueRows = hasReceivables
@@ -159,11 +266,26 @@ export default function Resumo() {
   const cashflowData = cashflowSource ? cashflow.serie : cashflowForecast;
   const cashflowDestaque = cashflowSource ? cashflow.variacaoLiquida : mockMonthMetrics.cashflowPrevisto30;
 
+  const { user, requiresAuth } = useAuth();
+  const { company } = useCompany();
+  const primeiroNome = (n) => String(n || "").trim().split(/\s+/)[0];
+  const saudacao = requiresAuth
+    ? (primeiroNome(user?.name) || user?.email || "olá")
+    : primeiroNome(currentUser.name);
+
   return (
     <>
+      {/* ─── SAUDAÇÃO E NOME DA EMPRESA (fundação SaaS) ───────────────────────────────
+          Ambos vinham do `mockData`: a página dizia "Bom dia, João" e "a saúde
+          financeira da Overcel" a QUALQUER pessoa e para QUALQUER empresa. Enquanto
+          houve uma empresa e nenhum login, era uma etiqueta certa por acidente. Com
+          sessão, era o nome errado a uma pessoa real.
+
+          `saudacao` cai no nome do mockData apenas quando não há autenticação — que é
+          o modo atual de desenvolvimento. Ver `Sidebar.jsx`, mesma decisão. */}
       <PageHeader
-        title={`Bom dia, ${currentUser.name.split(" ")[0]}.`}
-        subtitle="Eis a saúde financeira da Overcel hoje."
+        title={`Bom dia, ${saudacao}.`}
+        subtitle={`Eis a saúde financeira da ${company?.name ?? "sua empresa"} hoje.`}
         actions={
           <>
             <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Plus size={15} />Novo registo</button>
@@ -194,18 +316,38 @@ export default function Resumo() {
         ) : (
           <MetricCard
             label="Saldo Disponível"
-            value={formatEUR(monthMetrics.saldoDisponivel)}
+            value={formatMoney(monthMetrics.saldoDisponivel)}
             icon={Wallet}
             iconBg="bg-brand-50 text-brand-600"
             helper={`Atualizado ${monthMetrics.lastSync}`}
           />
         )}
+        {/* RECEITAS — O MÊS TEM DE SER DITO, E A VARIAÇÃO TEM DE SER COMPARÁVEL.
+            Este card mostrava um valor sem mês e uma variação "vs mês anterior" ao lado
+            de dois cards que nomeiam o seu período — e o mês deste é um TERCEIRO: o
+            último com pedidos, que não é o mês civil das contas a pagar nem o mês âncora
+            da DRE. Quem lesse os três não tinha como o descobrir.
+
+            Pior do que isso: a variação era `monthOverMonthGrowth(orders)`, que compara
+            o último mês COM PEDIDOS com o anterior. Estando esse mês em curso, comparava
+            25 dias com 31 — e o resultado aparecia no mesmo ecrã que o alerta "a
+            faturação caiu X%", que o motor de alertas calcula sobre o par ancorado e
+            comparável. Duas frases "vs mês anterior", sobre meses diferentes, a dizer o
+            contrário uma da outra.
+
+            A regra aplicada aqui já existia em dois sítios: o card das contas a pagar ao
+            lado dispensa o delta pela mesma razão, e o motor de alertas recusa-se a
+            afirmar queda ou subida sobre um mês em curso. Mês em curso => valor e mês,
+            sem variação. */}
         <MetricCard
           label="Receitas (Mês)"
-          value={formatEUR(monthMetrics.receitas)}
-          delta={monthMetrics.receitasDelta}
+          value={formatMoney(monthMetrics.receitas)}
+          delta={receitasEmCurso ? undefined : monthMetrics.receitasDelta}
           icon={TrendingUp}
           iconBg="bg-brand-50 text-brand-600"
+          helper={monthMetrics.receitasMonthKey
+            ? `${capitalizarMes(monthLongLabel(monthMetrics.receitasMonthKey))}${receitasEmCurso ? " · mês em curso" : ""}`
+            : undefined}
         />
         {/* TESOURARIA, não DRE: títulos que VENCEM no mês civil corrente. Responde a
             "quanto tenho de pagar este mês", não a "qual foi a despesa operacional".
@@ -213,33 +355,71 @@ export default function Resumo() {
             completo. O modo Demo mantém o delta do mock, que é ilustrativo. */}
         <MetricCard
           label="Contas a pagar este mês"
-          value={formatEUR(monthMetrics.contasPagar ?? monthMetrics.despesas)}
+          value={formatMoney(monthMetrics.contasPagar ?? monthMetrics.despesas)}
           delta={temContasPagarReais ? undefined : monthMetrics.despesasDelta}
           icon={TrendingDown}
           iconBg="bg-rose-50 text-rose-500"
           helper={temContasPagarReais ? `Vencimentos de ${monthLongLabel(monthMetrics.contasPagarMonthKey)}` : undefined}
           demo={source === "api" && !sales?.despesas}
         />
+        {/* RESULTADO VEM SÓ DA DRE — ou não vem.
+            Até 24/08/2026 este card caía em `monthMetrics.resultado` sempre que a DRE
+            não tinha âncora, e esse campo era `receita − contas a pagar` calculado
+            sobre dados REAIS: a métrica proibida do projeto, rotulada "Resultado",
+            pintada de verde e sem selo Demo (o selo só aparecia quando NÃO havia
+            contas a pagar — ou seja, nunca no caso em que o número era falso).
+            Sem DRE, o card mostra um travessão e diz porquê. O modo demonstrativo
+            continua a mostrar o valor do mock, que é o que a demonstração é. */}
         <MetricCard
           label={fm ? "Receita líquida (DRE)" : "Resultado (Mês)"}
-          value={fm ? formatMoneyOrDash(fm.revenue.net) : formatEUR(monthMetrics.resultado)}
-          delta={fm ? undefined : monthMetrics.resultadoDelta}
-          helper={fm ? (legendaDisp(fm.revenue.netAvailability) || `Mês de referência: ${fin.monthKey}`) : undefined}
+          value={fm ? formatMoneyOrDash(fm.revenue.net)
+                    : (source === "api" ? "—" : formatMoney(monthMetrics.resultado))}
+          delta={(fm || source === "api") ? undefined : monthMetrics.resultadoDelta}
+          helper={fm
+            ? (legendaDisp(fm.revenue.netAvailability) || `Mês de referência: ${monthLongLabel(fin.monthKey)}`)
+            : (source === "api" ? "Sem DRE apurada para o mês de referência" : undefined)}
           icon={BarChart3}
           iconBg="bg-sky-50 text-sky-600"
-          tone="success"
-          demo={!fm && source === "api" && !sales?.despesas}
+          /* Verde é uma afirmação sobre o número. Um travessão não a merece. */
+          tone={fm || source !== "api" ? "success" : undefined}
         />
       </div>
+
+      {/* Fecho mensal — logo abaixo dos KPIs: é contexto sobre a fiabilidade dos
+          números acima, e por isso vem antes da leitura detalhada da DRE. */}
+      {fechoMensal && (
+        <div className="mb-6">
+          <FechoMensalCard
+            fecho={fechoMensal}
+            onVerPendencias={() => navigateTo(SCREENS.ALERTAS)}
+          />
+        </div>
+      )}
 
       {fm && (
         <div className="card p-4 mb-6">
           <div className="flex items-baseline justify-between mb-3">
             <h3 className="text-sm font-semibold text-slate-800">Rentabilidade (DRE)</h3>
             <span className="text-xs text-slate-500">
-              Mês de referência: {fin.monthKey}{fin.emCurso ? ` \u00b7 ${fin.emCurso.monthKey} em andamento` : ""}
+              Mês de referência: {monthLongLabel(fin.monthKey)}{fin.emCurso ? ` \u00b7 ${monthLongLabel(fin.emCurso.monthKey)} em andamento` : ""}
             </span>
           </div>
+
+          {/* RESSALVA DA ÂNCORA — decidida em performanceView, não aqui. Só aparece
+              quando o mês acima é um RECURSO e não um fecho: sem ela, um mês com
+              EBITDA `unavailable` mostrava-se com o mesmo ar de definitivo que um mês
+              inteiro. Ver a matriz em src/services/financialAnchor.test.js. */}
+          {anchorNotice && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-sky-50 px-3 py-2">
+              <StatusBadge variant="info">{anchorNotice.badge}</StatusBadge>
+              <span className="text-xs text-sky-900">
+                {anchorNotice.nota}
+                {anchorNotice.itens.length > 0 && (
+                  <span className="text-sky-800"> {anchorNotice.itens.join(" · ")}.</span>
+                )}
+              </span>
+            </div>
+          )}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { l: "Lucro bruto", v: fm.profitability.grossProfit, a: fm.profitability.availability.grossProfit },
@@ -269,8 +449,8 @@ export default function Resumo() {
             title={<span className="inline-flex items-center gap-1.5">Cashflow previsto{source === "api" && !cashflowSource && <DemoTag />}</span>}
             subtitle={
               cashflowSource
-                ? `Variação líquida prevista em ${cashflowDias} dias: ${formatEUR(cashflowDestaque)}`
-                : `Saldo previsto em 30 dias: ${formatEUR(mockMonthMetrics.cashflowPrevisto30)}`
+                ? `Variação líquida prevista em ${cashflowDias} dias: ${formatMoney(cashflowDestaque)}`
+                : `Saldo previsto em 30 dias: ${formatMoney(mockMonthMetrics.cashflowPrevisto30)}`
             }
             height={260}
             action={
@@ -305,7 +485,7 @@ export default function Resumo() {
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="dia" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => formatEURCompact(v)} width={56} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => formatMoneyCompact(v)} width={56} />
                   <Tooltip content={<CashflowTooltip valueLabel={cashflowSource ? "Variação líquida acumulada" : "Saldo"} />} />
                   <Area type="monotone" dataKey="saldo" stroke="#10B981" strokeWidth={2.4} fill="url(#cashGrad)" dot={{ r: 0 }} activeDot={{ r: 5, fill: "#10B981" }} />
                 </AreaChart>
@@ -347,7 +527,7 @@ export default function Resumo() {
                       <p className="text-sm font-medium text-slate-800 truncate">{inv.cliente}</p>
                       <p className="text-xs text-slate-500">{inv.numero} · Vencida há {inv.diasAtraso} dias</p>
                     </div>
-                    <div className="text-sm font-semibold text-rose-600 shrink-0">{formatEUR(inv.valor)}</div>
+                    <div className="text-sm font-semibold text-rose-600 shrink-0">{formatMoney(inv.valor)}</div>
                   </div>
                 ))
               ) : (
@@ -357,7 +537,7 @@ export default function Resumo() {
             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
               <span className="text-xs text-slate-500">Total em atraso</span>
               <span className="text-sm font-semibold text-rose-600">
-                {formatEUR(overdueTotal)}
+                {formatMoney(overdueTotal)}
               </span>
             </div>
           </div>
@@ -376,7 +556,7 @@ export default function Resumo() {
               </button>
             </div>
             <div className="space-y-2 flex-1">
-              {chatSuggestions.map((s, i) => (
+              {chatSugestoes.map((s, i) => (
                 <button
                   key={i}
                   onClick={() => navigateTo(SCREENS.CHAT_FINANCEIRO)}

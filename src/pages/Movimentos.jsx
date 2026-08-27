@@ -8,7 +8,7 @@ import MetricCard  from "../components/ui/MetricCard";
 import DataTable, { RowActionsButton } from "../components/ui/DataTable";
 
 import { movementsMetrics, movementsPeriod, movementsList } from "../data/mockData";
-import { formatEUR } from "../lib/format";
+import { formatMoney } from "../lib/currency";
 
 // ── Mapa categoria → cor de badge ───────────────────────────
 const CAT_STYLE = {
@@ -44,14 +44,14 @@ export default function Movimentos() {
       render: (r) => <span className="text-slate-600">{r.conta}</span> },
     { key: "entrada", header: "Entrada", align: "right",
       render: (r) => r.entrada > 0
-        ? <span className="font-semibold text-brand-600">{formatEUR(r.entrada)}</span>
+        ? <span className="font-semibold text-brand-600">{formatMoney(r.entrada)}</span>
         : <span className="text-slate-300">—</span> },
     { key: "saida", header: "Saída", align: "right",
       render: (r) => r.saida > 0
-        ? <span className="font-semibold text-rose-600">{formatEUR(r.saida)}</span>
+        ? <span className="font-semibold text-rose-600">{formatMoney(r.saida)}</span>
         : <span className="text-slate-300">—</span> },
     { key: "saldo", header: "Saldo", align: "right",
-      render: (r) => <span className="text-slate-700">{formatEUR(r.saldo)}</span> },
+      render: (r) => <span className="text-slate-700">{formatMoney(r.saldo)}</span> },
     { key: "origem", header: "Origem",
       render: (r) => (
         <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
@@ -90,21 +90,21 @@ export default function Movimentos() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <MetricCard
           label="Total Entradas"
-          value={formatEUR(movementsMetrics.totalEntradas)}
+          value={formatMoney(movementsMetrics.totalEntradas)}
           delta={movementsMetrics.entradasDelta}
           icon={ArrowUpRight}
           iconBg="bg-brand-50 text-brand-600"
         />
         <MetricCard
           label="Total Saídas"
-          value={formatEUR(movementsMetrics.totalSaidas)}
+          value={formatMoney(movementsMetrics.totalSaidas)}
           delta={movementsMetrics.saidasDelta}
           icon={ArrowDownRight}
           iconBg="bg-rose-50 text-rose-500"
         />
         <MetricCard
           label="Saldo Líquido"
-          value={formatEUR(movementsMetrics.saldoLiquido)}
+          value={formatMoney(movementsMetrics.saldoLiquido)}
           delta={movementsMetrics.saldoDelta}
           icon={Wallet}
           iconBg="bg-sky-50 text-sky-600"
@@ -137,28 +137,28 @@ export default function Movimentos() {
         <div className="card p-4">
           <span className="label-uppercase">Saldo Inicial</span>
           <div className="text-lg font-semibold text-slate-700 mt-1">
-            {formatEUR(movementsPeriod.saldoInicial)}
+            {formatMoney(movementsPeriod.saldoInicial)}
           </div>
           <div className="text-xs text-slate-500 mt-0.5">{movementsPeriod.inicio}</div>
         </div>
         <div className="card p-4">
           <span className="label-uppercase">Total Entradas</span>
           <div className="text-lg font-semibold text-brand-600 mt-1">
-            {formatEUR(movementsMetrics.totalEntradas)}
+            {formatMoney(movementsMetrics.totalEntradas)}
           </div>
           <div className="text-xs text-slate-500 mt-0.5">no período</div>
         </div>
         <div className="card p-4">
           <span className="label-uppercase">Total Saídas</span>
           <div className="text-lg font-semibold text-rose-600 mt-1">
-            {formatEUR(movementsMetrics.totalSaidas)}
+            {formatMoney(movementsMetrics.totalSaidas)}
           </div>
           <div className="text-xs text-slate-500 mt-0.5">no período</div>
         </div>
         <div className="card p-4">
           <span className="label-uppercase">Saldo Final</span>
           <div className="text-lg font-semibold text-slate-900 mt-1">
-            {formatEUR(movementsPeriod.saldoFinal)}
+            {formatMoney(movementsPeriod.saldoFinal)}
           </div>
           <div className="text-xs text-slate-500 mt-0.5">{movementsPeriod.fim}</div>
         </div>

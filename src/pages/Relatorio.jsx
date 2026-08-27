@@ -7,7 +7,7 @@ import PageHeader  from "../layouts/PageHeader";
 import MetricCard  from "../components/ui/MetricCard";
 
 import { reportMetrics, reportForecast, reportBudget, reportSections } from "../data/mockData";
-import { formatEUR } from "../lib/format";
+import { formatMoney } from "../lib/currency";
 
 // Mapa string → componente ícone
 const ICONS = { FileText, Scale, ArrowLeftRight, Activity, TrendingUp, CalendarRange, ClipboardList };
@@ -17,10 +17,10 @@ function ForecastRow({ row, isBudget = false }) {
   return (
     <tr className="border-b border-slate-100 hover:bg-slate-50/60">
       <td className="px-5 py-3 text-sm font-medium text-slate-800">{row.mes}</td>
-      <td className="px-5 py-3 text-sm text-right tabular-nums text-slate-700">{formatEUR(row.receitas)}</td>
-      <td className="px-5 py-3 text-sm text-right tabular-nums text-slate-700">{formatEUR(row.ebitda)}</td>
-      <td className="px-5 py-3 text-sm text-right tabular-nums font-semibold text-slate-900">{formatEUR(row.lucro)}</td>
-      <td className="px-5 py-3 text-sm text-right tabular-nums text-slate-700">{formatEUR(row.caixa)}</td>
+      <td className="px-5 py-3 text-sm text-right tabular-nums text-slate-700">{formatMoney(row.receitas)}</td>
+      <td className="px-5 py-3 text-sm text-right tabular-nums text-slate-700">{formatMoney(row.ebitda)}</td>
+      <td className="px-5 py-3 text-sm text-right tabular-nums font-semibold text-slate-900">{formatMoney(row.lucro)}</td>
+      <td className="px-5 py-3 text-sm text-right tabular-nums text-slate-700">{formatMoney(row.caixa)}</td>
       {!isBudget && (
         <td className="px-5 py-3 text-right">
           <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border ${
@@ -56,11 +56,11 @@ export default function Relatorio() {
 
       {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
-        <MetricCard label="Receitas Totais"  value={formatEUR(reportMetrics.receitas)} delta={reportMetrics.receitasDelta} deltaLabel="vs 2025" tone="success" />
-        <MetricCard label="Lucro Líquido"    value={formatEUR(reportMetrics.lucro)}    delta={reportMetrics.lucroDelta}    deltaLabel="vs 2025" tone="success" />
-        <MetricCard label="EBITDA"            value={formatEUR(reportMetrics.ebitda)}   delta={reportMetrics.ebitdaDelta}   deltaLabel="vs 2025" tone="success" />
+        <MetricCard label="Receitas Totais"  value={formatMoney(reportMetrics.receitas)} delta={reportMetrics.receitasDelta} deltaLabel="vs 2025" tone="success" />
+        <MetricCard label="Lucro Líquido"    value={formatMoney(reportMetrics.lucro)}    delta={reportMetrics.lucroDelta}    deltaLabel="vs 2025" tone="success" />
+        <MetricCard label="EBITDA"            value={formatMoney(reportMetrics.ebitda)}   delta={reportMetrics.ebitdaDelta}   deltaLabel="vs 2025" tone="success" />
         <MetricCard label="Margem Líquida"   value={`${reportMetrics.margem}%`}        delta={reportMetrics.margemDelta}   deltaSuffix=" p.p." deltaLabel="vs 2025" tone="success" />
-        <MetricCard label="Saldo Final"       value={formatEUR(reportMetrics.caixaFim)} delta={reportMetrics.caixaDelta}    deltaLabel="vs 2025" tone="success" />
+        <MetricCard label="Saldo Final"       value={formatMoney(reportMetrics.caixaFim)} delta={reportMetrics.caixaDelta}    deltaLabel="vs 2025" tone="success" />
         <MetricCard label="ROI"               value={`${reportMetrics.roi}%`}           delta={reportMetrics.roiDelta}      deltaSuffix=" p.p." deltaLabel="vs 2025" tone="success" />
       </div>
 

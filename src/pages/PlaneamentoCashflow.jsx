@@ -13,7 +13,7 @@ import StatusBadge from "../components/ui/StatusBadge";
 import {
   planningMetrics, planningCashflowDaily, planningPeriodSummary, planningRecommendations,
 } from "../data/mockData";
-import { formatEUR, formatEURCompact } from "../lib/format";
+import { formatMoney, formatMoneyCompact } from "../lib/currency";
 
 // ── Tooltip ─────────────────────────────────────────────────
 function CashTooltip({ active, payload, label }) {
@@ -24,9 +24,9 @@ function CashTooltip({ active, payload, label }) {
   return (
     <div className="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white shadow-lg space-y-0.5 min-w-[160px]">
       <div className="text-slate-300 mb-1">{label}</div>
-      <div className="flex justify-between gap-3"><span className="text-brand-300">Entradas</span><span>{formatEUR(entradas)}</span></div>
-      <div className="flex justify-between gap-3"><span className="text-rose-300">Saídas</span><span>{formatEUR(Math.abs(saidas))}</span></div>
-      <div className="flex justify-between gap-3 border-t border-slate-700 mt-1 pt-1 font-semibold"><span>Saldo</span><span>{formatEUR(saldo)}</span></div>
+      <div className="flex justify-between gap-3"><span className="text-brand-300">Entradas</span><span>{formatMoney(entradas)}</span></div>
+      <div className="flex justify-between gap-3"><span className="text-rose-300">Saídas</span><span>{formatMoney(Math.abs(saidas))}</span></div>
+      <div className="flex justify-between gap-3 border-t border-slate-700 mt-1 pt-1 font-semibold"><span>Saldo</span><span>{formatMoney(saldo)}</span></div>
     </div>
   );
 }
@@ -61,14 +61,14 @@ export default function PlaneamentoCashflow() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <MetricCard
           label="Saldo Atual"
-          value={formatEUR(planningMetrics.saldoAtual)}
+          value={formatMoney(planningMetrics.saldoAtual)}
           icon={Wallet}
           iconBg="bg-brand-50 text-brand-600"
           helper="Saldo em 31/05/2026"
         />
         <MetricCard
           label="Saldo Previsto (30 dias)"
-          value={formatEUR(planningMetrics.saldoPrevisto30)}
+          value={formatMoney(planningMetrics.saldoPrevisto30)}
           delta={planningMetrics.saldoPrevisto30D}
           deltaLabel="vs saldo atual"
           icon={TrendingUp}
@@ -77,7 +77,7 @@ export default function PlaneamentoCashflow() {
         />
         <MetricCard
           label="Saldo Previsto (90 dias)"
-          value={formatEUR(planningMetrics.saldoPrevisto90)}
+          value={formatMoney(planningMetrics.saldoPrevisto90)}
           delta={planningMetrics.saldoPrevisto90D}
           deltaLabel="vs saldo atual"
           icon={TrendingUp}
@@ -120,7 +120,7 @@ export default function PlaneamentoCashflow() {
             <ComposedChart data={planningCashflowDaily} margin={{ top: 10, right: 12, left: -8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
               <XAxis dataKey="dia" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => formatEURCompact(v)} width={56} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => formatMoneyCompact(v)} width={56} />
               <Tooltip content={<CashTooltip />} />
               <Legend wrapperStyle={{ paddingTop: 8, fontSize: 12 }} iconType="circle" />
               <ReferenceLine y={0} stroke="#cbd5e1" />
@@ -158,10 +158,10 @@ export default function PlaneamentoCashflow() {
                   {planningPeriodSummary.map((p) => (
                     <tr key={p.periodo} className="border-b border-slate-100 hover:bg-slate-50/60">
                       <td className="px-5 py-3 text-sm font-medium text-slate-800">{p.periodo}</td>
-                      <td className="px-5 py-3 text-sm text-brand-700 text-right tabular-nums">{formatEUR(p.entradas)}</td>
-                      <td className="px-5 py-3 text-sm text-rose-600 text-right tabular-nums">{formatEUR(p.saidas)}</td>
-                      <td className="px-5 py-3 text-sm font-semibold text-slate-800 text-right tabular-nums">{formatEUR(p.saldo)}</td>
-                      <td className="px-5 py-3 text-sm font-semibold text-slate-900 text-right tabular-nums">{formatEUR(p.acumulado)}</td>
+                      <td className="px-5 py-3 text-sm text-brand-700 text-right tabular-nums">{formatMoney(p.entradas)}</td>
+                      <td className="px-5 py-3 text-sm text-rose-600 text-right tabular-nums">{formatMoney(p.saidas)}</td>
+                      <td className="px-5 py-3 text-sm font-semibold text-slate-800 text-right tabular-nums">{formatMoney(p.saldo)}</td>
+                      <td className="px-5 py-3 text-sm font-semibold text-slate-900 text-right tabular-nums">{formatMoney(p.acumulado)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -6,7 +6,7 @@
 import { X } from "lucide-react";
 import StatusBadge from "../ui/StatusBadge";
 import DemoTag from "../ui/DemoTag";
-import { formatEUR } from "../../lib/format";
+import { formatMoney } from "../../lib/currency";
 
 export default function ActionPlanModal({ open, onClose, diagnostic, demo }) {
   if (!open) return null;
@@ -70,7 +70,7 @@ export default function ActionPlanModal({ open, onClose, diagnostic, demo }) {
               </div>
               {typeof a.impacto === "number" && (
                 <p className="mt-2 pl-9 text-xs text-slate-500">
-                  Impacto estimado: <strong className="text-brand-700">+{formatEUR(a.impacto)}</strong>
+                  Impacto estimado: <strong className="text-brand-700">+{formatMoney(a.impacto)}</strong>
                 </p>
               )}
             </div>

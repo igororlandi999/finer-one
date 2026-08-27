@@ -1,10 +1,25 @@
-import { ChevronsUpDown, LogOut, X } from "lucide-react";
+import { LogOut, X } from "lucide-react";
 import { usePlan } from "../context/PlanContext";
-import { company, currentUser } from "../data/mockData";
-import PlanBadge from "../components/ui/PlanBadge";
+import { currentUser } from "../data/mockData";
+import { useAuth } from "../auth/AuthContext";
+import { userInitials, roleLabel } from "../auth/sessionContract";
+import CompanySwitcher from "../components/ui/CompanySwitcher";
 
 export default function Sidebar({ open = false, onClose = () => {} }) {
   const { visibleScreens, activeScreen, navigateTo, plan, planList, changePlan } = usePlan();
+
+  /* ─── UTILIZADOR: DA SESSÃO, COM FALLBACK EXPLÍCITO ────────────────────────────────
+   * `requiresAuth` distingue as duas situações e é isso que evita a pior das saídas
+   * possíveis: apresentar "João Silva" — um nome do mockData — a um utilizador
+   * autenticado a sério, porque a sessão demorou um render a chegar.
+   *
+   * Com autenticação ligada, mostra-se quem está na sessão e mais ninguém. Sem
+   * autenticação (modo atual de desenvolvimento), continua o cartão de demonstração,
+   * que é o que lá está hoje. */
+  const { user, role, requiresAuth, signOut } = useAuth();
+  const nomeUtilizador = requiresAuth ? (user?.name ?? user?.email ?? "—") : currentUser.name;
+  const papelUtilizador = requiresAuth ? roleLabel(role) : currentUser.role;
+  const iniciais = requiresAuth ? userInitials(user) : currentUser.initials;
 
   // No mobile: navegar + fechar drawer
   const handleNavigate = (id) => {
@@ -53,26 +68,10 @@ export default function Sidebar({ open = false, onClose = () => {} }) {
           </button>
         </div>
 
-        {/* Empresa + plano */}
-        <div className="px-3 pb-4">
-          <button
-            type="button"
-            className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-sidebar-hover/60 hover:bg-sidebar-hover transition-colors border border-sidebar-border"
-          >
-            <span className="flex items-center gap-2 min-w-0">
-              <span className="flex h-6 w-6 items-center justify-center rounded bg-brand-500/20 text-brand-300 text-xs font-bold shrink-0">
-                O
-              </span>
-              <span className="flex flex-col items-start min-w-0">
-                <span className="text-sm font-medium text-slate-100 truncate max-w-[140px]">
-                  {company.name}
-                </span>
-                <PlanBadge planId={plan.id} label={plan.label} className="mt-0.5" />
-              </span>
-            </span>
-            <ChevronsUpDown size={14} className="text-sidebar-muted shrink-0" />
-          </button>
-        </div>
+        {/* Empresa + plano.
+            Era um botão que não fazia nada e um nome vindo do mockData. Passa a ser o
+            seletor a sério: com uma empresa é um cartão; com várias, um menu. */}
+        <CompanySwitcher planId={plan.id} planLabel={plan.label} />
 
         {/* Navegação */}
         <nav className="flex-1 overflow-y-auto px-3 pb-3 space-y-0.5">
@@ -118,15 +117,23 @@ export default function Sidebar({ open = false, onClose = () => {} }) {
         <div className="px-3 py-3 border-t border-sidebar-border">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-500 text-white text-xs font-semibold shrink-0">
-              {currentUser.initials}
+              {iniciais}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-slate-100 truncate">{currentUser.name}</div>
-              <div className="text-[11px] text-sidebar-muted truncate">{currentUser.role}</div>
+              <div className="text-sm font-medium text-slate-100 truncate">{nomeUtilizador}</div>
+              <div className="text-[11px] text-sidebar-muted truncate">{papelUtilizador}</div>
             </div>
-            <button className="p-1.5 rounded-md text-sidebar-muted hover:text-slate-100 hover:bg-sidebar-hover transition-colors" aria-label="Sair">
-              <LogOut size={15} />
-            </button>
+            {/* O botão deixou de ser decorativo. Só existe quando há sessão para
+                terminar — um "Sair" que não sai é pior do que não haver botão. */}
+            {requiresAuth && (
+              <button
+                onClick={signOut}
+                className="p-1.5 rounded-md text-sidebar-muted hover:text-slate-100 hover:bg-sidebar-hover transition-colors"
+                aria-label="Terminar sessão"
+              >
+                <LogOut size={15} />
+              </button>
+            )}
           </div>
         </div>
       </aside>

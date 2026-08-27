@@ -13,7 +13,7 @@ import {
   topCustomers as mockTopCustomers,
   topSuppliers as mockTopSuppliers, openCustomerInvoices, openSupplierInvoices,
 } from "../data/mockData";
-import { formatEUR } from "../lib/format";
+import { formatMoney, currencySymbol } from "../lib/currency";
 import { useFinerData } from "../context/FinerDataContext";
 import { downloadCsv, csvMoney } from "../utils/csvExport";
 import { buildOperationalAlerts, hasOperationalSource } from "../utils/operationalAlerts";
@@ -34,7 +34,7 @@ function TopRow({ name, openCount, balance, tone, unitLabel = "faturas em aberto
         <p className="text-xs text-slate-500">{openCount} {unitLabel}</p>
       </div>
       <div className={`text-sm font-semibold shrink-0 ${tone === "in" ? "text-brand-700" : "text-rose-600"}`}>
-        {formatEUR(balance)}
+        {formatMoney(balance)}
       </div>
     </div>
   );
@@ -87,7 +87,7 @@ function OpenInvoicesTable({ rows, partyHeader, partyKey, demo = false, totalCou
               <td className="px-5 py-3 text-sm text-slate-600">{r.numero}</td>
               <td className="px-5 py-3 text-sm text-slate-600">{r.dataEmissao}</td>
               <td className="px-5 py-3 text-sm text-slate-600">{r.vencimento}</td>
-              <td className="px-5 py-3 text-sm font-semibold text-slate-800 text-right tabular-nums">{formatEUR(r.valor)}</td>
+              <td className="px-5 py-3 text-sm font-semibold text-slate-800 text-right tabular-nums">{formatMoney(r.valor)}</td>
               <td className="px-5 py-3 text-right">
                 {r.diasAtraso > 0
                   ? <span className="inline-flex items-center gap-1 text-xs font-medium text-rose-600">
@@ -108,7 +108,7 @@ function OpenInvoicesTable({ rows, partyHeader, partyKey, demo = false, totalCou
           A mostrar {shown} de {total} {plural}
         </span>
         <span className="text-sm text-slate-600">
-          Total em aberto: <span className="font-semibold text-slate-900 tabular-nums">{formatEUR(valor)}</span>
+          Total em aberto: <span className="font-semibold text-slate-900 tabular-nums">{formatMoney(valor)}</span>
         </span>
       </div>
     </div>
@@ -132,14 +132,14 @@ export default function ClientesFornecedores() {
         i.cliente, i.numero, i.dataEmissao, i.vencimento, csvMoney(i.valor), i.diasAtraso,
       ]);
       downloadCsv("clientes-em-aberto.csv",
-        ["Cliente", "Nº documento", "Emissão", "Vencimento", "Valor (€)", "Dias em atraso"], rows);
+        ["Cliente", "Nº documento", "Emissão", "Vencimento", `Valor (${currencySymbol()})`, "Dias em atraso"], rows);
     }
     if (hasPayables) {
       const rows = (sales?.fornecedores?.allOpenInvoices ?? sales?.fornecedores?.openInvoices ?? []).map((i) => [
         i.fornecedor, i.numero, i.dataEmissao, i.vencimento, csvMoney(i.valor), i.diasAtraso,
       ]);
       downloadCsv("fornecedores-em-aberto.csv",
-        ["Fornecedor", "Nº documento", "Emissão", "Vencimento", "Valor (€)", "Dias em atraso"], rows);
+        ["Fornecedor", "Nº documento", "Emissão", "Vencimento", `Valor (${currencySymbol()})`, "Dias em atraso"], rows);
     }
   }
   const customersSuppliersMetrics = { ...mockCustomersSuppliersMetrics, ...(sales?.recebiveis?.metrics ?? {}), ...(sales?.fornecedores?.metrics ?? {}) };
@@ -171,7 +171,7 @@ export default function ClientesFornecedores() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <MetricCard
           label="Saldo a Receber"
-          value={formatEUR(customersSuppliersMetrics.saldoReceber)}
+          value={formatMoney(customersSuppliersMetrics.saldoReceber)}
           delta={customersSuppliersMetrics.saldoReceberDelta}
           icon={Users}
           iconBg="bg-brand-50 text-brand-600"
@@ -180,7 +180,7 @@ export default function ClientesFornecedores() {
         />
         <MetricCard
           label="Saldo a Pagar"
-          value={formatEUR(customersSuppliersMetrics.saldoPagar)}
+          value={formatMoney(customersSuppliersMetrics.saldoPagar)}
           delta={customersSuppliersMetrics.saldoPagarDelta}
           icon={Users2}
           iconBg="bg-purple-50 text-purple-600"

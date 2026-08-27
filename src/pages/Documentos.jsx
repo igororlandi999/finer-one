@@ -160,6 +160,25 @@ export default function Documentos() {
       .map(fromMock);
   }, [isReal, view.list, tab, search]);
 
+  /* ── QUANTAS LINHAS SE DESENHAM DE FACTO ─────────────────────────────────────────
+   * A tabela desenhava a lista INTEIRA. Com os dados reais da conta são 2 316 linhas:
+   * medido no browser, ~62 800 nós no DOM e ~730 ms até a tabela existir, a cada
+   * entrada na página. O catálogo cresce com cada pedido e cada título, pelo que isto
+   * piora sozinho — a 10× o volume atual são ~627 000 nós, e a página deixa de abrir.
+   *
+   * O projeto já tem paginação em `components/ui/DataTable`, mas esta tabela é própria
+   * (tabs, pesquisa e ações desenhadas à volta dela). Em vez de a reescrever agora,
+   * limita-se o que se desenha e dá-se ao utilizador a forma de ver mais. A pesquisa e
+   * as tabs continuam a filtrar sobre a lista TODA — o limite é de desenho, nunca de
+   * dados, e a contagem ao lado da pesquisa continua a ser a real. */
+  const PASSO_LINHAS = 100;
+  const [limite, setLimite] = useState(PASSO_LINHAS);
+  // Filtrar ou pesquisar recomeça a contagem: caso contrário, um filtro aplicado depois
+  // de "mostrar mais" herdava um limite que já não corresponde ao que se está a ver.
+  useEffect(() => { setLimite(PASSO_LINHAS); }, [tab, search, isReal]);
+  const linhasVisiveis = rows.slice(0, limite);
+  const porMostrar = Math.max(0, rows.length - linhasVisiveis.length);
+
   const donutData = isReal ? documentsByCategory(view.list) : mockDocsByCategory;
   const total = isReal ? view.stats.total : docsMetrics.total;
   const recentes = isReal ? view.list.slice(0, 5).map(fromReal) : docsList.slice(0, 5).map(fromMock);
@@ -378,7 +397,7 @@ export default function Documentos() {
                   </td>
                 </tr>
               ) : (
-                rows.map((d) => {
+                linhasVisiveis.map((d) => {
                   const temFicheiro = canDownload({ file: d.file });
                   return (
                     <tr key={d.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
@@ -436,6 +455,24 @@ export default function Documentos() {
             </tbody>
           </table>
         </div>
+
+        {/* Nunca se esconde a existência das linhas que faltam: diz-se quantas são e
+            dá-se a forma de as ver. Um "1–100 de 2 316" mudo seria o mesmo limite sem
+            a saída. */}
+        {porMostrar > 0 && (
+          <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
+            <span className="text-xs text-slate-500">
+              A mostrar {linhasVisiveis.length} de {rows.length} documentos.
+            </span>
+            <button
+              type="button"
+              onClick={() => setLimite((n) => n + PASSO_LINHAS)}
+              className="text-xs font-medium text-brand-600 hover:text-brand-700"
+            >
+              Mostrar mais {Math.min(PASSO_LINHAS, porMostrar)}
+            </button>
+          </div>
+        )}
       </div>
     </>
   );

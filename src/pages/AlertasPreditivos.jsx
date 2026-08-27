@@ -9,7 +9,7 @@ import {
 import PageHeader from "../layouts/PageHeader";
 
 import { predictiveSummary, predictiveAlerts, predictiveForecast } from "../data/mockData";
-import { formatEUR, formatEURCompact } from "../lib/format";
+import { formatMoney, formatMoneyCompact, currencySymbol } from "../lib/currency";
 
 const SEV = {
   danger:  { icon: AlertCircle,   color: "text-rose-600",  bg: "bg-rose-50",  border: "border-rose-200",  bar: "bg-rose-500",  label: "Risco Elevado" },
@@ -45,7 +45,7 @@ function ForecastTooltip({ active, payload, label }) {
   return (
     <div className="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white shadow-lg">
       <div className="text-slate-300">{label}</div>
-      <div className="font-semibold mt-0.5">{formatEUR(d.saldo)}</div>
+      <div className="font-semibold mt-0.5">{formatMoney(d.saldo)}</div>
       <div className={`mt-0.5 ${zoneColor}`}>{zoneLabel}</div>
     </div>
   );
@@ -143,9 +143,9 @@ export default function AlertasPreditivos() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
               <XAxis dataKey="dia" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => formatEURCompact(v)} width={56} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => formatMoneyCompact(v)} width={56} />
               <Tooltip content={<ForecastTooltip />} />
-              <ReferenceLine y={0}     stroke="#cbd5e1" strokeDasharray="4 4" label={{ value: "Limite 0 €",     position: "right", fill: "#94a3b8", fontSize: 10 }} />
+              <ReferenceLine y={0}     stroke="#cbd5e1" strokeDasharray="4 4" label={{ value: `Limite 0 ${currencySymbol()}`, position: "right", fill: "#94a3b8", fontSize: 10 }} />
               <ReferenceLine y={15000} stroke="#fbbf24" strokeDasharray="4 4" label={{ value: "Limite segurança", position: "right", fill: "#d97706", fontSize: 10 }} />
               <Area type="monotone" dataKey="saldo" stroke="#0f172a" strokeWidth={2.4} fill="url(#zoneGrad)" dot={(props) => {
                 const { cx, cy, payload, index } = props;
@@ -158,11 +158,11 @@ export default function AlertasPreditivos() {
         <div className="grid grid-cols-3 gap-3 mt-4">
           <div className="p-3 rounded-lg bg-slate-50 border border-slate-200/70">
             <div className="text-xs text-slate-500">Saldo máximo previsto</div>
-            <div className="text-base font-semibold text-brand-700 mt-0.5">{formatEUR(maxSaldo)}</div>
+            <div className="text-base font-semibold text-brand-700 mt-0.5">{formatMoney(maxSaldo)}</div>
           </div>
           <div className="p-3 rounded-lg bg-slate-50 border border-slate-200/70">
             <div className="text-xs text-slate-500">Saldo mínimo previsto</div>
-            <div className="text-base font-semibold text-rose-600 mt-0.5">{formatEUR(minSaldo)}</div>
+            <div className="text-base font-semibold text-rose-600 mt-0.5">{formatMoney(minSaldo)}</div>
           </div>
           <div className="p-3 rounded-lg bg-slate-50 border border-slate-200/70">
             <div className="text-xs text-slate-500">Dias até zona crítica</div>

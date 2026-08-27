@@ -8,10 +8,10 @@ import {
   TrendingUp, TrendingDown, Users, FileText,
   BarChart3, CalendarRange, Activity, Award,
   Globe, ClipboardList, Bell, Radar,
-  BrainCircuit, MessageSquare,
+  BrainCircuit, MessageSquare, SlidersHorizontal,
 } from "lucide-react";
 
-// IDs canónicos das 17 telas
+// IDs canónicos das telas
 export const SCREENS = {
   RESUMO:                "resumo",
   DIAGNOSTICO:           "diagnostico",
@@ -20,6 +20,7 @@ export const SCREENS = {
   DESPESAS:              "despesas",
   CLIENTES_FORNECEDORES: "clientes-fornecedores",
   DOCUMENTOS:            "documentos",
+  AJUSTES_MANUAIS:       "ajustes-manuais",
   PERFORMANCE:           "performance",
   PLANEAMENTO:           "planeamento",
   INDICADORES:           "indicadores",
@@ -41,6 +42,7 @@ export const SCREEN_CATALOG = {
   [SCREENS.DESPESAS]:              { id: SCREENS.DESPESAS,              label: "Despesas",                icon: TrendingDown    },
   [SCREENS.CLIENTES_FORNECEDORES]: { id: SCREENS.CLIENTES_FORNECEDORES, label: "Clientes e Fornecedores", icon: Users           },
   [SCREENS.DOCUMENTOS]:            { id: SCREENS.DOCUMENTOS,            label: "Documentos",              icon: FileText        },
+  [SCREENS.AJUSTES_MANUAIS]:       { id: SCREENS.AJUSTES_MANUAIS,       label: "Dados a completar",       icon: SlidersHorizontal },
   [SCREENS.PERFORMANCE]:           { id: SCREENS.PERFORMANCE,           label: "Performance Financeira",  icon: BarChart3       },
   [SCREENS.PLANEAMENTO]:           { id: SCREENS.PLANEAMENTO,           label: "Planeamento e Cashflow",  icon: CalendarRange   },
   [SCREENS.INDICADORES]:           { id: SCREENS.INDICADORES,           label: "Indicadores",             icon: Activity        },
@@ -53,7 +55,7 @@ export const SCREEN_CATALOG = {
   [SCREENS.CHAT_FINANCEIRO]:       { id: SCREENS.CHAT_FINANCEIRO,       label: "Chat Financeiro",         icon: MessageSquare   },
 };
 
-// Definição dos 4 planos — a ordem de `screens` é a ordem exata na sidebar
+// Definição dos planos — a ordem de `screens` é a ordem exata na sidebar
 export const PLANS = {
   plus: {
     id: "plus",
@@ -65,6 +67,7 @@ export const PLANS = {
       SCREENS.DESPESAS,
       SCREENS.CLIENTES_FORNECEDORES,
       SCREENS.DOCUMENTOS,
+      SCREENS.AJUSTES_MANUAIS,
       SCREENS.PERFORMANCE,
       SCREENS.ALERTAS,
       SCREENS.CHAT_FINANCEIRO,
@@ -89,6 +92,7 @@ export const PLANS = {
       SCREENS.DESPESAS,
       SCREENS.CLIENTES_FORNECEDORES,
       SCREENS.DOCUMENTOS,
+      SCREENS.AJUSTES_MANUAIS,
       SCREENS.PERFORMANCE,
       SCREENS.PLANEAMENTO,
       SCREENS.INDICADORES,
@@ -115,6 +119,7 @@ export const PLANS = {
       SCREENS.DESPESAS,
       SCREENS.CLIENTES_FORNECEDORES,
       SCREENS.DOCUMENTOS,
+      SCREENS.AJUSTES_MANUAIS,
       SCREENS.PERFORMANCE,
       SCREENS.PLANEAMENTO,
       SCREENS.INDICADORES,

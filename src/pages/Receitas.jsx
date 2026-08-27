@@ -17,7 +17,7 @@ import {
   revenueByCategory as mockRevenueByCategory,
   revenueList       as mockRevenueList,
 } from "../data/mockData";
-import { formatEUR, formatEURCompact } from "../lib/format";
+import { formatMoney, formatMoneyCompact, currencySymbol } from "../lib/currency";
 import { useFinerData } from "../context/FinerDataContext";
 import { downloadCsv, csvMoney } from "../utils/csvExport";
 import { buildRevenueByCategoryFromOrders } from "../services/blingDataService";
@@ -28,7 +28,7 @@ function EvTooltip({ active, payload, label }) {
   return (
     <div className="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white shadow-lg">
       <div className="text-slate-300">{label}</div>
-      <div className="font-semibold mt-0.5">{formatEUR(payload[0].value)}</div>
+      <div className="font-semibold mt-0.5">{formatMoney(payload[0].value)}</div>
     </div>
   );
 }
@@ -58,7 +58,7 @@ export default function Receitas() {
       r.recebidoEm ?? "\u2014", STATUS_LABEL[r.status] ?? r.status, r.metodo,
     ]);
     downloadCsv("receitas.csv",
-      ["Data", "Cliente", "Documento", "Categoria", "Valor (€)", "Recebido em", "Estado", "Método"], rows);
+      ["Data", "Cliente", "Documento", "Categoria", `Valor (${currencySymbol()})`, "Recebido em", "Estado", "Método"], rows);
   }
   const revenueMetrics    = sales?.receitas?.metrics    ?? mockRevenueMetrics;
   const revenueEvolution  = sales?.receitas?.evolution  ?? mockRevenueEvolution;
@@ -81,7 +81,7 @@ export default function Receitas() {
     { key: "categoria", header: "Categoria",
       render: (r) => <span className="text-slate-600">{r.categoria}</span> },
     { key: "valor", header: "Valor", align: "right",
-      render: (r) => <span className="font-semibold text-brand-700">{formatEUR(r.valor)}</span> },
+      render: (r) => <span className="font-semibold text-brand-700">{formatMoney(r.valor)}</span> },
     { key: "recebidoEm", header: "Recebido em",
       render: (r) => r.recebidoEm ?? <span className="text-slate-400">—</span> },
     { key: "status", header: "Estado",
@@ -120,14 +120,14 @@ export default function Receitas() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <MetricCard
           label="Total Receitas (Mês)"
-          value={formatEUR(revenueMetrics.totalMes)}
+          value={formatMoney(revenueMetrics.totalMes)}
           delta={revenueMetrics.totalDelta}
           icon={TrendingUp}
           iconBg="bg-brand-50 text-brand-600"
         />
         <MetricCard
           label="Receita Média Diária"
-          value={formatEUR(revenueMetrics.mediaDiaria)}
+          value={formatMoney(revenueMetrics.mediaDiaria)}
           delta={revenueMetrics.mediaDelta}
           icon={CalendarDays}
           iconBg="bg-brand-50 text-brand-600"
@@ -143,7 +143,7 @@ export default function Receitas() {
         />
         <MetricCard
           label="Receitas em Aberto"
-          value={formatEUR(revenueMetrics.emAtraso)}
+          value={formatMoney(revenueMetrics.emAtraso)}
           icon={Clock}
           iconBg="bg-amber-50 text-amber-600"
           helper={`${revenueMetrics.emAtrasoQtd} clientes com faturas em aberto`}
@@ -177,7 +177,7 @@ export default function Receitas() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                 <XAxis dataKey="dia" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => formatEURCompact(v)} width={56} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => formatMoneyCompact(v)} width={56} />
                 <Tooltip content={<EvTooltip />} />
                 <Area type="monotone" dataKey="valor" stroke="#10B981" strokeWidth={2.4} fill="url(#revGrad)" dot={{ r: 0 }} activeDot={{ r: 5, fill: "#10B981" }} />
               </AreaChart>

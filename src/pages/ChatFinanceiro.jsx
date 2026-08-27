@@ -32,8 +32,17 @@ function UserBadge() {
 }
 
 // ── Card de métrica inline (resposta IA) ────────────────────
-function InlineMetric({ label, value, delta, tone = "success" }) {
-  const color = tone === "success" ? "text-brand-600" : "text-rose-600";
+/* `tone` tem TRÊS valores, não dois. O ramo `else` pintava de vermelho tudo o que não
+ * fosse "success" — e um cartão neutro (contas a pagar do mês, que não é boa nem má
+ * notícia) saía a vermelho, como se fosse um alarme.
+ *
+ * `note` é a ressalva de disponibilidade da linha ("Inclui o CMV introduzido
+ * manualmente", "mínimo conhecido"). Sem a desenhar, o motor emitia-a e o ecrã comia-a
+ * — e o cartão voltava a afirmar um valor sem dizer de que material é feito. */
+function InlineMetric({ label, value, delta, tone = "success", note }) {
+  const color = tone === "success" ? "text-brand-600"
+    : tone === "neutral" ? "text-slate-500"
+      : "text-rose-600";
   const Arrow = String(delta ?? "").trim().startsWith("-") ? ArrowDownRight : ArrowUpRight;
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
@@ -44,6 +53,7 @@ function InlineMetric({ label, value, delta, tone = "success" }) {
           <Arrow size={11} />{delta}
         </div>
       ) : null}
+      {note ? <div className="text-[11px] text-slate-500 mt-1 leading-snug">{note}</div> : null}
     </div>
   );
 }
