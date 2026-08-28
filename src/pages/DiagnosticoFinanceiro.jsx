@@ -15,6 +15,7 @@ import StatusBadge       from "../components/ui/StatusBadge";
 import DiagnosticGauge   from "../components/diagnostic/DiagnosticGauge";
 import ActionPlanModal   from "../components/diagnostic/ActionPlanModal";
 import { SUPPORTED_QUESTIONS, PENDING_CHAT_QUESTION_KEY } from "../utils/chatEngine";
+import { resolveScoreDisclosure, explicarCalculoDoScore } from "../utils/scoreDisclosure";
 
 import { usePlan }       from "../context/PlanContext";
 import { SCREENS }       from "../config/planConfig";
@@ -62,6 +63,12 @@ export default function DiagnosticoFinanceiro() {
   const evolucaoData    = isRealDiag ? (sales.diagnostico.evolucao ?? null) : mockDiagnostic.evolucao;
   const temEvolucao     = Array.isArray(evolucaoData) && evolucaoData.length > 0;
   const scoreDelta      = diagnostic.scorePrevious != null ? diagnostic.score - diagnostic.scorePrevious : null;
+  /* O QUE O SCORE NÃO VIU. O motor já registava as dimensões sem fonte em
+   * `naoAvaliados`, com o motivo, e nenhum componente lia esse campo. Sem isto, um mês
+   * com o CMV ausente — julho/2026 — chegava aqui com a rentabilidade por avaliar, sem
+   * penalizações, e o ecrã declarava "a empresa atingiu o score máximo". Ver
+   * `utils/scoreDisclosure.js`. */
+  const scoreDisclosure = resolveScoreDisclosure(sales?.diagnostico ?? null);
   const totalAcoes      = diagnostic.acoes.reduce((acc, a) => acc + (Number(a.impacto) || 0), 0);
   const [planOpen, setPlanOpen] = useState(false);
   // Sugestões clicáveis: com diagnóstico real, só perguntas que o chat sabe responder.
@@ -174,21 +181,36 @@ export default function DiagnosticoFinanceiro() {
               <div><div className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">50 - 74</div><div className="text-xs text-slate-500 mt-0.5">Atenção</div></div>
               <div><div className="text-[10px] font-semibold text-brand-600 uppercase tracking-wider">75 - 100</div><div className="text-xs text-slate-500 mt-0.5">Saudável</div></div>
             </div>
-            {sales?.diagnostico?.penalizacoes && (
+            {scoreDisclosure && (
               <div className="mt-4 pt-4 border-t border-slate-100">
                 <div className="label-uppercase mb-2">Como o score foi calculado</div>
-                {sales.diagnostico.penalizacoes.length ? (
-                  <>
-                    <div className="divide-y divide-slate-100">
-                      {sales.diagnostico.penalizacoes.map((pen, i) => <PenaltyLine key={i} pen={pen} />)}
-                    </div>
-                    <p className="text-xs text-slate-500 mt-3">
-                      Partimos de 100; os descontos somam −{sales.diagnostico.penalizacoes.reduce((acc, pen) => acc + pen.pts, 0)} pts → score {diagnostic.score}.
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-sm text-brand-700">Sem penalizações — a empresa atingiu o score máximo.</p>
+                {scoreDisclosure.penalizacoes.length > 0 && (
+                  <div className="divide-y divide-slate-100">
+                    {scoreDisclosure.penalizacoes.map((pen, i) => <PenaltyLine key={i} pen={pen} />)}
+                  </div>
                 )}
+
+                {/* AS DIMENSÕES QUE O SCORE NÃO VIU. Não descontam — penalizar a
+                    ausência confundiria "não sei" com "está mau", que é a confusão que
+                    este produto recusa em todo o lado. Mas também não podem ficar
+                    invisíveis: um score que saltou uma parcela e não o diz é uma
+                    afirmação mais forte do que os dados sustentam. */}
+                {!scoreDisclosure.completo && (
+                  <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-3">
+                    <div className="text-xs font-semibold text-slate-700">Não avaliado</div>
+                    <ul className="mt-1.5 space-y-1">
+                      {scoreDisclosure.naoAvaliadas.map((d) => (
+                        <li key={d.dimensao} className="text-xs text-slate-600">
+                          <span className="font-medium text-slate-700">{d.rotulo}</span> — {d.motivo}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <p className={`text-xs mt-3 ${scoreDisclosure.podeAfirmarMaximo ? "text-brand-700" : "text-slate-500"}`}>
+                  {explicarCalculoDoScore(scoreDisclosure, diagnostic.score)}
+                </p>
               </div>
             )}
           </div>
