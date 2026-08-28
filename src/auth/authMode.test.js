@@ -12,7 +12,12 @@ import {
 
 const SUPABASE_OK = {
   VITE_SUPABASE_URL: "https://abcdefghijklm.supabase.co",
-  VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.chave-anon-publica-longa",
+  /* A forma tem de ser a de um JWT — é isso que `hasSupabaseConfig` avalia — e o valor
+   * tem de se DECLARAR falso, para que a varredura de segredos o distinga de uma chave
+   * verdadeira colada aqui um dia para depurar. Ver `scripts/predeploy-check.mjs` no
+   * repositório do BFF: o que torna um valor aceitável não é estar num teste, é dizer
+   * que é falso. */
+  VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.chave-anon-publica-nao-real-de-teste",
 };
 
 /* Um ambiente de produção pode declarar-se de três maneiras. Todos os testes de
