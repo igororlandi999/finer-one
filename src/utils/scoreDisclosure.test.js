@@ -112,12 +112,32 @@ describe("entradas defeituosas não rebentam nem inventam", () => {
     expect(explicarCalculoDoScore(undefined, 100)).toBeNull();
   });
 
-  it("campos ausentes são tratados como listas vazias, não como erro", () => {
-    const d = resolveScoreDisclosure({ score: 100 });
-    expect(d.penalizacoes).toEqual([]);
-    expect(d.naoAvaliadas).toEqual([]);
-    expect(d.completo).toBe(true);
-    expect(d.podeAfirmarMaximo).toBe(true);
+  it("AUSENTE não é VAZIO: um diagnóstico que não se pronuncia não autoriza o máximo", () => {
+    /* Apanhado a rever o próprio diff desta sessão. A primeira versão tratava
+     * `penalizacoes` ausente como `[]` e concluía `podeAfirmarMaximo: true` — ou seja,
+     * um diagnóstico com uma forma que não reconhecemos produzia "a empresa atingiu o
+     * score máximo", que é a afirmação mais forte que este ecrã sabe fazer, a partir de
+     * nada. Era o defeito original outra vez, uma camada acima.
+     *
+     * `penalizacoes: []` é o motor a DIZER que não há nada a descontar.
+     * `penalizacoes` ausente é o motor a não dizer nada. */
+    const semNada = resolveScoreDisclosure({ score: 100 });
+    expect(semNada.penalizacoes).toEqual([]);
+    expect(semNada.naoAvaliadas).toEqual([]);
+    expect(semNada.completo, "afirmou completude sem o motor se pronunciar").toBe(false);
+    expect(semNada.podeAfirmarMaximo, "afirmou o máximo a partir de nada").toBe(false);
+    expect(explicarCalculoDoScore(semNada, 100)).not.toContain("máximo");
+
+    /* Cada metade em falta, isolada. */
+    const semNaoAvaliados = resolveScoreDisclosure({ score: 100, penalizacoes: [] });
+    expect(semNaoAvaliados.podeAfirmarMaximo).toBe(false);
+
+    const semPenalizacoes = resolveScoreDisclosure({ score: 100, naoAvaliados: [] });
+    expect(semPenalizacoes.podeAfirmarMaximo).toBe(false);
+
+    /* E o contrapeso: DECLARAR as duas vazias é o máximo legítimo. */
+    const declarouTudo = resolveScoreDisclosure({ score: 100, penalizacoes: [], naoAvaliados: [] });
+    expect(declarouTudo.podeAfirmarMaximo).toBe(true);
   });
 
   it("penalizações malformadas são descartadas, e não somadas como NaN", () => {

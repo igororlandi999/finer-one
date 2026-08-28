@@ -58,11 +58,25 @@ export function resolveScoreDisclosure(diagnostico) {
    * Ou seja: a ausência de diagnóstico nenhum passava a "atingiu o máximo". */
   if (!diagnostico || typeof diagnostico !== "object" || Array.isArray(diagnostico)) return null;
 
-  const penalizacoes = Array.isArray(diagnostico.penalizacoes)
+  /* ── AUSENTE NÃO É VAZIO ────────────────────────────────────────────────────────
+   * `penalizacoes: []` é o motor a DIZER que não há nada a descontar.
+   * `penalizacoes` ausente é o motor a não dizer nada — um diagnóstico com uma forma
+   * que não reconhecemos.
+   *
+   * Tratar os dois como a mesma coisa era o defeito original outra vez, uma camada
+   * acima: um diagnóstico malformado produziria "a empresa atingiu o score máximo",
+   * que é a afirmação mais forte que este ecrã sabe fazer, a partir de nada.
+   *
+   * As listas continuam vazias para o desenho — não se inventa uma penalização nem uma
+   * dimensão em falta. O que muda é o que se pode AFIRMAR sobre elas. */
+  const declarouPenalizacoes = Array.isArray(diagnostico.penalizacoes);
+  const declarouNaoAvaliados = Array.isArray(diagnostico.naoAvaliados);
+
+  const penalizacoes = declarouPenalizacoes
     ? diagnostico.penalizacoes.filter((p) => p && typeof p.pts === "number" && Number.isFinite(p.pts))
     : [];
 
-  const naoAvaliadas = (Array.isArray(diagnostico.naoAvaliados) ? diagnostico.naoAvaliados : [])
+  const naoAvaliadas = (declarouNaoAvaliados ? diagnostico.naoAvaliados : [])
     .filter((n) => n && typeof n.dimensao === "string" && n.dimensao !== "")
     .map((n) => ({
       dimensao: n.dimensao,
@@ -71,8 +85,9 @@ export function resolveScoreDisclosure(diagnostico) {
     }));
 
   /* `completo` é a pergunta que importa: o score olhou para tudo o que devia?
-   * NÃO é o mesmo que "não há penalizações". */
-  const completo = naoAvaliadas.length === 0;
+   * NÃO é o mesmo que "não há penalizações". E exige que o motor se tenha PRONUNCIADO:
+   * um diagnóstico que não declara `naoAvaliados` não autoriza afirmar completude. */
+  const completo = declarouNaoAvaliados && naoAvaliadas.length === 0;
 
   return {
     temDiagnostico: true,
@@ -80,9 +95,11 @@ export function resolveScoreDisclosure(diagnostico) {
     totalDescontado: penalizacoes.reduce((acc, p) => acc + p.pts, 0),
     naoAvaliadas,
     completo,
-    /* A frase "atingiu o score máximo" exige as DUAS condições. Nada a descontar e uma
-     * dimensão por avaliar não é um máximo — é um máximo entre o que se conseguiu ver. */
-    podeAfirmarMaximo: penalizacoes.length === 0 && completo,
+    /* A frase "atingiu o score máximo" exige TRÊS condições: nada a descontar, nada por
+     * avaliar, e o motor a ter dito ambas as coisas. Nada a descontar com uma dimensão
+     * por avaliar não é um máximo — é um máximo entre o que se conseguiu ver. E não
+     * saber se há dimensões por avaliar também não é um máximo. */
+    podeAfirmarMaximo: declarouPenalizacoes && penalizacoes.length === 0 && completo,
   };
 }
 
