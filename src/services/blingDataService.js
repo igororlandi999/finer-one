@@ -703,7 +703,7 @@ function buildRecebiveis(receivables) {
  * um cliente novo com o histórico inteiro. */
 const MESES_JANELA_FECHO = 3;
 
-export function buildSalesDataset({ orders, payables, receivables, coverage: coverageOverride, manualInputsByMonth, manualCoverage, meta }) {
+export function buildSalesDataset({ orders, payables, receivables, coverage: coverageOverride, manualInputsByMonth, manualCoverage, meta, companyId }) {
   /* `manualInputsByMonth` é OPCIONAL: mapa { "aaaa-mm": { cmv?: number } }.
    * O contrato é POR MÊS, não "por mês fechado": qualquer mês construído aqui recebe
    * exclusivamente a sua própria entrada — o par fechado/anterior via
@@ -1060,8 +1060,28 @@ export function buildSalesDataset({ orders, payables, receivables, coverage: cov
      * campo é o que permite a `resolveCompanyDataScope` recusar essa apresentação em
      * vez de a fazer em silêncio.
      *
-     * Não muda cálculo nenhum: é uma etiqueta de proveniência. */
-    companyId: ACTIVE_COMPANY.id,
+     * Não muda cálculo nenhum: é uma etiqueta de proveniência.
+     *
+     * ─── A ETIQUETA TEM DE VIR DA LEITURA, NÃO DA CONFIGURAÇÃO ────────────────────
+     * Estava `companyId: ACTIVE_COMPANY.id` — a constante compilada, sempre. Enquanto a
+     * leitura foi sempre da Overcel, a constante e a verdade coincidiram e nada as
+     * distinguia. Deixam de coincidir no dia em que o transporte protegido liga: a
+     * leitura passa a ser `/api/companies/:id/financial-data` e traz os dados de QUEM
+     * FOI PEDIDO, enquanto a etiqueta continuava a dizer "overcel".
+     *
+     * O efeito não era uma fuga — era o contrário, e igualmente grave: o guarda
+     * `resolveCompanyDataScope` comparava a empresa ativa com a configuração e concluía
+     * NAO_LIGADA para toda a gente menos a empresa compilada. Os dados certos eram
+     * lidos e depois recusados pelo guarda que existe para os proteger.
+     *
+     * E, a prazo, o defeito mais fundo: uma etiqueta que não depende da leitura nunca
+     * pode DETETAR uma leitura da empresa errada. O guarda estava a comparar a
+     * configuração consigo própria — acertava por coincidência, não por construção.
+     *
+     * Sem `companyId` — o transporte LEGADO, que é anónimo e serve uma empresa só —
+     * mantém-se a configuração. É onde a verdade está nesse caminho, e é o
+     * comportamento de hoje sem uma vírgula de diferença. */
+    companyId: (typeof companyId === "string" && companyId !== "") ? companyId : ACTIVE_COMPANY.id,
 
     /* ── ENTRADAS DO REBUILD ───────────────────────────────────────────────────────
      * `orders` e `payables` já eram expostos; faltavam estes dois para se poder
@@ -1117,6 +1137,10 @@ export function rebuildComCobertura(dataset, manualCoverage) {
     manualInputsByMonth: entradas.manualInputsByMonth,
     manualCoverage,
     meta: dataset.meta ?? undefined,
+    /* Confirmar cobertura não muda de empresa. Sem isto, o rebuild ia buscar a etiqueta
+     * à configuração e um dataset da empresa B renascia carimbado como Overcel — o
+     * guarda de escopo, que até aí deixava passar, passaria a recusar a meio da sessão. */
+    companyId: dataset.companyId,
   });
 }
 
@@ -1389,6 +1413,11 @@ export async function loadFinerData({ transport, companyId } = {}) {
          * como cobertura, nunca como rubrica — ver `envelopeManualInputs`. */
         manualCoverage: manualInputs ? manualInputs.coverage : undefined,
         meta,
+        /* A empresa que ESTA leitura pediu. Só existe quando a leitura é escopada —
+         * transporte protegido. No legado é `undefined` e o dataset volta a etiquetar-se
+         * pela configuração, que é o comportamento de hoje. Ver o bloco A ETIQUETA TEM
+         * DE VIR DA LEITURA em `buildSalesDataset`. */
+        companyId,
       }),
       manualInputs,
     };
