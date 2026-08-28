@@ -128,17 +128,53 @@ describe("a escolha do transporte — nenhuma condição em falta é ignorada", 
     expect(r.motivo).toBe(TRANSPORTE_MOTIVO.AUTENTICACAO_DESLIGADA);
   });
 
-  it("empresa ativa inválida -> LEGADO", () => {
-    for (const companyId of [null, "", "A", "Empresa Maiúscula", "-comeca-com-hifen"]) {
+  /* ═══════════════════════════════════════════════════════════════════════════════
+   * O BYPASS QUE ESTES DOIS TESTES DESCREVIAM
+   * ═══════════════════════════════════════════════════════════════════════════════
+   * Diziam "-> LEGADO", e o legado é ANÓNIMO: serve os dados financeiros da Overcel
+   * sem token e sem membership. Com o interruptor LIGADO — que é o próximo passo do
+   * projeto — isso significava que um utilizador autenticado cuja empresa ativa ainda
+   * não tinha resolvido recebia os números reais de uma empresa a que pode não
+   * pertencer.
+   *
+   * E `companyId` vem de `company?.id ?? null` no `FinerDataProvider`: `null` não é um
+   * caso de laboratório, é o valor durante todo o carregamento das memberships, e o
+   * valor PERMANENTE de quem não tem membership nenhuma.
+   *
+   * Passam a devolver NENHUM. Sem dados, visivelmente. Ver o cabeçalho de
+   * `resolveDataTransport`.
+   * ═══════════════════════════════════════════════════════════════════════════════ */
+
+  it("interruptor LIGADO + empresa inválida -> NENHUM, nunca o legado anónimo", () => {
+    for (const companyId of [null, undefined, "", "A", "Empresa Maiúscula", "-comeca-com-hifen"]) {
       const r = resolveDataTransport({ ...base, companyId });
+      expect(r.transport.id, String(companyId)).toBe(TRANSPORTE.NENHUM);
       expect(r.transport.protegido, String(companyId)).toBe(false);
       expect(r.motivo).toBe(TRANSPORTE_MOTIVO.SEM_EMPRESA_VALIDA);
     }
   });
 
-  it("sem função de token -> LEGADO", () => {
+  it("interruptor LIGADO + sem função de token -> NENHUM, nunca o legado anónimo", () => {
     const r = resolveDataTransport({ ...base, getAccessToken: undefined });
+    expect(r.transport.id).toBe(TRANSPORTE.NENHUM);
     expect(r.motivo).toBe(TRANSPORTE_MOTIVO.SEM_TOKEN);
+  });
+
+  it("o transporte NENHUM não lê nada — não há caminho alternativo escondido", async () => {
+    const r = resolveDataTransport({ ...base, companyId: null });
+    for (const recurso of Object.values(RECURSOS)) {
+      await expect(r.transport.ler(recurso)).resolves.toBeNull();
+    }
+  });
+
+  it("com o interruptor DESLIGADO, tudo continua a cair para o legado", () => {
+    /* O contrapeso: a correção não pode transformar a instalação de hoje — que ainda
+     * lê pelo legado — numa aplicação sem dados. */
+    const desligado = { ...base, env: {} };
+    for (const extra of [{}, { companyId: null }, { getAccessToken: undefined }, { requiresAuth: false }]) {
+      const r = resolveDataTransport({ ...desligado, ...extra });
+      expect(r.transport.id, JSON.stringify(extra)).toBe(TRANSPORTE.LEGADO);
+    }
   });
 
   it("o interruptor só liga com um valor afirmativo explícito", () => {

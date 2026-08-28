@@ -163,9 +163,30 @@ export function protectedTransportRequested(env) {
  *   3. interruptor LIGADO         o BFF tem de existir e estar publicado. Enquanto não
  *                                 estiver, ligar isto parte todas as leituras.
  *
- * Faltando qualquer uma, devolve-se o transporte LEGADO — e o `motivo` diz qual faltou.
- * Nunca se devolve o protegido "por otimismo": uma leitura financeira que falha em
- * silêncio é indistinguível, no ecrã, de uma empresa sem dados.
+ * ─── E O QUE ACONTECE QUANDO FALTA UMA ─────────────────────────────────────────────
+ * DEPENDE DE QUAL. Esta função devolvia o transporte LEGADO em todos os casos, e isso
+ * era um BYPASS quando o interruptor já estava ligado.
+ *
+ * O legado é ANÓNIMO: serve os dados financeiros da Overcel sem token e sem membership.
+ * Cair para ele com o interruptor LIGADO significa que um utilizador autenticado cuja
+ * empresa ativa ainda não resolveu — o estado normal durante o arranque, e o estado
+ * PERMANENTE de quem não tem membership nenhuma — recebe os números reais de uma
+ * empresa a que pode não pertencer. `companyId` vem de `company?.id ?? null`, portanto
+ * `null` não é hipotético: é o valor durante todo o carregamento das memberships.
+ *
+ * Passa a haver duas famílias:
+ *
+ *   interruptor DESLIGADO, ou autenticação fora de vigor
+ *     -> LEGADO. É o comportamento de hoje, e é uma decisão explícita: quem não pediu
+ *        o transporte protegido continua onde estava.
+ *
+ *   interruptor LIGADO e autenticação em vigor, mas falta empresa ou token
+ *     -> NENHUM. Sem dados. Nunca o anónimo.
+ *        Quem pediu leituras autenticadas não pode receber, em silêncio, uma leitura
+ *        que não é autenticada — e muito menos de outra empresa. "Sem dados" é honesto
+ *        e visível; um número errado no ecrã não é nem uma coisa nem outra.
+ *
+ * O `motivo` continua a dizer exatamente o que faltou, nos dois casos.
  *
  * @returns {{transport: object, motivo: string}}
  */
@@ -186,11 +207,21 @@ export function resolveDataTransport({
   if (requiresAuth !== true) {
     return { transport: createLegacyDataTransport(), motivo: TRANSPORTE_MOTIVO.AUTENTICACAO_DESLIGADA };
   }
+  /* ── DAQUI PARA BAIXO O INTERRUPTOR ESTÁ LIGADO E A AUTENTICAÇÃO EM VIGOR ───────
+   * Ou seja: alguém decidiu que as leituras desta instalação são autenticadas. A partir
+   * daqui, o legado anónimo deixa de ser uma alternativa aceitável — seria servir dados
+   * financeiros reais sem token nem membership a quem pediu o contrário. */
   if (!isValidCompanyId(companyId)) {
-    return { transport: createLegacyDataTransport(), motivo: TRANSPORTE_MOTIVO.SEM_EMPRESA_VALIDA };
+    return {
+      transport: createNullDataTransport(TRANSPORTE_MOTIVO.SEM_EMPRESA_VALIDA),
+      motivo: TRANSPORTE_MOTIVO.SEM_EMPRESA_VALIDA,
+    };
   }
   if (typeof getAccessToken !== "function") {
-    return { transport: createLegacyDataTransport(), motivo: TRANSPORTE_MOTIVO.SEM_TOKEN };
+    return {
+      transport: createNullDataTransport(TRANSPORTE_MOTIVO.SEM_TOKEN),
+      motivo: TRANSPORTE_MOTIVO.SEM_TOKEN,
+    };
   }
 
   return {
