@@ -189,12 +189,37 @@ export const EMPTY_COVERAGE = {
   validatedThroughMonth: null,
 };
 
-/** "aaaa-mm" de uma data. Puro: recebe a data, não a inventa. */
+/**
+ * "aaaa-mm" de uma data. Puro: recebe a data, não a inventa.
+ *
+ * ─── PORQUE DELEGA, EM VEZ DE FAZER `new Date(date)` ────────────────────────────────
+ * Fazia `date instanceof Date ? date : new Date(date)`. Para um objeto `Date` está
+ * certo — é um instante, e `getMonth()` local é a leitura que se quer. Para uma STRING
+ * de calendário estava errado, e errado do pior modo:
+ *
+ *     new Date("2026-07-01")  ->  meia-noite UTC
+ *     em America/Sao_Paulo    ->  2026-06-30 21:00 local
+ *     getMonth()              ->  JUNHO
+ *
+ * Ou seja: o primeiro dia de cada mês seria atribuído ao mês anterior — uma venda de
+ * 1 de julho contada como receita de junho. E não apareceria a quem programa em Lisboa,
+ * onde o desvio é positivo e o resultado sai certo. Apareceria só no browser do cliente
+ * brasileiro, que é onde o produto corre.
+ *
+ * Não era alcançável: os três chamadores passam sempre um `Date`. Era uma armadilha à
+ * espera do primeiro que passasse uma string.
+ *
+ * `monthKey` — já importado neste ficheiro — resolve isto há muito, via
+ * `parseLocalISODate`, que constrói a data pelos COMPONENTES e a fixa ao meio-dia local
+ * (o que também a imuniza contra as transições de horário de verão, que ocorrem de
+ * madrugada). Havia duas cópias da mesma regra de fronteira no mesmo grafo de imports, e
+ * a que divergia era a mais frouxa — o padrão que já obrigou a criar `lib/cors.js` e
+ * `lib/contratoUpstream.js`.
+ *
+ * Comportamento para `Date`, `null`, `undefined`, `""` e datas ilegíveis: idêntico.
+ */
 export function monthKeyOf(date) {
-  if (!date) return null;
-  const d = date instanceof Date ? date : new Date(date);
-  if (isNaN(d.getTime())) return null;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return monthKey(date);
 }
 
 /** Mês anterior a uma chave "aaaa-mm". */
