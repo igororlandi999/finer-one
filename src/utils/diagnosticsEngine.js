@@ -101,10 +101,25 @@ function sentimentOf(items) {
 /**
  * @param {Array} orders
  * @param {Array} payables
- * @param {{financialMetrics?: object}} [opts]  métricas da DRE central. Quando
- *   presentes, a rentabilidade (resultado e margem) vem da DRE em vez de
- *   "receitas - contas a pagar". Quando a fonte da DRE não existe, a dimensão
- *   NÃO é avaliada — ausência de dados nunca é tratada como mau desempenho.
+ * @param {{financialMetrics?: object}} [opts]  métricas da DRE central. São a ÚNICA
+ *   fonte de rentabilidade. Sem elas — ou com elas incompletas — resultado e margem
+ *   NÃO são apurados: a dimensão fica não avaliada, e nada a substitui.
+ *
+ * ─── PORQUE NÃO HÁ FALLBACK ────────────────────────────────────────────────────────
+ * Havia um: sem DRE, o motor calculava `receitas - contas a pagar` e chamava-lhe
+ * resultado, e ao quociente disso pela receita chamava margem. As duas fórmulas que os
+ * invariantes financeiros deste produto proíbem — contas a pagar são TESOURARIA (o que
+ * vence), não despesa económica (o que se consome no período). Os dois conjuntos nem
+ * sequer se sobrepõem de forma fiável: uma compra a 90 dias entra na tesouraria três
+ * meses depois de entrar no custo, e um pagamento antecipado entra antes.
+ *
+ * O número resultante não era uma aproximação com erro conhecido; era outra grandeza
+ * com o nome errado — e era afirmado no resumo executivo, nos problemas e no score sem
+ * uma única ressalva. Um utilizador sem CMV lançado via "resultado de -4.000" e não
+ * tinha como saber que aquilo não era o seu resultado.
+ *
+ * As contas a pagar continuam presentes onde são o que dizem ser: vencidos,
+ * concentração por categoria e fornecedor, e a linha "Contas a pagar" do que mudou.
  */
 export function buildFinancialDiagnostic(orders, payables, opts) {
   if (!orders || !orders.length || !Array.isArray(payables)) return null; // [] = zero títulos reais => diagnóstico calculado
@@ -130,15 +145,14 @@ export function buildFinancialDiagnostic(orders, payables, opts) {
    * `mesPorExtenso` devolve null para uma chave inválida, e nesse caso a perífrase
    * volta — omitir a referência é melhor do que nomear um mês errado. */
   const mesRef = mesPorExtenso(key);
-  const emMes = mesRef ? `em ${mesRef}` : "no mês de referência";
   const doMes = mesRef ? `de ${mesRef}` : "do mês de referência";
   // Início de frase do resumo executivo: "Em junho de 2026, ..." (maiúscula).
   const mesRefFrase = mesRef ? `Em ${mesRef}` : "No mês em análise";
 
   const receitas = totalRevenue(ordersInMonth(orders, key));
+  /* Total de CONTAS A PAGAR do mês âncora. Tesouraria — nunca entra num resultado nem
+   * numa margem. Só alimenta vencidos, concentrações e a linha "Contas a pagar". */
   const despesas = totalPayables(payablesInMonth(payables, key));
-  const resultado = round2(receitas - despesas);
-  const margem = receitas > 0 ? round2((resultado / receitas) * 100) : null;
 
   const prevReceitas = prev ? totalRevenue(ordersInMonth(orders, prev)) : 0;
   const prevDespesas = prev ? totalPayables(payablesInMonth(payables, prev)) : 0;
@@ -147,24 +161,20 @@ export function buildFinancialDiagnostic(orders, payables, opts) {
   const growth = prevReceitas > 0 ? round2(((receitas - prevReceitas) / prevReceitas) * 100) : null;
   const despDelta = prevDespesas > 0 ? round2(((despesas - prevDespesas) / prevDespesas) * 100) : null;
 
-  // Rentabilidade: com a DRE presente, nada vem de "receitas - contas a pagar".
+  /* Rentabilidade: só da DRE. `netResult` a ZERO é um facto e continua avaliável — o
+   * que torna a dimensão indisponível é a AUSÊNCIA (null), nunca um zero real. */
   const dreResultado = fm ? fm.profitability.netResult : null;
   const dreMargem = fm ? fm.profitability.netMarginPct : null;
   const rentabilidadeAvaliavel = fm != null && dreResultado != null;
-  // Valores que o diagnóstico pode AFIRMAR. Com DRE incompleta ficam null: o motor
-  // cala-se em vez de recuar para a pseudo-margem antiga.
-  const resultadoAfirmavel = fm ? (rentabilidadeAvaliavel ? dreResultado : null) : resultado;
-  const margemAfirmavel = fm ? (rentabilidadeAvaliavel ? dreMargem : null) : margem;
+  // Valores que o diagnóstico pode AFIRMAR. Fora deste caso: null, e cala-se.
+  const resultadoAfirmavel = rentabilidadeAvaliavel ? dreResultado : null;
+  const margemAfirmavel = rentabilidadeAvaliavel ? dreMargem : null;
 
-  // Variação do resultado: com DRE, só a partir do mês anterior da DRE e apenas
-  // quando os períodos são comparáveis.
-  const prevResultado = round2(prevReceitas - prevDespesas);
+  // Variação do resultado: só da DRE, e só entre períodos comparáveis.
   const prevNetResult = fmPrev ? fmPrev.profitability.netResult : null;
-  const resDelta = fm
-    ? ((rentabilidadeAvaliavel && fmComparable && prevNetResult != null && prevNetResult !== 0)
-        ? round2(((dreResultado - prevNetResult) / Math.abs(prevNetResult)) * 100)
-        : null)
-    : (prevResultado > 0 ? round2(((resultado - prevResultado) / prevResultado) * 100) : null);
+  const resDelta = (rentabilidadeAvaliavel && fmComparable && prevNetResult != null && prevNetResult !== 0)
+    ? round2(((dreResultado - prevNetResult) / Math.abs(prevNetResult)) * 100)
+    : null;
 
   // Contas vencidas: títulos em aberto com vencimento no passado.
   const hoje = startOfDay(new Date());
@@ -200,24 +210,21 @@ export function buildFinancialDiagnostic(orders, payables, opts) {
   const naoAvaliados = []; // dimensões sem fonte: registadas, nunca penalizadas
   const pen = (pts, motivo) => { score -= pts; penalizacoes.push({ pts, motivo }); };
 
-  // ── Rentabilidade: da DRE central quando disponível ──
-  // Prioridade: resultado líquido e margem líquida da DRE. Sem essa fonte
-  // (tipicamente por falta de CMV), a dimensão fica NÃO AVALIADA: não se
-  // penaliza a empresa por uma lacuna da Finer.
+  /* ── Rentabilidade: da DRE, ou de lado nenhum ──────────────────────────────────
+   * Sem resultado líquido apurável, a dimensão fica NÃO AVALIADA — registada, nunca
+   * penalizada. Uma lacuna da Finer não é mau desempenho da empresa, e um resultado
+   * inventado a partir das contas a pagar seria pior do que qualquer das duas. */
   if (rentabilidadeAvaliavel) {
     if (dreResultado < 0) pen(25, "Resultado líquido do mês negativo");
     else if (dreMargem !== null && dreMargem < 10) pen(10, "Margem líquida do mês abaixo de 10%");
     else if (dreMargem !== null && dreMargem < 20) pen(5, "Margem líquida do mês abaixo de 20%");
-  } else if (fm != null) {
+  } else {
     naoAvaliados.push({
       dimensao: "rentabilidade",
-      motivo: "Resultado líquido sem fonte completa (CMV indisponível): dimensão não avaliada.",
+      motivo: fm != null
+        ? "Resultado líquido sem fonte completa (CMV indisponível): dimensão não avaliada."
+        : "Sem demonstração de resultados para o mês: resultado e margem não são apuráveis. Dimensão não avaliada.",
     });
-  } else {
-    // Sem métricas da DRE injetadas: comportamento anterior (compatibilidade).
-    if (resultado < 0) pen(25, "Resultado do mês negativo");
-    else if (margem !== null && margem < 10) pen(10, "Margem do mês abaixo de 10%");
-    else if (margem !== null && margem < 20) pen(5, "Margem do mês abaixo de 20%");
   }
 
   if (growth !== null && growth <= -10) pen(15, "Quebra de faturação face ao mês anterior");
@@ -250,9 +257,9 @@ export function buildFinancialDiagnostic(orders, payables, opts) {
   if (resultadoAfirmavel != null && resultadoAfirmavel < 0) {
     problemas.push({
       id: "pr-resultado", severidade: "danger", titulo: "Resultado do mês negativo",
-      descricao: fm
-        ? `O resultado líquido ${doMes} foi negativo.`
-        : `As contas a pagar superaram as receitas ${emMes}.`,
+      /* `resultadoAfirmavel != null` só acontece com DRE apurada: a descrição é sempre
+       * de resultado LÍQUIDO. Não existe segundo ramo. */
+      descricao: `O resultado líquido ${doMes} foi negativo.`,
       // Resultado negativo NÃO é um impacto recuperável: continua null.
       impacto: null,
     });
@@ -276,9 +283,7 @@ export function buildFinancialDiagnostic(orders, payables, opts) {
   if (resultadoAfirmavel != null && resultadoAfirmavel >= 0 && margemAfirmavel !== null && margemAfirmavel < 10) {
     problemas.push({
       id: "pr-margem", severidade: "warning", titulo: "Margem do mês reduzida",
-      descricao: fm
-        ? `A margem líquida ${doMes} foi de ${pct(margemAfirmavel)}%.`
-        : `O resultado representa apenas ${pct(margemAfirmavel)}% das receitas ${doMes}.`,
+      descricao: `A margem líquida ${doMes} foi de ${pct(margemAfirmavel)}%.`,
       impacto: null,
     });
   }
@@ -394,21 +399,22 @@ export function buildFinancialDiagnostic(orders, payables, opts) {
 
   // ── Resumo executivo (frases-template com números reais) ──
   const frases = [];
-  if (fm) {
-    // Linguagem de DRE: nunca chamar "resultado" a receitas menos contas a pagar.
-    const receitaLiquida = fm.revenue ? fm.revenue.net : null;
-    if (receitaLiquida != null && rentabilidadeAvaliavel) {
-      frases.push(`${mesRefFrase}, a receita líquida foi de ${formatMoney(receitaLiquida)}, com resultado líquido de ${formatMoney(dreResultado)}${dreMargem !== null ? ` e margem líquida de ${pct(dreMargem)}%` : ""}.`);
-    } else if (receitaLiquida != null) {
-      frases.push(`A receita líquida ${doMes} foi de ${formatMoney(receitaLiquida)}. O resultado líquido não pôde ser apurado com os dados disponíveis.`);
-    } else {
-      frases.push(`A receita líquida ${doMes} não pôde ser apurada com os dados disponíveis.`);
-    }
-    // Contas a pagar entram apenas como contexto OPERACIONAL, nunca como "despesas da DRE".
-    frases.push(`No mesmo período foram registados ${formatMoney(despesas)} em contas a pagar.`);
+  // Linguagem de DRE: nunca chamar "resultado" a receitas menos contas a pagar.
+  const receitaLiquida = fm && fm.revenue ? fm.revenue.net : null;
+  if (receitaLiquida != null && rentabilidadeAvaliavel) {
+    frases.push(`${mesRefFrase}, a receita líquida foi de ${formatMoney(receitaLiquida)}, com resultado líquido de ${formatMoney(dreResultado)}${dreMargem !== null ? ` e margem líquida de ${pct(dreMargem)}%` : ""}.`);
+  } else if (receitaLiquida != null) {
+    frases.push(`A receita líquida ${doMes} foi de ${formatMoney(receitaLiquida)}. O resultado líquido não pôde ser apurado com os dados disponíveis.`);
+  } else if (fm) {
+    frases.push(`A receita líquida ${doMes} não pôde ser apurada com os dados disponíveis.`);
   } else {
-    frases.push(`${mesRefFrase}, a empresa faturou ${formatMoney(receitas)} e registou ${formatMoney(despesas)} em despesas, com um resultado de ${formatMoney(resultado)}${margem !== null ? ` (margem de ${pct(margem)}%)` : ""}.`);
+    /* SEM DRE. A faturação é um facto dos pedidos e afirma-se; o resultado e a margem
+     * não existem sem demonstração de resultados, e é isso que se diz — em vez de os
+     * fabricar a partir das contas a pagar, como acontecia aqui. */
+    frases.push(`${mesRefFrase}, a empresa faturou ${formatMoney(receitas)}. O resultado e a margem do mês não puderam ser apurados: falta a demonstração de resultados do período.`);
   }
+  // Contas a pagar entram apenas como contexto OPERACIONAL, nunca como "despesas da DRE".
+  frases.push(`No mesmo período foram registados ${formatMoney(despesas)} em contas a pagar.`);
   if (growth !== null) frases.push(growth >= 0 ? `A faturação cresceu ${pct(growth)}% face ao mês anterior.` : `A faturação caiu ${pct(Math.abs(growth))}% face ao mês anterior.`);
   frases.push(vencidasQtd > 0
     ? `Existem ${vencidasQtd} ${vencidasQtd === 1 ? "título vencido" : "títulos vencidos"} num total de ${formatMoney(vencidasValor)} por regularizar.`

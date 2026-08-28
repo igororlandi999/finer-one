@@ -257,10 +257,14 @@ describe("Score — inputs financeiros vindos da DRE central", () => {
     profitability: { netResult, netMarginPct, availability: {} },
   });
 
-  it("sem métricas injetadas mantém o comportamento anterior (compatibilidade)", () => {
+  /* ESTE TESTE DESCREVIA O DEFEITO. Sem métricas injetadas, "o comportamento anterior"
+   * era calcular `receitas - contas a pagar` e chamar-lhe resultado. Passa a exigir o
+   * contrário: a rentabilidade não é avaliada, e é dito que não foi. */
+  it("sem métricas injetadas a rentabilidade NÃO é avaliada nem penalizada", () => {
     const d = buildFinancialDiagnostic(orders, []);
     expect(typeof d.score).toBe("number");
-    expect(d.naoAvaliados).toEqual([]);
+    expect(d.naoAvaliados.map((n) => n.dimensao)).toContain("rentabilidade");
+    expect(d.penalizacoes.map((p) => p.motivo).join(" | ")).not.toMatch(/resultado|margem/i);
   });
 
   it("resultado líquido NEGATIVO da DRE penaliza", () => {
@@ -388,12 +392,13 @@ describe("Diagnóstico — nenhuma afirmação vem de receitas − contas a paga
     expect(d.mudancasUltimoMes.some((m) => m.label === "Resultado")).toBe(false);
   });
 
-  it("G. sem financialMetrics o fallback antigo continua a funcionar", () => {
+  it("G. sem financialMetrics não há variação de resultado nenhuma", () => {
     const { orders } = cenarioSaudavel();
     const d = buildFinancialDiagnostic(orders, []);
-    expect(d.resumoExecutivo).toContain("faturou");
+    expect(d.resumoExecutivo).toContain("faturou");      // a faturação é um facto
     expect(typeof d.score).toBe("number");
-    expect(d.naoAvaliados).toEqual([]);
+    expect(d.mudancasUltimoMes.some((m) => m.label === "Resultado")).toBe(false);
+    expect(d.naoAvaliados.map((n) => n.dimensao)).toContain("rentabilidade");
   });
 });
 
@@ -453,11 +458,12 @@ describe("Concentração de cliente e moeda respeitam o mês âncora", () => {
     expect(texto).not.toContain("€");
   });
 
-  it("E. fallback sem financialMetrics mantém a semântica antiga", () => {
+  it("E. sem financialMetrics afirma-se a faturação e cala-se a rentabilidade", () => {
     const d = buildFinancialDiagnostic(ordersTresMeses, [], { monthKey: "2026-06" });
-    expect(d.resumoExecutivo).toContain("faturou");   // frase antiga preservada
-    expect(d.resumoExecutivo).toContain("R$");        // mas já na moeda correta
-    expect(d.naoAvaliados).toEqual([]);
+    expect(d.resumoExecutivo).toContain("faturou");   // facto dos pedidos
+    expect(d.resumoExecutivo).toContain("R$");        // na moeda da empresa ativa
+    expect(d.resumoExecutivo).toMatch(/não puderam ser apurados/);
+    expect(d.naoAvaliados.map((n) => n.dimensao)).toContain("rentabilidade");
     expect(typeof d.score).toBe("number");
   });
 });
