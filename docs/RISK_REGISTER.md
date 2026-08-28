@@ -1,6 +1,8 @@
 # Registo de riscos
 
-> Atualizado a 28/08/2026, ao fim da sessão de auditoria autónoma.
+> Atualizado a 28/08/2026, ao fim da sessão de auditoria autónoma. Seis riscos fechados, onze abertos, nove bloqueados por falta de acesso.
+>
+> **Nota de ambiente:** a máquina de desenvolvimento corre em `America/Sao_Paulo` — o mesmo fuso da Overcel. Os testes sensíveis a fuso são executados no fuso que importa, e não num neutro.
 > **Estados:** `aberto` · `mitigado` · `fechado` · `aceite` · `bloqueado` (precisa de
 > acesso que a sessão não tinha).
 
@@ -25,6 +27,7 @@
 | R-03 | Injeção de fórmula no CSV exportado. As colunas incluem `cliente`, `fornecedor`, `title` e `description`, com origem no Bling. Quem abre o ficheiro é quem tem os números todos à frente. | **P2** | fechado | `15f49e8` |
 | R-04 | `metadata.requestedCompanyId` entrava no `audit_log` **sem limite de tamanho**. Um titular de conta legítimo podia escrever, por pedido recusado, tanto texto quanto coubesse num URL — em 500 MB sem retenção. | **P3** | fechado | `69935df` |
 | R-05 | O score declarava "a empresa atingiu o score máximo" quando uma dimensão não tinha sido avaliada. Em julho/2026, com o CMV ausente, isso é uma afirmação sobre a saúde da empresa a partir da dimensão mais importante, nunca calculada. | **P2** | fechado | `d1b0eff`, `a7c46a4` |
+| R-12 | `monthKeyOf` interpretava uma data de calendário como instante UTC: `"2026-07-01"` devolvia **junho** em `America/Sao_Paulo`. Latente (os três chamadores passam `Date`), e invisível em Lisboa — só apareceria no browser do cliente brasileiro. | **P2** | fechado | `f471c77` |
 
 ---
 
@@ -38,7 +41,7 @@
 | R-09 | **`cobertura.confirmada` não é reposta na troca de empresa.** | P3 | aberto | E4 | Sem impacto visível: o campo é escrito e nunca lido. Ver `CACHE_E_ESTADO_INVENTARIO.md` §C1. |
 | R-10 | **Empresa preferida é uma chave global de `localStorage`**, partilhada entre utilizadores do mesmo browser. | P3 | mitigado | — | `sessionContract.js` revalida contra as memberships da sessão; um id sem membership é descartado. Pior caso: preferência ignorada. Nunca acesso concedido. |
 | R-11 | **`ALLOWED_ORIGINS="*"` é honrado** (com aviso), em vez de falhar fechado. | P3 | aceite | — | É uma decisão explícita, não um acidente: o `*` só existe se alguém o escrever, nunca por omissão, e é registado em voz alta. Não há `Allow-Credentials` em resposta nenhuma, pelo que `*` não expõe sessões — expõe o endpoint **legado anónimo**, que já é anónimo. |
-| R-12 | **`monthKeyOf` usa `new Date(string)` no ramo de string** — `"2026-07-01"` é meia-noite **UTC** e, em `America/Sao_Paulo`, `getMonth()` devolve **junho**. | P2 | aberto (latente) | E4 | **Não alcançável hoje**: os três chamadores passam sempre um objeto `Date`. É uma armadilha, não um defeito. Fixar com um teste que force o contrato antes de alguém lhe passar uma string. |
+| R-17 | **`parseLocalISODate` só trata pelos componentes o que é exatamente `AAAA-MM-DD`.** Uma chave de mês (`"2026-07"`) cai no `new Date` e recua um mês em fusos negativos. | P3 | aberto (latente) | E4 | **Sem chamador demonstrado.** É o ponto único de conversão de datas de todo o motor financeiro; alargá-lo sem um chamador seria mudar a fundação para um problema que ninguém tem — e a fundação é onde um erro produz números errados em vez de um ecrã avariado. Declarado com teste que falha **nas duas direções** em `src/utils/monthKeyFuso.test.js`. |
 | R-13 | **`npm audit`: 5 vulnerabilidades** (1 baixa, 2 moderadas, 2 altas) — `@babel/core`, `esbuild`/`vite`, `nanoid`, `postcss`. | P3 | aceite | — | **Todas em ferramentas de build**, nenhuma no bundle de produção. A do `esbuild` é do servidor de desenvolvimento. Corrigir exige `vite@8` (mudança maior). Reavaliar quando houver janela para a atualização. |
 | R-14 | **Apps Script continua `ANYONE_ANONYMOUS`** e o URL do proxy vai no bundle. | **P1** | aceite (conhecido) | E4 | É o motivo de existir o endpoint legado e de as escritas de cobertura estarem desligadas. Nada a fazer sem tocar no Apps Script — fora do âmbito desta sessão por decisão explícita. |
 | R-15 | **Sem política de retenção no `audit_log`.** | P3 | aberto | E5 | R-04 limitou o tamanho de cada linha; não limita o número. Exige DDL — migração `004` a desenhar, **não executar**. |
