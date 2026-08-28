@@ -56,9 +56,15 @@ create table if not exists public.profiles (
 -- apresentar 84.300 como reais ou como euros, e nenhum dos dois é seguro adivinhar.
 -- São NOT NULL: uma empresa sem moeda não pode existir.
 --
--- `integration` guarda o que liga esta empresa à sua fonte de dados financeiros (hoje,
--- o URL do Web App do Apps Script). É lido SÓ pelo BFF, com a service_role, depois de
--- autorizar — e nunca é devolvido ao cliente. É a coluna mais sensível da tabela.
+-- `integration` DESCONTINUADA. Guardava o que liga esta empresa à sua fonte de dados
+-- financeiros. Não pode: a política `companies_select_member`, mais abaixo, devolve a
+-- linha INTEIRA a qualquer membro — e "lido só pelo BFF" era uma intenção do lado da
+-- aplicação, não uma garantia da base de dados. Qualquer membro podia ler a coluna
+-- diretamente, do browser, com a chave `anon`.
+--
+-- A integração vive em `public.company_integration` (docs/sql/003), que tem RLS sem
+-- políticas e nenhum GRANT de browser — e guarda uma referência, não o endereço.
+-- A coluna fica vazia, com um check que recusa chaves de segredo.
 -- ═══════════════════════════════════════════════════════════════════════════════════
 
 create table if not exists public.companies (
@@ -270,11 +276,18 @@ create policy companies_select_member on public.companies
   for select using (public.is_member_of(id));
 
 -- ATENÇÃO: esta política deixa um membro ler a linha INTEIRA, incluindo `integration`.
--- Enquanto `integration` contiver um URL de Web App ANYONE_ANONYMOUS, isso é equivalente
--- a publicar a fonte de dados da empresa a todos os seus membros. É aceitável (são
--- membros da própria empresa) e deixa de o ser assim que houver segredos por empresa.
--- A mitigação está no plano: uma VIEW sem `integration` para o cliente, e a tabela só
--- para a service_role. Ver docs/THREAT_MODEL_MULTIEMPRESA.md, risco 7.
+-- Enquanto `integration` contivesse um URL de Web App ANYONE_ANONYMOUS, isso equivalia a
+-- publicar a fonte de dados da empresa a todos os seus membros — um `viewer` incluído.
+--
+-- RESOLVIDO em docs/sql/003_company_integration.sql, e não como estava planeado. A
+-- mitigação prevista era uma VIEW sem `integration`; fez-se uma TABELA separada
+-- (`company_integration`) com RLS sem políticas e sem GRANTs de browser, porque uma VIEW
+-- deixa a tabela original alcançável para quem lhe der um GRANT por engano. `integration`
+-- ficou vazia e com um check que recusa chaves de segredo.
+--
+-- A política em si continua correta: o resto da linha — nome, moeda, locale, plano — é
+-- exatamente o que um membro precisa de ver. Ver docs/THREAT_MODEL_MULTIEMPRESA.md,
+-- riscos 7 e 7b.
 
 -- ── COBERTURA: leitura por membros; escrita só pelo servidor ────────────────────────
 drop policy if exists coverage_select_member on public.company_coverage;
@@ -348,14 +361,27 @@ grant execute on function public.is_member_of(text) to authenticated, service_ro
 -- SEMENTE — a Overcel
 --
 -- COMENTADA de propósito. Executá-la exige o `auth.users.id` real do utilizador, que só
--- existe depois de a conta ser criada no painel do Supabase, e o URL do Web App, que é
--- um segredo operacional e NÃO deve ser colado num ficheiro versionado.
+-- existe depois de a conta ser criada no painel do Supabase.
 -- Ver docs/ACOES_DO_UTILIZADOR_SUPABASE.md, passo 6.
+--
+-- ─── O `gasUrl` DEIXOU DE ENTRAR AQUI ──────────────────────────────────────────────
+-- Esta semente escrevia `integration = {gasUrl: ...}`. Não pode: a política
+-- `companies_select_member` deixa QUALQUER membro ler a linha inteira, e o Web App do
+-- Apps Script é ANYONE_ANONYMOUS — quem tem o URL tem os dados, sem token. Era publicar
+-- a fonte financeira a todos os membros da empresa, um `viewer` incluído.
+--
+-- A integração passou para `public.company_integration` (migração 003), que tem RLS sem
+-- políticas e nenhum GRANT de browser, e guarda uma REFERÊNCIA e não o endereço. O 003
+-- acrescenta ainda um check a `companies.integration` que recusa chaves de segredo, para
+-- que este atalho não volte a ser possível nem à mão.
 -- ═══════════════════════════════════════════════════════════════════════════════════
 
--- insert into public.companies (id, name, currency, locale, timezone, plan, integration)
--- values ('overcel', 'Overcel', 'BRL', 'pt-BR', 'America/Sao_Paulo', 'plus',
---         jsonb_build_object('gasUrl', '<URL DO WEB APP — NÃO VERSIONAR>'));
+-- insert into public.companies (id, name, currency, locale, timezone, plan)
+-- values ('overcel', 'Overcel', 'BRL', 'pt-BR', 'America/Sao_Paulo', 'plus');
 --
 -- insert into public.memberships (user_id, company_id, role)
 -- values ('<UUID DO UTILIZADOR>', 'overcel', 'owner');
+--
+-- -- e, depois de docs/sql/003_company_integration.sql:
+-- insert into public.company_integration (company_id, config)
+-- values ('overcel', '{"provider":"gas","envKey":"GAS_URL"}'::jsonb);

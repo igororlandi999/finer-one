@@ -17,6 +17,7 @@
 //   rls         um ANÓNIMO consegue ler dados? (tem de NÃO conseguir)
 //   session     as credenciais de um utilizador dão sessão?
 //   membership  A vê a empresa A? E a empresa B — recusa? (o teste que conta)
+//   integration `company_integration` é ilegível para anon E para authenticated?
 //
 // ─── NÃO CONTÉM UM ÚNICO VALOR REAL ─────────────────────────────────────────────────
 // Tudo vem do ambiente. O script não guarda, não escreve e não imprime chaves nem
@@ -315,6 +316,25 @@ async function passoSchema() {
       aviso(`tabela \`${t}\`: resposta inesperada.`, `HTTP ${r.status}`);
     }
   }
+
+  /* `company_integration` vem da migração 003 e é verificada à parte porque a sua
+   * AUSÊNCIA não é o mesmo tipo de problema: as tabelas do 001 em falta significam que
+   * nada funciona; esta em falta significa que as leituras protegidas respondem
+   * `integracao-nao-configurada` — o produto está de pé, e vazio. O passo `integration`
+   * é que a examina a sério. */
+  const integracao = await pedir("/rest/v1/company_integration?select=*&limit=0", {
+    key: serviceRole,
+    headers: { Prefer: "count=exact" },
+  });
+  if (integracao.status === 200) ok("tabela `company_integration` (migração 003)");
+  else if (integracao.status === 404 || (integracao.payload && integracao.payload.code === "42P01")) {
+    aviso(
+      "tabela `company_integration` NÃO existe — migração 003 por aplicar.",
+      "As leituras protegidas vão responder 503 (avaria) até ela existir. Ver docs/sql/003_company_integration.sql.",
+    );
+  } else {
+    aviso("tabela `company_integration`: resposta inesperada.", `HTTP ${integracao.status}`);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════════
@@ -527,6 +547,144 @@ async function passoMembership(sessao) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════════
+ * PASSO 7 — INTEGRATION (migração 003)
+ * ═══════════════════════════════════════════════════════════════════════════════════
+ * `public.company_integration` é a tabela que guarda, por empresa, de onde se leem os
+ * dados financeiros. É a ÚNICA tabela do esquema que nenhum papel de browser pode ler —
+ * nem `anon`, nem `authenticated`, nem sequer o `owner` da própria empresa.
+ *
+ * ─── PORQUE É MAIS FECHADA DO QUE TODAS AS OUTRAS ──────────────────────────────────
+ * `companies` tem a política `companies_select_member`: um membro lê a linha inteira. Se
+ * a configuração da integração vivesse lá — como viveu — qualquer membro leria o URL do
+ * Web App do Apps Script a partir do browser. Esse Web App está publicado como
+ * ANYONE_ANONYMOUS: quem tem o URL tem os dados, sem token e sem empresa.
+ *
+ * Por isso a tabela nova tem RLS ativa e ZERO políticas, e zero GRANTs para `anon` e
+ * `authenticated`. Este passo verifica isso contra o Supabase REAL — porque um teste
+ * unitário não sabe nada sobre o que está mesmo configurado no projeto.
+ *
+ * ─── E VERIFICA QUE A LINHA NÃO TEM SEGREDOS ───────────────────────────────────────
+ * A tabela guarda `{"provider":"gas","envKey":"GAS_URL"}` — uma REFERÊNCIA. O endereço
+ * vive no Vercel. Se um dia alguém "resolver o problema" colando lá o URL, este passo
+ * grita. O check `company_integration_sem_segredos` já o impede no SQL; isto é a
+ * verificação do lado de fora, que não depende de a restrição ter sido aplicada.
+ * ═══════════════════════════════════════════════════════════════════════════════════ */
+
+/** Chaves que NUNCA podem estar numa linha de `company_integration`. Espelha o check. */
+const CHAVES_PROIBIDAS_NA_CONFIG = [
+  "gasUrl", "gas_url", "GAS_URL", "url", "token", "secret", "password",
+  "apiKey", "api_key", "serviceRoleKey", "service_role_key", "anonKey", "anon_key",
+  "blingClientId", "blingClientSecret", "blingRefreshToken", "webhookSecret", "spreadsheetId",
+];
+
+async function passoIntegracao(sessao) {
+  titulo("INTEGRATION — a tabela que NENHUM browser lê");
+  if (!url || !anon) { salta("sem URL ou anon key."); return; }
+
+  const caminho = "/rest/v1/company_integration?select=company_id,config&limit=5";
+
+  /* ── 1. ANÓNIMO ──────────────────────────────────────────────────────────────── */
+  const anonimo = await pedir(caminho, { key: anon });
+  const motivoAnon = classificar(anonimo);
+  if (motivoAnon === MOTIVO.LEU_DADOS) {
+    erro(
+      "ANÓNIMO LEU `company_integration` — a fonte de dados de todas as empresas está pública.",
+      "Parar. Verificar `revoke all ... from anon` e `enable row level security` em docs/sql/003.",
+    );
+  } else if (motivoAnon === MOTIVO.SEM_PRIVILEGIO_SQL) {
+    ok("anon: recusado por falta de GRANT.", "É a barreira desejada — anterior à RLS.");
+  } else if (motivoAnon === MOTIVO.RLS_FILTROU) {
+    /* 200 com lista vazia significa que o GRANT existe e foi a RLS a esconder tudo.
+     * O anónimo não lê — mas a primeira barreira não está lá. */
+    aviso(
+      "anon: 200 com conjunto vazio — a RLS negou, mas o GRANT NÃO foi revogado.",
+      "Correr `revoke all on public.company_integration from anon;`. A tabela está protegida por uma barreira só.",
+    );
+  } else if (motivoAnon === MOTIVO.TABELA_INEXISTENTE) {
+    erro("`company_integration` não existe.", "Executar docs/sql/003_company_integration.sql no SQL Editor.");
+  } else {
+    aviso("anon: resposta não reconhecida.", `HTTP ${anonimo.status} · ${MOTIVO_TEXTO[motivoAnon]}`);
+  }
+
+  /* ── 2. AUTENTICADO ──────────────────────────────────────────────────────────────
+   * O caso que distingue esta tabela de todas as outras. Em `companies` e
+   * `company_coverage`, um membro autenticado LÊ (e deve). Aqui não pode — e o token
+   * usado é o de um utilizador que é `owner` de uma empresa real, que é o papel com
+   * mais privilégios que existe no produto. Se o owner não lê, ninguém lê. */
+  if (!sessao) {
+    salta("sem sessão: o teste do AUTENTICADO — o que realmente conta — não foi feito.");
+    aviso("A leitura por um utilizador autenticado ficou por verificar.",
+      "Definir SMOKE_EMAIL e SMOKE_PASSWORD e correr `node scripts/supabase-check.mjs integration`.");
+  } else {
+    const autenticado = await pedir(caminho, { key: anon, token: sessao.token });
+    const motivoAuth = classificar(autenticado);
+    if (motivoAuth === MOTIVO.LEU_DADOS) {
+      erro(
+        "UM UTILIZADOR AUTENTICADO LEU `company_integration` — parar tudo.",
+        "Um membro (mesmo owner, mesmo viewer) não pode ver de onde vêm os dados. Verificar que NÃO existe nenhuma política de SELECT e que `authenticated` não tem GRANT.",
+      );
+    } else if (motivoAuth === MOTIVO.SEM_PRIVILEGIO_SQL) {
+      ok("authenticated: recusado por falta de GRANT.", "Nem o owner da empresa lê a sua própria integração. É o desejado.");
+    } else if (motivoAuth === MOTIVO.RLS_FILTROU) {
+      aviso(
+        "authenticated: 200 com conjunto vazio — a RLS negou, mas o GRANT NÃO foi revogado.",
+        "Correr `revoke all on public.company_integration from authenticated;`.",
+      );
+    } else {
+      aviso("authenticated: resposta não reconhecida.", `HTTP ${autenticado.status} · ${MOTIVO_TEXTO[motivoAuth]}`);
+    }
+  }
+
+  /* ── 3. SERVICE_ROLE ─────────────────────────────────────────────────────────────
+   * O BFF TEM de conseguir ler. Uma tabela perfeitamente fechada que nem o servidor lê
+   * não protege nada — só quebra o produto, e quebra-o de uma forma que se parece com
+   * "esta empresa não tem integração". */
+  if (!serviceRole) {
+    salta("sem service_role key: não é possível confirmar que o BFF consegue ler.");
+    return;
+  }
+
+  const servidor = await pedir(caminho, { key: serviceRole });
+  if (servidor.status !== 200 || !Array.isArray(servidor.payload)) {
+    erro(
+      "A service_role NÃO conseguiu ler `company_integration` — o BFF vai responder 503.",
+      `HTTP ${servidor.status}. Verificar o GRANT para \`service_role\` em docs/sql/003.`,
+    );
+    return;
+  }
+  ok(`service_role: leu ${servidor.payload.length} linha(s).`, "É o único caminho de leitura, e funciona.");
+
+  /* ── 4. AS LINHAS SÃO REFERÊNCIAS, NÃO SEGREDOS ──────────────────────────────── */
+  for (const linha of servidor.payload) {
+    const config = linha && linha.config;
+    const id = (linha && linha.company_id) || "?";
+
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      aviso(`\`${id}\`: \`config\` não é um objeto.`, "O BFF trata isto como avaria e responde 503.");
+      continue;
+    }
+
+    const proibidas = CHAVES_PROIBIDAS_NA_CONFIG.filter((k) => Object.prototype.hasOwnProperty.call(config, k));
+    if (proibidas.length > 0) {
+      erro(
+        `\`${id}\`: a linha contém um SEGREDO — ${proibidas.join(", ")}.`,
+        "A tabela guarda referências ({provider, envKey}), não valores. Um segredo aqui é uma segunda cópia que ninguém vai lembrar-se de rodar.",
+      );
+      continue;
+    }
+
+    /* Imprimem-se `provider` e `envKey` de propósito: são NOMES, não valores. Saber que
+     * a Overcel lê por `gas` a partir de `GAS_URL` não dá acesso a nada — é preciso ter
+     * a variável, que vive no Vercel. */
+    if (config.provider === "gas" && typeof config.envKey === "string") {
+      ok(`\`${id}\`: provider=gas, envKey=${config.envKey}.`, "Referência declarativa — o endereço não está na base de dados.");
+    } else {
+      aviso(`\`${id}\`: declaração que o BFF não sabe usar.`, `provider=${JSON.stringify(config.provider)}`);
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
  * PRINCIPAL
  * ═══════════════════════════════════════════════════════════════════════════════════ */
 
@@ -544,9 +702,11 @@ async function main() {
   console.log(`${C.bold}Finer One — verificação da ligação ao Supabase${C.reset}`);
   console.log(`${C.dim}Nenhuma chave nem token é impressa. Nada é escrito na base de dados.${C.reset}`);
 
-  if (pedido !== "all" && !PASSOS[pedido] && pedido !== "membership") {
+  const COM_SESSAO = ["membership", "integration"];
+
+  if (pedido !== "all" && !PASSOS[pedido] && !COM_SESSAO.includes(pedido)) {
     console.log(`\nPasso desconhecido: "${pedido}".`);
-    console.log(`Passos: ${Object.keys(PASSOS).join(", ")}, membership, all`);
+    console.log(`Passos: ${Object.keys(PASSOS).join(", ")}, ${COM_SESSAO.join(", ")}, all`);
     process.exit(2);
   }
 
@@ -557,11 +717,14 @@ async function main() {
     await passoRls();
     const s = await passoSession();
     await passoMembership(s);
-  } else if (pedido === "membership") {
-    /* `membership` precisa de sessão: corre-se o passo anterior por dependência, não por
-     * conveniência. */
+    await passoIntegracao(s);
+  } else if (COM_SESSAO.includes(pedido)) {
+    /* Estes passos precisam de sessão: corre-se o anterior por dependência, não por
+     * conveniência. `integration` sem sessão continua a verificar `anon` e
+     * `service_role` — só o teste do AUTENTICADO fica por fazer, e diz que ficou. */
     const s = await passoSession();
-    await passoMembership(s);
+    if (pedido === "membership") await passoMembership(s);
+    else await passoIntegracao(s);
   } else {
     await PASSOS[pedido]();
   }

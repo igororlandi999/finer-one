@@ -99,13 +99,18 @@ auth.users (do Supabase)
     │
     └── memberships      (user_id, company_id, role)   PK composta
               │
-              └── companies (id slug, name, currency, locale, timezone, plan, status, integration)
+              └── companies (id slug, name, currency, locale, timezone, plan, status)
                        │
-                       ├── company_coverage  (company_id, source, complete_through_month, …)
-                       └── audit_log         (company_id, actor_user_id, action, month_key, …)
+                       ├── company_coverage     (company_id, source, complete_through_month, …)
+                       ├── audit_log            (company_id, actor_user_id, action, month_key, …)
+                       └── company_integration  (company_id, config jsonb)   ← 003, SERVER-ONLY
 ```
 
 Decisões que não são óbvias:
+
+- **`company_integration` é a única tabela que nenhum papel de browser lê.** Todas as outras têm uma política que deixa o membro ver o que é seu. Esta tem RLS ativa e **zero políticas**, e `revoke all` para `anon` e `authenticated` — nem o `owner` da empresa lê. A razão é que ali vive de onde se leem os dados financeiros, e `companies_select_member` devolve a linha inteira de `companies` a qualquer membro: guardar essa configuração em `companies.integration` (como estava planeado) publicava o URL do Apps Script — que é anónimo — a todos os membros, `viewer` incluído. Ver `docs/sql/003_company_integration.sql` e o risco 7 do modelo de ameaças.
+- **E `company_integration` não guarda o segredo, guarda a referência:** `{"provider": "gas", "envKey": "GAS_URL"}`. O endereço continua a viver no Vercel. Um dump da tabela é uma lista de nomes de variáveis, não uma fuga; e não há uma segunda cópia do segredo para alguém esquecer de rodar. O custo assumido é que uma empresa nova exige um deploy, não só uma linha de SQL.
+- **`companies.integration` continua a existir, vazia e desarmada.** Não foi removida (obrigaria a coordenar um deploy com a migração); ganhou um `check` que recusa chaves de segredo e o BFF deixou de a pedir no `select`.
 
 - **Não há `public.users`.** `auth.users` é do Supabase; duplicar identidade em dois sítios cria a pergunta "qual das duas é o utilizador?", que não tem boa resposta. `profiles` guarda só o que é nosso.
 - **`companies.id` é texto (slug), não uuid.** Aparece no caminho do URL, em registos e em conversas com o cliente. Um uuid não acrescenta segurança — a segurança é a membership, não a imprevisibilidade do id.
@@ -159,11 +164,28 @@ A regra, em uma linha: **nada do que o cliente envia identifica o cliente.**
 - o `userId` vem sempre do token verificado;
 - o `companyId` vem do caminho — é o **pedido**, não a **autorização** — e só serve para procurar uma membership;
 - a `role` vem da membership lida no servidor;
-- a configuração da empresa (moeda, locale, **integração**) resolve-se depois de autorizar, a partir do id autorizado.
+- a configuração da empresa (moeda, locale) e a **integração** resolvem-se depois de autorizar, a partir do id autorizado — e a integração vem de `company_integration`, que o browser não alcança.
 
-O passo 6 é o que faz o isolamento: o cliente pode pedir a empresa que quiser, mas o que determina a fonte de dados é a linha de `companies` da empresa **autorizada**.
+O passo 6 é o que faz o isolamento: o cliente pode pedir a empresa que quiser, mas o que determina a fonte de dados é a linha de `company_integration` da empresa **autorizada**, lida com a `service_role`. `provider` e `envKey` vindos do cliente são **rejeitados com 400**, tal como a identidade: um pedido legítimo que pudesse escolher a sua própria fonte apontaria a sua empresa para os dados de outra, e o 403 nunca dispararia.
 
 Um payload de escrita que traga `actorUserId`, `userId`, `role`, `companyId` ou `memberships` é **rejeitado com 400**, não ignorado. Ignorar em silêncio esconde um bug nosso durante meses e trata uma tentativa de personificação como um encolher de ombros.
+
+---
+
+### A regra do transporte, escrita porque foi violada
+
+Quando `VITE_PROTECTED_DATA_TRANSPORT` está LIGADO e a autenticação está em vigor, a
+falta de qualquer condição — empresa ativa, token — devolve **o transporte NENHUM**, e
+nunca o legado.
+
+O legado é anónimo. Cair para ele quando alguém pediu leituras autenticadas é servir
+dados financeiros reais sem token e sem membership, exatamente a quem a aplicação não
+conseguiu identificar. "Sem dados" é honesto e visível; um número errado no ecrã não é
+nem uma coisa nem outra.
+
+Com o interruptor DESLIGADO tudo continua a cair para o legado — esse é o comportamento
+de hoje e não é uma falha: é a instalação por migrar. Ver `resolveDataTransport` e
+`docs/AUDITORIA_2026-08-28.md` §1.
 
 ---
 

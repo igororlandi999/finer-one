@@ -71,6 +71,21 @@ duas vezes noutro eixo: apresentar `unavailable` como zero, e apresentar uma ava
 
 ---
 
+## 0.1. Auditoria de 28/08/2026 — dois P0 fechados
+
+`docs/AUDITORIA_2026-08-28.md` tem o detalhe. O que muda para a prontidão:
+
+- **`VITE_PROTECTED_DATA_TRANSPORT` não podia ser ligado como estava.** Com o
+  interruptor ligado e a empresa ativa ainda por resolver, o transporte caía para o
+  endpoint **anónimo** — que serve os dados reais da Overcel sem token nem membership.
+  Corrigido: passa a devolver "sem dados". Antes desta correção, ligar o interruptor era
+  abrir um acesso, não fechá-lo.
+- **Trocar de empresa com uma leitura em voo mostrava os números da empresa anterior.**
+  Corrigido com contador de geração, e provado com o provider montado.
+
+Nenhum dos dois estava ativo em produção. Os dois estavam no caminho dos passos
+seguintes.
+
 ## 1. O que mudou desde `READINESS_PLUS.md`
 
 Aquele documento dizia que **uma coisa só** impedia a venda: não havia autenticação, e
@@ -97,6 +112,7 @@ Acrescentado na sessão de 26/08/2026 (trabalho local, sem publicação):
 | Testes do BFF | ❌ nenhum (repositório sem runner) | ✅ 63, em `node --test`, sem dependências |
 | Persistência da cobertura | ⚠️ funções por ligar dentro do handler | ✅ port com implementação de Supabase escrita; recusa honesta (503) enquanto não existir |
 | Empresa → integração | ⚠️ leitura embutida | ✅ port `resolveCompanyIntegration` com 3 implementações |
+| Onde vive a config da integração | ❌ `companies.integration`, legível por qualquer membro | ✅ `company_integration`, RLS sem políticas, só `service_role` — e guarda uma referência, não o URL |
 | Resíduo de gráficos após logout | ❌ valor financeiro real legível no DOM | ✅ corrigido e verificado no Chrome |
 
 A frase certa hoje: **a arquitetura de acesso está resolvida; falta ligá-la a um
@@ -260,21 +276,43 @@ Na mesma página, `service_role`. **Esta ignora a RLS por completo.**
 Cria: `profiles`, `companies`, `memberships`, `company_coverage`, `audit_log`, a função
 `is_member_of`, o trigger `on_auth_user_created`, e todas as políticas de RLS.
 
+Depois, `docs/sql/003_company_integration.sql` → **Run**. Cria `company_integration`, a
+tabela **server-only** de onde o BFF descobre a fonte de dados de cada empresa. Sem ela,
+as leituras protegidas respondem 503 — que é a verdade, e não um ecrã vazio.
+
+> `002_grants.sql` é história: os mesmos GRANTs já vivem dentro do 001. Um ambiente novo
+> precisa do 001 e do 003.
+
 ### 5. Criar o primeiro utilizador
 **Authentication → Users → Add user**. Email real, palavra-passe forte, **confirmar o
 email** (ou marcar como confirmado). Copiar o **UUID** — é preciso no passo 7.
 
 O trigger do passo 4 cria o `profile` automaticamente.
 
-### 6. Criar a empresa Overcel
+### 6. Criar a empresa Overcel e ligar a sua integração
 **SQL Editor** — é a seed comentada no fim do ficheiro do passo 4:
 
 ```sql
-insert into public.companies (id, name, currency, locale, timezone, plan, integration)
-values ('overcel', 'Overcel', 'BRL', 'pt-BR', 'America/Sao_Paulo', 'plus',
-        jsonb_build_object('gasUrl', 'O-URL-REAL-DO-WEB-APP'));
+insert into public.companies (id, name, currency, locale, timezone, plan)
+values ('overcel', 'Overcel', 'BRL', 'pt-BR', 'America/Sao_Paulo', 'plus');
+
+insert into public.company_integration (company_id, config)
+values ('overcel', '{"provider":"gas","envKey":"GAS_URL"}'::jsonb);
 ```
-O `gasUrl` é o URL do Web App do Apps Script. **Vive na base de dados, não no código.**
+
+> ⚠️ **O `gasUrl` NÃO vai para `companies.integration`.** Essa coluna é legível por
+> qualquer membro (política `companies_select_member`), e o Web App do Apps Script é
+> `ANYONE_ANONYMOUS`: quem tiver o URL tem os dados, sem token. Pô-lo ali seria publicar
+> a fonte financeira a todos os membros da empresa, um `viewer` incluído. O 003 tem um
+> `check` que agora **recusa** essa escrita.
+
+O que vai para a base de dados é a **referência**: "esta empresa lê por Apps Script, e o
+endereço está na variável `GAS_URL`". O URL real continua a viver só no Vercel, como
+Secret — um sítio só, uma rotação só.
+
+Uma empresa **sem** linha em `company_integration` responde 200 com `data: []` e
+`debug.fonte = "integracao-nao-configurada"` — ausência declarada, nunca um zero
+financeiro. É o estado correto para a empresa de teste do passo 11.
 
 ### 7. Criar a membership
 ```sql
@@ -325,7 +363,15 @@ npm run check:supabase membership
 ```
 Esperado: `A → A` = 200, `A → B` = **403**, empresa inexistente = **403**.
 
-Só quando isto passar é que o nível 3 da tabela do §0 deixa de estar por verificar.
+E o isolamento da **configuração**, que é uma pergunta diferente:
+```bash
+npm run check:supabase integration
+```
+Esperado: `anon` recusado, **utilizador autenticado real recusado** (é o que distingue
+esta tabela de todas as outras — nem o `owner` a lê), `service_role` lê, e nenhuma linha
+com um segredo lá dentro.
+
+Só quando os dois passarem é que o nível 3 da tabela do §0 deixa de estar por verificar.
 
 ### 12. Ligar o transporte protegido (opcional, depois de 11 passar)
 ```
@@ -346,3 +392,90 @@ devolvem 404 e o ecrã fica indistinguível de "empresa sem dados".
   cobertura só grava depois de o BFF ser publicado. Até lá responde **503**, que é a
   verdade.
 - **Gestão de membros na UI** — hoje convida-se por SQL.
+
+---
+
+## 6. INTEGRAÇÃO GIT DA VERCEL — plano exato (28/08/2026)
+
+**Nada disto foi executado.** Fica escrito para ser executado **depois** de o novo
+Preview do BFF estar validado, e não antes: mexer na ligação enquanto se depende dela
+para publicar Previews é trocar de cavalo a meio do rio.
+
+### O problema, em uma frase
+
+O projeto Vercel do BFF está ligado por Git ao repositório **público e antigo**
+(`igororlandi999/finer-one-proxy`). O código vive hoje no repositório **privado**
+(`igororlandi999/finer-one-bff`). Um push para o repositório antigo constrói código de
+junho — sem autorização, sem CORS fechado, sem nada desta auditoria — e vai a
+**produção**, porque a ligação Git tem a rama principal apontada a Production.
+
+Não é uma hipótese remota: é o comportamento por omissão de uma integração Git da Vercel.
+
+### Preferência registada do Igor
+
+> Manter deploy **manual** do BFF até terminarmos esta migração, em vez de ligar `main`
+> do repositório privado diretamente a Production.
+
+É a escolha certa e o plano abaixo assume-a. Uma ligação Git a Production é conveniente
+quando o pipeline está estabilizado; a meio de uma migração de autorização, é uma forma
+de publicar por acidente.
+
+### Os quatro passos, por ordem
+
+**1. Remover a ligação ao repositório público antigo**
+
+    Vercel -> projeto do BFF -> Settings -> Git -> Connected Git Repository -> Disconnect
+
+Isto **não** apaga deployments existentes nem variáveis de ambiente. Só corta a
+capacidade de um push construir seja o que for. Confirmar, antes de carregar, que a
+secção mostra `finer-one-proxy` — se já mostrar `finer-one-bff`, o problema é outro e
+este plano precisa de ser revisto.
+
+**2. Decidir: privado ou manual — e a decisão é MANUAL, por agora**
+
+Não reconectar. O BFF continua a ser publicado por `vercel deploy` a partir da máquina,
+com o repositório privado como fonte de verdade do código.
+
+Quando a migração terminar e se quiser reconectar, o passo seguro é ligar o privado
+**com Production desligada de `main`**: Settings -> Git -> Production Branch apontada a
+uma rama que não existe (`producao`), de modo a que todo o push a `main` produza um
+Preview e nunca uma Production. A promoção continua a ser um ato manual e explícito.
+
+**3. Impedir a produção automática por acidente**
+
+Duas defesas, e ambas valem a pena porque falham de maneiras diferentes:
+
+- **Settings -> Git -> Ignored Build Step**: `exit 0` faz a Vercel construir sempre;
+  `exit 1` faz nunca construir. Enquanto durar a migração, `exit 1` é uma trava explícita
+  que sobrevive a uma reconexão distraída.
+- **Settings -> Deployment Protection**: manter a proteção de Preview ligada. É o que
+  impede um Preview de ser um endpoint aberto ao mundo.
+
+**4. Provar que o repositório antigo já não controla nada**
+
+O passo que transforma o plano numa garantia. Não basta desconectar: é preciso ver que
+um push não faz nada.
+
+    git clone https://github.com/igororlandi999/finer-one-proxy /tmp/verificar-antigo
+    cd /tmp/verificar-antigo
+    echo "verificação de $(date -u +%FT%TZ)" >> LEIAME-VERIFICACAO.md
+    git commit -am "chore: verificar que este repositório já não controla a Vercel"
+    git push
+
+Depois, em `vercel ls` (ou no painel), confirmar que:
+
+- **não apareceu nenhum deployment novo** nos minutos seguintes;
+- o deployment de Production continua a ser exatamente o mesmo SHA de antes.
+
+Se aparecer um deployment, a desconexão não pegou — e nesse caso a produção esteve todo
+este tempo a ser controlada pelo repositório errado, que é precisamente o achado.
+
+Reverter a alteração de verificação depois (`git revert`), ou deixá-la: o repositório
+antigo passa a ser um arquivo, e um ficheiro que diz porquê é melhor do que nenhum.
+
+### O que NÃO fazer
+
+- **Não apagar o repositório público antigo** antes do passo 4. Sem ele não há como
+  provar que a desconexão funcionou, e um repositório arquivado não faz mal a ninguém.
+- **Não ligar `main` do privado a Production** enquanto o transporte protegido não
+  estiver ativo e validado em produção.

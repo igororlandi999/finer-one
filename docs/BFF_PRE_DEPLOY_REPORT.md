@@ -1,12 +1,16 @@
 # BFF — RELATÓRIO PRÉ-DEPLOY
 
-**Estado: NÃO PUBLICADO.** Nenhum deploy foi feito. Este documento existe para que a
-decisão de publicar seja tomada com a informação toda à frente.
+**Estado: PUBLICADO.** O BFF está em produção em `https://finer-one-proxy.vercel.app`,
+a partir do commit `5b2542d` do repositório **privado** `igororlandi999/finer-one-bff`.
+O deployment anterior continua preservado para rollback.
+
+> Atenção ao nome: o repositório público `igororlandi999/finer-one-proxy` é **antigo**,
+> tem um commit e **não** é o canónico. O canónico é `finer-one-bff`, privado.
 
 Projeto Vercel: `finer-one-proxy` (`prj_jmUKL3XI5kOQ5L909igi5y1q2wTm`), já ligado em
 `.vercel/project.json`. Código em `C:\Users\User\Documents\VS Code\finer-one-proxy`.
 
-Atualizado em 27/08/2026, depois da sessão de fecho de riscos locais.
+Atualizado em 27/08/2026, na sessão da migração 003 (`company_integration`).
 
 ---
 
@@ -14,16 +18,28 @@ Atualizado em 27/08/2026, depois da sessão de fecho de riscos locais.
 
 | Verificação | Resultado |
 |---|---|
-| `node --test "test/**/*.test.mjs"` | **92 / 92**, 0 falhas (eram 63) |
+| `node --test "test/**/*.test.mjs"` | **179 / 179**, 0 falhas (eram 63) |
 | `"type": "module"` | ✅ |
 | `engines.node` | `>=18` |
 | Efeitos de topo nos módulos | ✅ nenhum — importar não faz rede |
-| Frontend | 2069 → **2107** testes (83 ficheiros), build verde, `check:data` SAUDÁVEL |
+| Frontend | 2069 → **2113** testes (84 ficheiros), build verde, `check:data` SAUDÁVEL |
 
-Os 29 testes novos cobrem duas coisas que não estavam cobertas: o **contrato de CORS**
-(`test/cors.test.mjs`) e a **segurança do próprio deploy** (`test/deploy-safety.test.mjs`).
+Os testes acrescentados desde as 63 iniciais cobrem, por ordem de aparecimento: o
+**contrato de CORS** (`test/cors.test.mjs`), a **segurança do próprio deploy**
+(`test/deploy-safety.test.mjs`), o **interruptor de escrita**
+(`test/coverage-flag.test.mjs`) e, agora, a **resolução da integração por empresa** — a
+declaração `{provider, envKey}` em `test/companyIntegration.test.mjs` e o comportamento
+do endpoint em `test/financial-data.test.mjs`.
 
 ---
+
+> **Auditoria de 28/08.** Depois do Preview `6d8c0b0` correu uma sessão longa de
+> auditoria que encontrou dois **P0** (transporte protegido a cair para o legado
+> anónimo; corrida entre empresas no contexto de dados) e quatro P1/P2 no BFF. Todos
+> corrigidos localmente, com regressões. Ver `docs/AUDITORIA_2026-08-28.md`.
+>
+> As correções do BFF **não estão em nenhum deployment**: o Preview validado é anterior
+> a elas.
 
 ## 2. Endpoints
 
@@ -56,6 +72,12 @@ apenas parecido.
 |---|---|
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API Keys → *Secret keys* → `default` → **Reveal** |
 | `GAS_URL` | já existe no projeto Vercel; não mexer |
+
+E uma **pública** que decide a escrita:
+
+| Variável | Valor nesta fase |
+|---|---|
+| `COVERAGE_WRITES_ENABLED` | **`false`** |
 
 > A chave secreta **ignora a RLS por completo**. Só em `process.env` da função
 > serverless. Nunca com prefixo `VITE_`, nunca num commit.
@@ -95,42 +117,67 @@ preflight, endpoint legado, endpoints novos, alias legado, e a regressão do `*`
 
 ---
 
-## 5. Cobertura — persistência e segurança da escrita
+## 5. Cobertura — o interruptor mudou de sítio
 
 O passo 9 do `ACOES_DO_UTILIZADOR_SUPABASE.md` estava errado: `lerCoberturaAtual` e
 `gravarCobertura` **não** estão por implementar. `lib/coveragePersistence.js` traz
-`createSupabaseCoverageStore` completo. Falta configuração, não código.
+`createSupabaseCoverageStore` completo.
 
-### Publicar com a `service_role` escreve alguma coisa sozinho?
+### A `service_role` não pode ser o interruptor
 
-Testado ao nível da **rede**, com `globalThis.fetch` espiado
-(`test/deploy-safety.test.mjs`):
+Havia um plano para publicar com autenticação e autorização a funcionar mas sem escrita
+de cobertura, deixando a `service_role` de fora. Simulado, com token válido:
+
+```
+SUPABASE_URL ✅   SUPABASE_ANON_KEY ✅   SERVICE_ROLE ❌
+GET  financial-data   ->  403 FORBIDDEN
+POST manual-coverage  ->  403 FORBIDDEN      (e não o 503 esperado)
+```
+
+A mesma chave lê as memberships. Sem ela o `protect` falha fechado — corretamente — e o
+owner é recusado na sua própria empresa. Usar a chave como interruptor desliga a
+**autorização**, não a escrita.
+
+### O interruptor explícito
+
+| Variável | Decide |
+|---|---|
+| `SUPABASE_SERVICE_ROLE_KEY` | memberships, autorização, auditoria, leituras protegidas |
+| `COVERAGE_WRITES_ENABLED` | **e só ela** — se se grava em `company_coverage` |
+
+Só a string exata `"true"` liga. Ausente, `"false"`, `"TRUE"`, `"1"`, `"yes"` — nenhuma.
+A garantia deixou de ser "a chave não está lá" e passou a ser "há uma trava, e há
+20 testes que falham se ela ceder" (`test/coverage-flag.test.mjs`), incluindo um
+controlo que liga a flag e exige que a mesma chamada chegue a `company_coverage`.
+
+### Publicar escreve alguma coisa sozinho?
+
+Testado ao nível da **rede**, com `globalThis.fetch` espiado:
 
 | Evento | Escreve? |
 |---|---|
 | Importar os módulos (arranque da função) | ❌ zero chamadas |
 | Construir a loja com a `service_role` | ❌ ter a chave ≠ usar a chave |
 | `GET` / `OPTIONS` / `HEAD` / `PUT` / `PATCH` / `DELETE` | ❌ 405 ou 204, zero rede |
-| `POST` sem token | ❌ em `company_coverage` |
-| `POST` com token forjado | ❌ em `company_coverage` |
+| `POST` sem token, ou com token forjado | ❌ em `company_coverage` |
+| `POST` de um owner com a flag desligada | ❌ — responde 503 |
 
-**Mas há uma escrita que acontece, e é preciso sabê-la:**
+**Mas há uma escrita que acontece:**
 
 ```
 POST sem token  →  HTTP 401 ao chamador
                 →  POST https://<projeto>.supabase.co/rest/v1/audit_log
 ```
 
-É **deliberado** — `protect.js` audita as recusas, e um registo de tentativas negadas é
-exatamente o que se quer num sistema financeiro. Mas responde à pergunta com uma
-nuance: sim, pedidos que ninguém autenticou provocam escritas em `audit_log`.
+É **deliberado** — as recusas são auditadas. `audit_log` é a prova de quem tentou o quê;
+`company_coverage` é estado financeiro. Confundi-los levaria a desligar a auditoria
+para satisfazer um teste de escrita.
 
 > ⚠️ **RISCO ABERTO — sem limitação de taxa.** Quem souber o URL pode fazer POSTs em
 > série e fazer crescer `audit_log` indefinidamente; cada um custa também uma ida ao
 > Supabase. No plano Free (500 MB, 27 MB usados) é um vetor de esgotamento real.
-> Mitigações possíveis, por ordem de esforço: limitar taxa por IP no Vercel; auditar
-> recusas por amostragem em vez de todas; ou não auditar recusas sem token (mantendo a
-> auditoria das recusas *autenticadas*, que são as que dizem alguma coisa).
+> Mitigações, por ordem de esforço: limitar taxa por IP no Vercel; auditar recusas por
+> amostragem; ou não auditar recusas sem token, mantendo as recusas *autenticadas*.
 
 ---
 
@@ -208,14 +255,37 @@ Hoje está `{}` de propósito, e é por isso que a Overcel foi semeada sem `gasU
 | **C. Coluna inacessível por RLS** | O PostgreSQL **não** faz segurança ao nível da coluna via RLS. Exigiria `GRANT SELECT (col1, col2)` — funciona, mas é frágil: cada coluna nova nasce fora da lista e alguém acrescenta-a por engano. |
 | **D. Fora da base de dados** | O `gasUrl` é uma variável de ambiente do BFF, não um dado por empresa. Simples enquanto houver **uma** empresa com integração; não escala para N. |
 
-### Recomendação: **B, com D como passo intermédio.**
+### Decisão tomada: **B e D ao mesmo tempo** — `docs/sql/003_company_integration.sql`.
 
-- **Agora (uma empresa real):** o `gasUrl` fica onde já está — `GAS_URL` no ambiente do
-  Vercel. Zero risco de exposição, zero trabalho. `integration` permanece `{}`.
-- **Quando houver a segunda empresa com dados reais:** criar
-  `public.company_integration`, sem GRANT para `anon` e `authenticated`, lida só pela
-  `service_role` em `lib/companyIntegration.js`. A coluna `companies.integration` é então
-  removida — não deixada vazia, removida, para não voltar a ser preenchida por engano.
+A recomendação anterior era "D agora, B quando houver a segunda empresa". Antecipou-se,
+por uma razão concreta: com `integration = {}`, as leituras protegidas respondiam
+`{"data": [], "debug": {"fonte": "integracao-nao-configurada"}}` a **tudo**, enquanto o
+legado anónimo servia 1135 pedidos, 309 despesas e 1452 recebíveis. O caminho seguro
+estava, na prática, vazio — e um caminho vazio nunca chega a substituir o inseguro.
+
+E as duas opções não eram alternativas. São camadas:
+
+- **B — a tabela.** `public.company_integration(company_id, config jsonb, …)`, RLS ativa
+  e **zero políticas**, `revoke all` para `anon` e `authenticated`, `grant` só para
+  `service_role`. Nem o `owner` da empresa a lê. A separação é física: não há política a
+  escrever, nem coluna a esquecer num `select *`.
+- **D — o valor.** A tabela **não** guarda o `gasUrl`. Guarda
+  `{"provider": "gas", "envKey": "GAS_URL"}` — uma **referência**. O endereço continua a
+  ser uma variável de ambiente do Vercel, como sempre foi.
+
+O que se ganha por juntar as duas: um dump da tabela não é uma fuga (é uma lista de nomes
+de variáveis), não há um segredo duplicado que alguém rode num sítio e esqueça no outro,
+e quem decide que a Overcel usa aquela variável passa a ser uma **linha da base de
+dados** — que é o que faz a diferença quando houver uma segunda empresa.
+
+O custo assume-se: uma empresa nova exige um deploy (uma variável nova), e não só uma
+linha de SQL. Quando as empresas deixarem de se contar pelos dedos, a saída é guardar ali
+um segredo **cifrado** — e `config jsonb` já suporta isso sem migração.
+
+**`companies.integration` fica, vazia e desarmada.** Não foi removida: removê-la obrigaria
+a coordenar o deploy do BFF com a migração. Em vez disso, o 003 põe-lhe um `check` que
+**recusa** qualquer chave de segredo, e o BFF deixou de a pedir sequer no `select`. Não é
+lida, e não pode ser preenchida.
 
 **Regra que fica escrita:** nenhuma configuração de integração pode viver numa tabela que
 o browser consegue ler. O critério não é "está vazia", é "é alcançável".
@@ -224,50 +294,74 @@ o browser consegue ler. O critério não é "está vazia", é "é alcançável".
 
 ## 9. Rollback
 
-O proxy **não tem histórico git**. O rollback é o da Vercel, não o do código:
+O BFF **já tem histórico git** — repositório privado `finer-one-bff`. Há agora dois
+níveis de rollback, e são independentes:
 
-1. **Vercel → Deployments → o anterior → Promote to Production.** Imediato.
-2. Se o problema for de configuração: remover `SUPABASE_SERVICE_ROLE_KEY` e *Redeploy*.
-   A cobertura volta a 503 e o resto continua.
-3. Do lado do frontend, o interruptor é `VITE_PROTECTED_DATA_TRANSPORT`: vazia devolve
+1. **Vercel → Deployments → o anterior → Promote to Production.** Imediato. O deployment
+   pré-`5b2542d` continua preservado.
+2. **Migração 003.** O rollback SQL está no fim do próprio ficheiro. Depois dele, as
+   leituras protegidas voltam a `integracao-nao-configurada` — o produto fica de pé e
+   vazio, que é o estado anterior a esta sessão. Nada de financeiro se perde: a tabela
+   guarda o nome de uma variável, não números.
+3. Se o problema for de configuração: `COVERAGE_WRITES_ENABLED` para `false` e
+   *Redeploy*. A cobertura volta a 503 e o resto continua.
+4. Do lado do frontend, o interruptor é `VITE_PROTECTED_DATA_TRANSPORT`: vazia devolve
    tudo ao transporte legado sem tocar no BFF.
 
-> **Risco de rollback:** o único sítio onde este código existe é este disco. Ver §10.1.
+> **A ordem entre 1 e 2 importa.** Reverter só o SQL, deixando o BFF novo, dá 503 nas
+> leituras protegidas (a tabela deixou de existir — é uma avaria, e é reportada como
+> tal). Reverter só o BFF, deixando a tabela, é inofensivo: o BFF antigo não a conhece.
+> Se for preciso reverter os dois, reverter **primeiro** o BFF.
 
 ---
 
 ## 10. Riscos, por gravidade
 
-1. **Sem repositório git no proxy.** 2695 linhas, 16 ficheiros, incluindo o núcleo de
-   autorização. Perda de disco = perda total. Nenhum backup encontrado
-   (`C:\Users\User\Downloads\finer-one-proxy` existe mas está **vazia**).
-2. **`audit_log` sem limitação de taxa** — §5.
-3. **Apps Script `ANYONE_ANONYMOUS`.** Enquanto for anónimo, o BFF protege o caminho, não
+1. **Apps Script `ANYONE_ANONYMOUS`.** Enquanto for anónimo, o BFF protege o caminho, não
    a fonte. Quem souber o URL do Web App lê tudo sem passar por aqui. É o maior risco de
-   segurança do sistema, e não é o BFF que o resolve.
-4. **Migração do CORS** — §4. Configurar antes de publicar.
-5. **Mapeamento `recurso → upstream` duplicado** entre os dois repositórios. Idênticos
+   segurança do sistema, e não é o BFF que o resolve. A migração 003 estreita-o — o URL
+   deixou de ser alcançável por qualquer membro autenticado — mas não o fecha.
+2. **`audit_log` sem limitação de taxa** — §5.
+3. **Mapeamento `recurso → upstream` duplicado** entre os dois repositórios. Idênticos
    hoje; fixados de cada lado por teste, mas nada os liga.
-6. **`verifyToken` no caminho crítico** — §6. Aceitável, medido, com veredito.
+4. **`verifyToken` no caminho crítico** — §6. Aceitável, medido, com veredito.
+5. **Uma empresa nova exige um deploy** — a contrapartida assumida da §8. Enquanto forem
+   duas empresas, não custa nada; a partir de meia dúzia, muda para segredo cifrado.
+
+**Fechados nesta sessão:** o proxy sem repositório git (agora privado, com histórico) e a
+migração do CORS (§4, confirmada em produção, sem wildcard).
 
 ---
 
-## 11. Ordem de publicação sugerida
+## 11. Ordem de publicação — o que já foi feito
 
-1. `git init` + repositório **privado** no proxy. *(exige autorização)*
-2. Configurar `ALLOWED_ORIGINS` na Vercel — **antes** de publicar o novo CORS.
-3. Configurar `SUPABASE_URL` e `SUPABASE_ANON_KEY`.
-4. Decidir se a `SUPABASE_SERVICE_ROLE_KEY` entra já (liga a escrita de cobertura) ou
-   depois.
-5. `vercel deploy` — **exige autorização explícita**.
-6. `npm run check:supabase membership` com `API_BASE_URL` a apontar para o deploy.
-7. Só depois: `VITE_PROTECTED_DATA_TRANSPORT=true`.
-8. O `gasUrl` **nunca** vai para `companies.integration` sem o desenho da §8.
+1. ✅ `git init` + repositório **privado** (`finer-one-bff`).
+2. ✅ `ALLOWED_ORIGINS` na Vercel, antes de publicar o novo CORS.
+3. ✅ `SUPABASE_URL` e `SUPABASE_ANON_KEY`.
+4. ✅ `COVERAGE_WRITES_ENABLED=false` e `SUPABASE_SERVICE_ROLE_KEY`. A chave é
+   **necessária** para a autorização; a flag é que mantém a escrita desligada.
+5. ✅ Deploy autorizado, Preview validado e promovido a Produção (`5b2542d`).
+6. ⬜ **Migração 003** no SQL Editor — *exige autorização*.
+7. ⬜ Linha da Overcel em `company_integration`. A Finer Teste **não** leva linha.
+8. ⬜ `npm run check:supabase integration` e `npm run check:supabase membership`.
+9. ⬜ Deploy do BFF com o resolver novo — Preview primeiro, *exige autorização*.
+10. ⬜ Equivalência protegido × legado (contagens, `meta`, `geradoEm`, totais).
+11. ⬜ Só depois de tudo isso: `VITE_PROTECTED_DATA_TRANSPORT=true`.
+
+> O passo 6 vem **antes** do 9. Com o BFF novo e sem a tabela, o PostgREST devolve 404 e
+> as leituras protegidas respondem 503 — o que é correto (é uma avaria) mas é uma janela
+> de indisponibilidade evitável. Ao contrário, a tabela sem o BFF novo é inofensiva.
 
 ---
 
 ## 12. O que não foi possível validar localmente
 
 `vercel dev` exige o CLI (não instalado — `npx` pediu para descarregar `vercel@59.9.1`) e
-autenticação na Vercel. Ambos são ação do Igor. Em vez disso: 92 testes sobre os
+autenticação na Vercel. Ambos são ação do Igor. Em vez disso: 141 testes sobre os
 handlers reais, com espia de rede, e a auditoria estática acima.
+
+O que continua a **não** ser verificável por teste unitário, por definição: se a RLS e os
+GRANTs de `company_integration` estão mesmo como o SQL diz. Isso pergunta-se ao projeto
+real, e é para isso que existe `npm run check:supabase integration` — que interroga a
+tabela como `anon`, como **utilizador autenticado real** e como `service_role`, e exige
+que só o último leia.

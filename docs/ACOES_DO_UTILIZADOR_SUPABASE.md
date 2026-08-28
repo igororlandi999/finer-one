@@ -97,17 +97,34 @@ Verificar: **Table Editor** mostra `profiles`, `companies`, `memberships`,
 **SQL Editor**, substituindo os dois marcadores:
 
 ```sql
-insert into public.companies (id, name, currency, locale, timezone, plan, integration)
-values ('overcel', 'Overcel', 'BRL', 'pt-BR', 'America/Sao_Paulo', 'plus',
-        jsonb_build_object('gasUrl', 'COLAR_AQUI_O_URL_DO_WEB_APP'));
+insert into public.companies (id, name, currency, locale, timezone, plan)
+values ('overcel', 'Overcel', 'BRL', 'pt-BR', 'America/Sao_Paulo', 'plus');
 
 insert into public.memberships (user_id, company_id, role)
 values ('COLAR_AQUI_O_UUID_DO_PASSO_5', 'overcel', 'owner');
 ```
 
-> O `gasUrl` é o URL do Web App do Apps Script (v12). **Executar isto no SQL Editor do
-> Supabase, não colar no chat nem versionar.** O ficheiro `001_saas_foundation.sql` tem
-> esta secção comentada exatamente por isso.
+E, **depois de correr `docs/sql/003_company_integration.sql`**, a integração:
+
+```sql
+insert into public.company_integration (company_id, config)
+values ('overcel', '{"provider":"gas","envKey":"GAS_URL"}'::jsonb)
+on conflict (company_id) do update set config = excluded.config;
+```
+
+> ⚠️ **Não há nenhum URL para colar aqui.** A versão anterior deste passo mandava pôr o
+> `gasUrl` em `companies.integration` — e essa coluna é legível por **qualquer membro**
+> da empresa a partir do browser (política `companies_select_member`). Como o Web App do
+> Apps Script é `ANYONE_ANONYMOUS`, isso equivalia a entregar a fonte financeira a todos
+> os membros, `viewer` incluído.
+>
+> A tabela guarda agora uma **referência**: "esta empresa lê por Apps Script, e o
+> endereço está na variável `GAS_URL`". O URL real continua onde já estava — Secret no
+> Vercel — e não passa por aqui, nem pelo chat, nem por um commit. O `check`
+> `company_integration_sem_segredos` recusa a escrita se alguém tentar.
+>
+> `finer-teste` **não** leva linha: é o caso de controlo, e tem de continuar a responder
+> `data: []` com `fonte: integracao-nao-configurada`.
 
 ## Passo 7 — Instalar o SDK e configurar o frontend ✅ FEITO
 

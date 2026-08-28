@@ -86,7 +86,16 @@ Legenda de estado:
 2. **`ANYONE_WITH_GOOGLE` + conta de serviço** (médio): o BFF autentica-se com uma identidade Google. Fecha o acesso anónimo de verdade.
 3. **Retirar o GAS do caminho de leitura** (alto, é o destino): o GAS escreve snapshots para um armazenamento privado; o BFF lê de lá com credenciais próprias. O Web App deixa de ser um endpoint público.
 
-Agrava-se com multiempresa: `companies.integration.gasUrl` fica visível a todos os membros da empresa por causa da política `companies_select_member`. Aceitável entre membros da mesma empresa; deixa de o ser quando `integration` contiver segredos. Mitigação planeada: uma VIEW sem `integration` para o cliente, e a tabela só para a `service_role`.
+**Agravante que EXISTIA e foi fechada.** `companies.integration.gasUrl` ficava visível a todos os membros da empresa por causa da política `companies_select_member` — e "todos os membros" inclui um `viewer`, que por desenho não pode escrever nada. Como o Web App é anónimo, ler essa coluna era receber uma **cópia permanente da fonte financeira**, utilizável para sempre, sem token e sem deixar rasto no BFF. A mitigação planeada era "uma VIEW sem `integration`"; fez-se melhor.
+
+**Mitigação aplicada — `docs/sql/003_company_integration.sql`:**
+
+- A configuração mudou-se para `public.company_integration`: RLS ativa, **zero políticas**, `revoke all` para `anon` e `authenticated`, `grant` só para `service_role`. Não há papel de browser que a leia — nem o `owner`.
+- A tabela **não guarda o URL**. Guarda `{"provider": "gas", "envKey": "GAS_URL"}` — uma referência. O endereço continua a ser uma variável de ambiente do Vercel. Um dump da tabela não é uma fuga.
+- `companies.integration` ficou vazia, com um `check` que recusa chaves de segredo, e o BFF deixou de a pedir no `select`.
+- `envKey` só pode nomear `GAS_URL` ou `GAS_URL_<SUFIXO>`. Uma linha adulterada não consegue apontar para `SUPABASE_SERVICE_ROLE_KEY`: a chave nunca chega a ser lida de `process.env`.
+
+O risco 7 **continua ACEITE** — quem tiver o URL continua a ler tudo, e é o plano em 3 passos que o resolve. O que mudou é quem consegue **obter** o URL: já não é qualquer membro autenticado a partir do browser, é quem tiver acesso ao painel do Vercel.
 
 ---
 
@@ -160,8 +169,69 @@ O que fica é ruído no registo de auditoria: N entradas para uma ação. Detet�
 | 5 | Sem membership | MITIGADO |
 | 6 | Token de A → empresa B | MITIGADO |
 | 7 | Apps Script direto | **ACEITE** — plano em 3 passos |
+| 7b | Membro lê o `gasUrl` da base de dados | MITIGADO — migração 003, tabela server-only |
+| 13 | Transporte protegido cai para o legado anónimo | MITIGADO — 28/08, ver §13 |
+| 14 | Resposta da empresa anterior sobrepõe-se à atual | MITIGADO — 28/08, ver §14 |
+| 15 | Estado do upstream apresentado como estado do BFF | MITIGADO — 28/08, ver §15 |
 | 8 | URL do proxy conhecido | MITIGADO (endpoints novos) |
 | 9 | CORS | MITIGADO como higiene |
 | 10 | Segredo em `VITE_*` | MITIGADO |
 | 11 | XSS | **ACEITE** — CSP em falta |
 | 12 | Replay | MITIGADO POR DESENHO |
+
+---
+
+## Ameaças encontradas na auditoria de 28/08/2026
+
+As três seguintes não vieram de um modelo teórico: vieram de ler o código com a pergunta
+"o que acontece quando isto falha?". Detalhe completo e provas em
+`docs/AUDITORIA_2026-08-28.md`.
+
+### 13. Transporte protegido a cair para o legado ANÓNIMO
+
+**Ataque.** Nenhum — não é preciso atacante. Basta o interruptor
+`VITE_PROTECTED_DATA_TRANSPORT` estar ligado e a empresa ativa ainda não ter resolvido.
+
+**Risco.** `resolveDataTransport` devolvia o transporte **legado** quando faltava o
+`companyId` ou a função de token. O legado é `GET /api/pedidos/vendas`: anónimo, sem
+membership, e serve os dados financeiros reais da Overcel. Como `companyId` vem de
+`company?.id ?? null`, `null` é o valor durante todo o carregamento das memberships — e
+o valor **permanente** de quem não tem membership nenhuma.
+
+Um utilizador autenticado sem acesso à Overcel receberia os números da Overcel.
+
+**Estado: MITIGADO.** Com o interruptor ligado e a autenticação em vigor, a falta de
+empresa ou de token devolve agora o transporte **NENHUM** — sem dados, visivelmente.
+Com o interruptor desligado nada muda. Testado em `transporteDeDados.test.js`, incluindo
+o contrapeso que garante que a instalação de hoje continua a ler pelo legado.
+
+**Nunca esteve ativo**, porque o interruptor está desligado. Estava debaixo do passo
+seguinte do plano.
+
+### 14. A resposta de uma empresa a aterrar depois de o utilizador ter trocado
+
+**Ataque.** Nenhum. É uma corrida, e ganha-se com latência: os recebíveis da Overcel são
+1,2 MB e a Finer Teste responde de imediato porque não tem integração.
+
+**Risco.** `FinerDataContext.load` não se protegia de si próprio. A leitura da empresa
+anterior escrevia no estado depois de a nova já ter escrito — os números de uma empresa
+apresentados sob o nome de outra. Num produto multiempresa é a pior forma de estar
+errado: parece certa.
+
+**Estado: MITIGADO** por contador de geração — cada leitura só escreve se ainda for a
+vez dela. Testado com o provider montado, e **verificado que o teste falha sem a
+correção**.
+
+### 15. O estado do Apps Script devolvido como estado do BFF
+
+**Risco.** 401 e 403 são afirmações deste BFF sobre a autorização de quem pede. O
+handler devolvia `upstream.status` cru — e `authorizedApi.js` chama `onUnauthorized`
+num 401, que **termina a sessão**. Uma avaria do Apps Script punha o utilizador fora com
+"sessão expirada", de sessão válida.
+
+Além disso, um 200 com HTML (a página de login do Google, quando o deployment perde
+autorização) era reencaminhado como `application/json`.
+
+**Estado: MITIGADO.** Falha do upstream é 502; um corpo que não começa por `{` ou `[` é
+502 `UPSTREAM_INVALIDO`. `{"data":[]}` vindo do upstream continua a ser 200 — zero é um
+facto.
