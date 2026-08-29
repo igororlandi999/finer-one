@@ -11,6 +11,7 @@
     "deploy": "gh-pages -d dist",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check:predeploy": "node scripts/predeploy-check.mjs",
     "check:data": "node scripts/check-data-pipeline.mjs",
     "check:supabase": "node scripts/supabase-check.mjs"
   },
