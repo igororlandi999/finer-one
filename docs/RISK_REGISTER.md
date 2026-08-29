@@ -97,6 +97,42 @@ Documentos, Clientes/Fornecedores, Chat, Alertas, rótulos de demonstração,
 
 ---
 
+## FASE H — mutation testing dos guardas recentes (29/08, telemóvel)
+
+Um guarda sem regressão que o defenda é um guarda com data de validade. Esta fase não
+procurou defeitos no produto: procurou saber **quais das correções recentes sobreviveriam
+a serem desfeitas em silêncio**. Cada mutação foi aplicada isoladamente, corrida, e o
+ficheiro restaurado imediatamente com `git checkout --` e `git diff` confirmado vazio
+antes da seguinte. Nunca duas ao mesmo tempo.
+
+| # | Guarda | Mutação aplicada | Resultado |
+|---|---|---|---|
+| M1 | R-23 | `Alertas.jsx`: subtítulo volta a `"…na Overcel hoje…"` escrito à mão | **morreu** — `nomeDaEmpresaNaCopy` (1 de 2) |
+| M2 | R-23 | `Resumo.jsx`: subtítulo deixa de usar `company?.name` (o contrapeso) | **morreu** — `nomeDaEmpresaNaCopy` (o outro 1 de 2) |
+| M3 | R-18 | `blingDataService`: `companyId: transporte.protegido === true ? companyId : undefined` → `companyId` | **morreu** — `carimboComTransporteLegado` (2 asserções) |
+| M4a | R-19 | `historyCoverage` da configuração passa a atravessar para qualquer empresa | **morreu** — `carimboComTransporteLegado` |
+| M4b | R-19 | moeda documental da configuração passa a atravessar para qualquer empresa | **morreu** — `carimboComTransporteLegado` |
+| M5 | R-22 | `Indicadores.jsx` perde o `DemoTag` e o `import` | **morreu** — `mockAlcancavelTemSelo` |
+| M6 | R-25 | `RELATORIO` entra na lista de `screens` do plano `team` | **morreu** — `mockAlcancavelTemSelo`, com a mensagem exata: *"relatorio (Relatorio.jsx) — falta: useFinerData e DemoTag"*. A regressão armada do R-25 está **provada**, não suposta. |
+| M7 | R-24 | **todos** os `aria-label` e o `aria-live` da `DataTable` removidos de uma vez | **SOBREVIVEU à suite inteira** — 2329 testes, 95 ficheiros, todos verdes. Ver R-29. |
+| M7-bis | R-24 | a mesma mutação, alargada ao Chat e aos Documentos, **depois** da regressão nova | **morreu** — 8 de 8 |
+| M8 | R-24 | só o `aria-live` do indicador "página X / Y" | **morreu** — 2 de 8 (o `aria-live` é coberto por si próprio, e não por arrasto) |
+| M9 | R-28 | o `ActionPlanModal` volta ao ficheiro em `HEAD` (sem `role` nem `aria-labelledby`) | **morreu** — 7 de 8 |
+
+### O achado
+
+| ID | Risco | Sev. | Estado | Onde |
+|---|---|---|---|---|
+| R-29 | **O R-24 foi fechado sem uma única linha de regressão.** Não é uma suspeita: removeram-se de uma vez os seis `aria-label` e o `aria-live` da `DataTable` — o componente onde vivem as receitas, as despesas e os movimentos — e a suite inteira ficou verde. A correção estava certa e ficou indefesa: qualquer refactor futuro podia desfazer o R-24 por completo sem que nada o dissesse. É um defeito sobre a QUALIDADE DA REGRESSÃO, não sobre o produto — e a doutrina desta auditoria manda corrigir o teste antes de assumir que o código está errado. | P3 | **fechado** | `DataTable.nomesAcessiveis.test.jsx` |
+
+A regressão nova **monta** a `DataTable` em vez de ler a fonte, e a regra que aplica é
+generalizada: *todos* os botões desenhados têm de ter nome (`aria-label`, texto visível ou
+`title`) e *todos* os campos têm de ter nome — com `placeholder` explicitamente recusado,
+porque desaparece assim que se escreve. Apanha o quinto botão sem nome que ainda não
+existe, e não só os quatro que existem hoje.
+
+---
+
 ## Bloqueados — precisam de desktop com sessão iniciada
 
 Nenhum destes é uma falha conhecida. São **verificações que não foi possível fazer**, e
