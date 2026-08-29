@@ -152,4 +152,61 @@ describe("uma célula exportada nunca chega à folha de cálculo como fórmula",
     expect(corpo).toContain("-500,00");
     expect(corpo).toContain("120,50");
   });
+
+  /* ═════════════════════════════════════════════════════════════════════════════════
+   * O ESPAÇO À CABEÇA — A NEUTRALIZAÇÃO NÃO PODE DEPENDER DE NINGUÉM ARRUMAR A FOLHA
+   * ═════════════════════════════════════════════════════════════════════════════════
+   * `" =1+1"` não é avaliado pelo Excel NO MOMENTO DA IMPORTAÇÃO — o espaço faz a célula
+   * ficar texto. É por isso que isto não se classifica como uma falha explorável hoje.
+   *
+   * O que se fecha é o passo seguinte: basta um "remover espaços", uma limpeza de coluna
+   * ou uma reimportação com trim — coisas que quem trata de folhas de cálculo faz por
+   * hábito — para o espaço cair e a fórmula ficar armada num ficheiro que já ninguém
+   * volta a rever. Uma defesa que só se mantém enquanto ninguém arrumar a folha não é
+   * uma defesa que se possa afirmar por escrito.
+   * ═════════════════════════════════════════════════════════════════════════════════ */
+  it.each([
+    [" =1+1", "' =1+1"],
+    ["  =cmd|'/c calc'!A1", "'  =cmd|'/c calc'!A1"],
+    [" @SUM(A1:A9)", "' @SUM(A1:A9)"],
+    [" +351912345678", "' +351912345678"],
+    [" =1+1", "' =1+1"],                 // espaço inquebrável (U+00A0)
+    ["   =HYPERLINK(\"x\")", "'   =HYPERLINK(\"x\")"],
+  ])("espaços à cabeça não escondem a fórmula: %j", (entrada, esperado) => {
+    expect(neutralizarFormula(entrada)).toBe(esperado);
+  });
+
+  it("um montante com espaço à cabeça CONTINUA a não ser neutralizado", () => {
+    /* O contrapeso da regra acima. Alargar o teste aos espaços não pode ter alargado a
+     * neutralização aos números: `" -1234,56"` é o mesmo valor a pagar com um espaço que
+     * veio da fonte, e prefixá-lo com apóstrofo tirava-o da soma da coluna. */
+    expect(neutralizarFormula(" -1234,56")).toBe(" -1234,56");
+    expect(neutralizarFormula("  -0")).toBe("  -0");
+    expect(neutralizarFormula(" -500.00")).toBe(" -500.00");
+  });
+
+  it("os sósias unicode de `=` NÃO são neutralizados, e é deliberado", () => {
+    /* Pediu-se para verificar os lookalikes. A verificação dá NEGATIVO e fica registada
+     * para não voltar a ser feita: `＝` (U+FF1D), `﹦` (U+FE66) e `⁼` (U+207C) não são o
+     * `=` ASCII e NENHUMA folha de cálculo os interpreta como início de fórmula — o
+     * Excel, o LibreOffice e o Sheets comparam o caractere literal.
+     *
+     * Neutralizá-los seria pôr um apóstrofo visível em nomes legítimos de fornecedores
+     * asiáticos, ou seja, estragar dados reais para resolver um ataque que não existe. */
+    for (const s of ["＝1+1", "﹦SUM(A1)", "⁼A1", "≠A1"]) {
+      expect(neutralizarFormula(s)).toBe(s);
+    }
+  });
+
+  it("no ficheiro final, uma célula com espaço à cabeça também sai neutralizada", async () => {
+    const csv = await ficheiro(
+      ["Fornecedor", "Valor (€)"],
+      [[" =HYPERLINK(\"https://exemplo.invalid\")", csvMoney(-500)]]
+    );
+    const corpo = csv.slice(1);
+    /* O apóstrofo tem de estar ANTES do espaço: é a primeira coisa na célula que a folha
+     * lê, e é isso que a marca como texto. */
+    expect(corpo).toContain("' =HYPERLINK");
+    expect(corpo).toContain("-500,00");
+  });
 });

@@ -35,10 +35,26 @@ const RE_INICIO_PERIGOSO = /^[=+\-@\t\r]/;
 /* Um número, com sinal opcional e vírgula OU ponto decimal — o que `csvMoney` produz e
  * o que os campos numéricos trazem. Nada mais é tratado como número. */
 const RE_NUMERO = /^-?\d+(?:[.,]\d+)?$/;
+/* Espaço normal e espaço INQUEBRÁVEL (U+00A0). O segundo não é hipotético: chega em
+ * texto colado a partir de páginas web e de PDFs, e é do que os nomes de fornecedor do
+ * Bling vêm cheios. */
+const RE_ESPACOS_A_CABECA = /^[  ]+/;
 
 export function neutralizarFormula(s) {
-  if (!RE_INICIO_PERIGOSO.test(s)) return s;
-  if (RE_NUMERO.test(s)) return s;
+  /* ─── PORQUE SE OLHA PARA O VALOR SEM OS ESPAÇOS À CABEÇA ─────────────────────────
+   * `" =cmd|'/c calc'!A1"` e `"=cmd|'/c calc'!A1"` são a MESMA célula para quem abre o
+   * ficheiro: basta uma limpeza de coluna, um "remover espaços" ou uma reimportação com
+   * trim para o espaço desaparecer e a fórmula ficar armada. O espaço à cabeça é um
+   * acidente de formatação, não uma defesa — e uma defesa que depende de ninguém
+   * arrumar a folha não é uma defesa que se possa afirmar.
+   *
+   * A decisão é sobre o valor LIMPO; o que se escreve é o valor ORIGINAL com o apóstrofo
+   * à frente, porque neutralizar não é sítio para também andar a alterar os dados. */
+  const semEspacos = s.replace(RE_ESPACOS_A_CABECA, "");
+  if (!RE_INICIO_PERIGOSO.test(semEspacos)) return s;
+  /* O número continua a passar intacto — e agora também `" -1234,56"`, que é o mesmo
+   * montante com um espaço que veio da fonte. Ver o bloco do `-` acima. */
+  if (RE_NUMERO.test(semEspacos)) return s;
   return `'${s}`;
 }
 
