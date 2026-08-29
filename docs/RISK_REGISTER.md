@@ -75,6 +75,7 @@
 | R-14 | **Apps Script continua `ANYONE_ANONYMOUS`** e o URL do proxy vai no bundle. | **P1** | aceite (conhecido) | E4 | É o motivo de existir o endpoint legado e de as escritas de cobertura estarem desligadas. Nada a fazer sem tocar no Apps Script — fora do âmbito desta sessão por decisão explícita. |
 | R-15 | **Sem política de retenção no `audit_log`.** | P3 | aberto | E5 | R-04 limitou o tamanho de cada linha; não limita o número. Exige DDL — migração `004` a desenhar, **não executar**. |
 | R-16 | **Sem limitação de taxa em lado nenhum.** | P2 | aberto | E5 | Fora do âmbito local: exige Redis ou o produto da plataforma. Documentar antes de E5. |
+| R-21 | **`Documentos.jsx:433` constrói um `href` a partir de `d.file.url`, sem validar o esquema.** Um `javascript:` vindo da fonte executaria no clique. | P3 | aberto (latente) | E4 | **Não alcançável hoje** — e verificado nesta sessão, não assumido: nenhuma fonte devolve ficheiro, todos os documentos saem `metadata_only` com `file = EMPTY_FILE` (`url: null`), portanto `temFicheiro` é sempre falso e o `<a>` nunca é renderizado. Já tem `rel="noopener noreferrer"`. Fica registado pela mesma razão de R-08: a distância entre "não alcançável" e "alcançável" é uma fonte nova. **Quando o ficheiro real existir, são 3 linhas** — permitir só `https:` (e `http:` se necessário) e cair no botão desativado em tudo o resto. Não se faz agora porque acrescentar código para um problema que ninguém tem é como o R-17 chegou a este registo. |
 
 ---
 
