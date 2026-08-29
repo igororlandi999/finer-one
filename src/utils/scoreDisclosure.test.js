@@ -140,6 +140,50 @@ describe("entradas defeituosas não rebentam nem inventam", () => {
     expect(declarouTudo.podeAfirmarMaximo).toBe(true);
   });
 
+  /* ═══════════════════════════════════════════════════════════════════════════════
+   * A FLAG FICOU CERTA E O TEXTO CONTINUOU ERRADO
+   * ═══════════════════════════════════════════════════════════════════════════════
+   * O teste acima verificava `podeAfirmarMaximo` em cada metade em falta, e a FRASE só
+   * no caso de as duas faltarem. Faltava exatamente o caso do meio — e era esse que
+   * ainda estava avariado: `explicarCalculoDoScore` lia `completo` em vez de
+   * `podeAfirmarMaximo`, e com `penalizacoes` ausente + `naoAvaliados: []` escrevia "a
+   * empresa atingiu o score máximo" com a flag a dizer que não podia.
+   *
+   * É a frase que a UI renderiza (`DiagnosticoFinanceiro.jsx`); a flag só escolhe a cor.
+   * Uma flag correta que ninguém lê não corrige defeito nenhum.
+   * ═══════════════════════════════════════════════════════════════════════════════ */
+  it("a FRASE nunca afirma o máximo quando a flag o proíbe — em nenhuma das formas", () => {
+    const formas = [
+      ["ambas ausentes", { score: 100 }],
+      ["penalizacoes ausente", { score: 100, naoAvaliados: [] }],
+      ["naoAvaliados ausente", { score: 100, penalizacoes: [] }],
+      ["penalizacoes não é lista", { score: 100, penalizacoes: "nenhuma", naoAvaliados: [] }],
+      ["naoAvaliados não é lista", { score: 100, penalizacoes: [], naoAvaliados: null }],
+    ];
+    for (const [rotulo, diagnostico] of formas) {
+      const d = resolveScoreDisclosure(diagnostico);
+      expect(d.podeAfirmarMaximo, rotulo).toBe(false);
+      expect(explicarCalculoDoScore(d, 100), `${rotulo}: a frase afirmou o máximo`).not.toContain("máximo");
+    }
+  });
+
+  it("a ressalva conta dimensões nomeadas — nunca escreve `0 dimensões`", () => {
+    /* `completo` passou a poder ser falso com a lista VAZIA (o motor não se pronunciou).
+     * A ressalva continuava pendurada em `completo` e escrevia "0 dimensões não foram
+     * avaliadas" — contar uma coisa que ninguém contou. */
+    for (const diagnostico of [{ score: 100 }, { score: 100, penalizacoes: [] }, { score: 68, penalizacoes: [{ pts: 32, motivo: "x" }] }]) {
+      const frase = explicarCalculoDoScore(resolveScoreDisclosure(diagnostico), 100);
+      expect(frase, JSON.stringify(diagnostico)).not.toMatch(/\b0 dimensões\b/);
+      expect(frase).not.toMatch(/^\s*0\b/);
+    }
+
+    /* Contrapeso: com dimensões a sério, a ressalva continua a aparecer e a contar bem. */
+    const uma = resolveScoreDisclosure({ score: 100, penalizacoes: [], naoAvaliados: [{ dimensao: "rentabilidade" }] });
+    expect(explicarCalculoDoScore(uma, 100)).toContain("Uma dimensão não foi avaliada");
+    const duas = resolveScoreDisclosure({ score: 100, penalizacoes: [], naoAvaliados: [{ dimensao: "a" }, { dimensao: "b" }] });
+    expect(explicarCalculoDoScore(duas, 100)).toContain("2 dimensões não foram avaliadas");
+  });
+
   it("penalizações malformadas são descartadas, e não somadas como NaN", () => {
     /* Um NaN no total sobrevive a `typeof === "number"` e chega ao ecrã como "−NaN pts".
      * Pior: `JSON.stringify` transforma-o em `null` e o erro passa a parecer ausência. */

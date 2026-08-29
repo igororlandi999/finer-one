@@ -110,15 +110,26 @@ export function resolveScoreDisclosure(diagnostico) {
  */
 export function explicarCalculoDoScore(disclosure, score) {
   if (!disclosure) return null;
-  const { penalizacoes, totalDescontado, naoAvaliadas, completo } = disclosure;
+  const { penalizacoes, totalDescontado, naoAvaliadas, podeAfirmarMaximo } = disclosure;
 
-  const ressalva = completo
+  /* ── A RESSALVA CONTA DIMENSÕES, LOGO EXIGE DIMENSÕES ───────────────────────────
+   * Isto pendurava-se em `completo`, e desde que `completo` passou a exigir que o motor
+   * se tenha PRONUNCIADO, ele pode ser falso com a lista vazia — um diagnóstico de forma
+   * desconhecida. A frase saía "0 dimensões não foram avaliadas", que conta uma coisa
+   * que ninguém contou. A ressalva pertence às dimensões NOMEADAS, e a nenhuma outra. */
+  const ressalva = naoAvaliadas.length === 0
     ? ""
     : ` ${naoAvaliadas.length === 1 ? "Uma dimensão não foi avaliada" : `${naoAvaliadas.length} dimensões não foram avaliadas`}` +
       " por falta de fonte, e por isso não desconta nem confirma nada.";
 
   if (penalizacoes.length === 0) {
-    return completo
+    /* ── A FRASE SAI DO MESMO JUÍZO QUE A FLAG ────────────────────────────────────
+     * Isto lia `completo`, e `completo` não é a condição do máximo. Com `penalizacoes`
+     * AUSENTE e `naoAvaliados: []` declarado, `podeAfirmarMaximo` era falso — e esta
+     * linha escrevia na mesma "a empresa atingiu o score máximo". A flag ficou certa e
+     * o texto continuou errado, que é o defeito que a flag existe para impedir, um
+     * `if` mais à frente. É esta frase que a UI mostra; a flag só pinta a cor. */
+    return podeAfirmarMaximo
       ? "Sem penalizações — a empresa atingiu o score máximo."
       : `Sem penalizações nas dimensões avaliadas.${ressalva}`;
   }
