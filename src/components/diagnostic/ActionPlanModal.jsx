@@ -20,7 +20,23 @@ export default function ActionPlanModal({ open, onClose, diagnostic, demo }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
       onClick={onClose}
     >
+      {/* ── SEMÂNTICA DE DIÁLOGO ────────────────────────────────────────────────────
+       * Era um `<div>` liso: para um leitor de ecrã não abria diálogo nenhum, e o
+       * conteúdo aparecia sem nome nem fronteira. `role="dialog"` + `aria-labelledby`
+       * resolvem isso e não mudam comportamento nenhum.
+       *
+       * `aria-modal="true"` fica DELIBERADAMENTE de fora. Ele AFIRMA à tecnologia de
+       * apoio que o resto da página está inerte — e aqui não está: não há armadilha de
+       * foco, o fundo não tem `inert` e o Tab sai do diálogo. Declarar uma contenção que
+       * não existe é pior do que não a declarar, porque esconde o fundo do leitor de ecrã
+       * enquanto o teclado continua a ir lá parar.
+       *
+       * `aria-modal`, armadilha de foco, fecho com Escape, foco inicial e devolução do
+       * foco pertencem todos ao mesmo trabalho, mudam comportamento em tempo de execução
+       * e precisam de ser verificados num browser. Ficam registados em R-28. */}
       <div
+        role="dialog"
+        aria-labelledby="plano-de-acao-titulo"
         className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -28,7 +44,7 @@ export default function ActionPlanModal({ open, onClose, diagnostic, demo }) {
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-5">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold text-slate-900">Plano de Ação</h2>
+              <h2 id="plano-de-acao-titulo" className="text-base font-semibold text-slate-900">Plano de Ação</h2>
               {demo && <DemoTag />}
             </div>
             <div className="mt-1.5 flex items-center gap-2 text-sm text-slate-600">
