@@ -1413,11 +1413,36 @@ export async function loadFinerData({ transport, companyId } = {}) {
          * como cobertura, nunca como rubrica — ver `envelopeManualInputs`. */
         manualCoverage: manualInputs ? manualInputs.coverage : undefined,
         meta,
-        /* A empresa que ESTA leitura pediu. Só existe quando a leitura é escopada —
-         * transporte protegido. No legado é `undefined` e o dataset volta a etiquetar-se
-         * pela configuração, que é o comportamento de hoje. Ver o bloco A ETIQUETA TEM
-         * DE VIR DA LEITURA em `buildSalesDataset`. */
-        companyId,
+        /* ── A EMPRESA QUE ESTA LEITURA PEDIU, E SÓ SE A LEITURA A RESPEITOU ────────
+         * Ver o bloco A ETIQUETA TEM DE VIR DA LEITURA em `buildSalesDataset`.
+         *
+         * A condição do transporte não é defesa a mais: sem ela, o carimbo vinha da
+         * PERGUNTA e não da RESPOSTA. `FinerDataProvider` passa `companyId` a partir da
+         * empresa ATIVA e passa-o SEMPRE — não pergunta que transporte foi resolvido:
+         *
+         *     loadFinerData({ transport, ...(companyId ? { companyId } : {}) })
+         *
+         * Com o interruptor do transporte protegido desligado e a autenticação ligada —
+         * que é a ETAPA A do rollout faseado, e parece a mais inofensiva das duas — o
+         * transporte é o LEGADO: um endpoint anónimo que serve um único conjunto de
+         * dados, o da empresa configurada, seja quem for a perguntar. O `companyId` que
+         * viajava ao lado era o da empresa ativa. Então:
+         *
+         *   utilizador troca para a Finer Teste -> companyId = "finer-teste"
+         *   o legado lê o endpoint anónimo      -> dados da OVERCEL
+         *   o dataset era carimbado             -> "finer-teste"
+         *   resolveCompanyDataScope             -> LIGADA
+         *
+         * e o `AppShell` montava as páginas com os números reais da Overcel sob o nome
+         * "Finer Teste". O guarda de escopo não falhou por ser fraco: falhou porque lhe
+         * deram um carimbo fabricado a partir do que se pediu em vez do que se leu — que
+         * é o mesmo defeito que `ACTIVE_COMPANY.id` tinha, virado do avesso.
+         *
+         * Só uma leitura ESCOPADA POR EMPRESA pode carimbar o dataset com essa empresa.
+         * No legado fica `undefined` e o dataset etiqueta-se pela configuração, que é de
+         * quem o endpoint anónimo serve os dados — a única verdade disponível nesse
+         * caminho, e a que dá ao guarda de escopo alguma coisa real que comparar. */
+        companyId: transporte.protegido === true ? companyId : undefined,
       }),
       manualInputs,
     };
