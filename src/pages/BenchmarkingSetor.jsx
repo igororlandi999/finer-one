@@ -4,7 +4,9 @@ import {
 } from "lucide-react";
 
 import PageHeader from "../layouts/PageHeader";
+import DemoTag from "../components/ui/DemoTag";
 import { useCompany } from "../auth/CompanyContext";
+import { useFinerData } from "../context/FinerDataContext";
 
 import { benchmarkMetrics, benchmarkComparison, benchmarkInsights, benchmarkPosition } from "../data/mockData";
 
@@ -85,11 +87,20 @@ export default function BenchmarkingSetor() {
    * ver `nomeDaEmpresaNaCopy.test.js`. */
   const { company } = useCompany();
   const nomeDaEmpresa = company?.name ?? "sua empresa";
+  /* ── ESTE ECRÃ É INTEIRAMENTE DEMONSTRATIVO ──────────────────────────────────────
+   * `benchmarkMetrics`, `benchmarkComparison` e `benchmarkPosition` são `mockData`: não
+   * existe fonte de dados de setor em fase nenhuma. Sem selo, a página afirma pelo nome
+   * da empresa ATIVA que ela "tem um desempenho melhor que X% do setor" — uma comparação
+   * inventada, agora agravada por o nome já ser o certo. */
+  const { source } = useFinerData();
+  const demo = source === "api";
   return (
     <>
       <PageHeader
-        title="Benchmarking do Setor"
-        subtitle={`Como é que a ${nomeDaEmpresa} se compara com outras empresas do setor de ${benchmarkMetrics.setor}? Veja em segundos.`}
+        title={<span className="inline-flex items-center gap-2">Benchmarking do Setor{demo && <DemoTag />}</span>}
+        subtitle={demo
+          ? `Comparação com o setor de ${benchmarkMetrics.setor}. Os valores desta página são demonstrativos e não vêm dos seus dados.`
+          : `Como é que a ${nomeDaEmpresa} se compara com outras empresas do setor de ${benchmarkMetrics.setor}? Veja em segundos.`}
         actions={
           <>
             <select className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-600 bg-white">

@@ -1,6 +1,8 @@
 import { ArrowUpRight, ArrowDownRight, CheckCircle2, AlertTriangle, Lightbulb, Download, FileText } from "lucide-react";
 
 import PageHeader from "../layouts/PageHeader";
+import DemoTag from "../components/ui/DemoTag";
+import { useFinerData } from "../context/FinerDataContext";
 
 import {
   indicatorsTop, operationalKPIs, investmentKPIs,
@@ -70,11 +72,24 @@ function KPIRow({ k }) {
 
 // ── Tela ────────────────────────────────────────────────────
 export default function Indicadores() {
+  /* ── ESTE ECRÃ É INTEIRAMENTE DEMONSTRATIVO ──────────────────────────────────────
+   * Nenhum número desta página vem do dataset: `indicatorsTop`, `operationalKPIs` e
+   * `investmentKPIs` são `mockData`. Enquanto não havia fonte real em lado nenhum, isso
+   * era inofensivo — a aplicação inteira era uma demonstração e o `DemoBanner` dizia-o.
+   *
+   * Com dados reais ligados o banner desaparece, e esta página fica indistinguível das
+   * que mostram os números verdadeiros: margem, liquidez e retorno inventados, ao lado
+   * de um Resumo e de uma Performance que são reais. O selo é a diferença entre uma
+   * demonstração e uma afirmação. */
+  const { source } = useFinerData();
+  const demo = source === "api";
   return (
     <>
       <PageHeader
-        title="Indicadores"
-        subtitle="Margem, liquidez, retorno e produtividade — os indicadores que realmente contam para decidir."
+        title={<span className="inline-flex items-center gap-2">Indicadores{demo && <DemoTag />}</span>}
+        subtitle={demo
+          ? "Margem, liquidez, retorno e produtividade. Os valores desta página são demonstrativos e não vêm dos seus dados."
+          : "Margem, liquidez, retorno e produtividade — os indicadores que realmente contam para decidir."}
         actions={
           <>
             <select className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-600 bg-white">

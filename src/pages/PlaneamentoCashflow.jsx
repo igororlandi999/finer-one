@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 
 import PageHeader from "../layouts/PageHeader";
+import DemoTag from "../components/ui/DemoTag";
+import { useFinerData } from "../context/FinerDataContext";
 import MetricCard from "../components/ui/MetricCard";
 import StatusBadge from "../components/ui/StatusBadge";
 
@@ -39,6 +41,14 @@ const REC_STYLE = {
 
 // ── Tela ────────────────────────────────────────────────────
 export default function PlaneamentoCashflow() {
+  /* ── ESTE ECRÃ É INTEIRAMENTE DEMONSTRATIVO ──────────────────────────────────────
+   * `planningMetrics` e a série de saldo previsto são `mockData`. É a página mais
+   * perigosa das três a que isto se aplica: um saldo previsto a 90 dias e um "risco de
+   * liquidez" são exatamente o tipo de número sobre o qual se decide adiar um pagamento
+   * ou pedir crédito. Com dados reais ligados, o `DemoBanner` global desaparece e nada
+   * mais nesta página dizia que os valores são inventados. */
+  const { source } = useFinerData();
+  const demo = source === "api";
   const riskVariant =
     planningMetrics.riscoLiquidez === "Baixo" ? "saudavel" :
     planningMetrics.riscoLiquidez === "Médio" ? "atencao"  : "critico";
@@ -46,8 +56,10 @@ export default function PlaneamentoCashflow() {
   return (
     <>
       <PageHeader
-        title="Planeamento e Cashflow"
-        subtitle="Veja o saldo previsto nos próximos 90 dias e antecipe problemas de tesouraria antes de acontecerem."
+        title={<span className="inline-flex items-center gap-2">Planeamento e Cashflow{demo && <DemoTag />}</span>}
+        subtitle={demo
+          ? "Saldo previsto e risco de liquidez. Os valores desta página são demonstrativos e não vêm dos seus dados."
+          : "Veja o saldo previsto nos próximos 90 dias e antecipe problemas de tesouraria antes de acontecerem."}
         actions={
           <>
             <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>
