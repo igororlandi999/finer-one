@@ -1,11 +1,26 @@
 # Próxima sessão — o que exige desktop
 
-> Escrito a 28/08/2026, no fim de uma sessão em que o utilizador estava no telemóvel.
-> Tudo o que aqui está precisa de **browser, login, ou consola de um serviço**. Nada
-> disto era possível fazer na sessão anterior, e por isso ficou por fazer — não por estar
-> bem, mas por não ter sido verificado.
+> **Reescrito a 29/08/2026**, ao fim da segunda sessão de telemóvel.
+> A versão anterior (28/08) está **obsoleta**: descrevia 222 testes no BFF, 2272 no
+> frontend, "BFF ahead 4, frontend ahead 9" e o repositório Git **ligado** à Vercel.
+> Nenhuma dessas coisas é verdade hoje. Os passos 3 a 8 dessa versão **foram executados**.
+>
+> **Ordem importa.** Cada passo assume os anteriores.
 
-**Ordem importa.** Cada passo assume os anteriores.
+---
+
+## Estado real no início desta sessão de desktop
+
+| | |
+|---|---|
+| **BFF** | `74a1e0b`, **0 à frente / 0 atrás** de `origin/main`, árvore limpa. **235** testes. |
+| **Frontend** | **18 commits à frente** de `origin/main` (`4e8b309`). **2316** testes, 92 ficheiros. |
+| `.mcp.json` | modificado localmente, **fora do stage**. Não versionar a alteração. |
+| Vercel ↔ Git | **desligado** (R-A fechado). Deploy manual por CLI. |
+| Production | `kgcs3qugg` — **não** é o candidato, e **não está mapeado a um SHA**. |
+| Protection Bypass | **ainda existe** (R-B). É o passo 1. |
+
+Se os números divergirem, **parar e perceber porquê** antes de continuar.
 
 ---
 
@@ -13,204 +28,109 @@
 
 ```bash
 cd "C:\Users\User\Documents\VS Code\finer-one-proxy"
-git status && git log --oneline -8
-npm test                    # esperado: 222 a passar
-npm run check:predeploy     # esperado: tudo verde exceto o aviso de "ahead"
+git status --short && git log --oneline -3
+npm test                    # esperado: 235
+npm run check:predeploy     # esperado: tudo verde
 
 cd "C:\Users\User\Documents\VS Code\finer-one"
-git status && git log --oneline -10
-npm test                    # esperado: 2272 a passar, 90 ficheiros
-npm run build
+git status --short && git log --oneline -5
+npm run check:predeploy     # NOVO nesta sessão — corre testes E build
 ```
 
-Estado esperado no início: BFF **ahead 4**, frontend **ahead 9**, `.mcp.json`
-modificado e **não** versionado. Nada publicado, nada enviado.
-
-Se os números divergirem, **parar e perceber porquê** antes de continuar.
+O `check:predeploy` do frontend **imprime os interruptores**. Olhar para eles: dizem em
+que etapa do rollout a máquina está configurada, e é isso que seria publicado.
 
 ---
 
-## 1. Ler o estado real da Vercel (10 min) — **só ler**
+## 1. Remover o Protection Bypass (R-B) — **primeiro, e sozinho**
 
-O que confirmar, sem alterar nada:
+`BFF_PRODUCTION_PROMOTION.md` §1. O smoke que o exigia terminou.
 
-- [ ] o projeto do BFF está ligado a `igororlandi999/finer-one-bff` **e não** ao
-      `finer-one-proxy` público antigo;
-- [ ] `ALLOWED_ORIGINS` existe em **Production** e o valor é exatamente a origem do
-      frontend (⚠️ o endpoint legado passou de "aberto por omissão" a "fechado por
-      omissão": sem esta variável, o frontend fica sem cabeçalho de CORS);
-- [ ] `GAS_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
-      presentes;
-- [ ] `COVERAGE_WRITES_ENABLED` **ausente** ou diferente de `true`;
-- [ ] Deployment Protection ativa nos Previews;
-- [ ] qual é o deployment de **Production** atual (SHA), para saber a que voltar.
+Confirmar pelo fio que um Preview responde `401` **sem** cabeçalho de bypass. Se responder
+`200`, o bypass não saiu.
 
-Fecha **B-05** e **B-06** do registo de riscos. **Não alterar nada nesta sessão.**
+**Não avançar para a promoção no mesmo minuto.** Se algo partir a seguir, quer-se saber se
+foi o bypass ou o deploy.
 
 ---
 
-## 2. Ler o estado real do Supabase (10 min) — **só ler**
+## 2. Ler o ambiente de Produção — **só ler** (10 min)
 
-No SQL Editor, e sem executar DDL:
+`BFF_PRODUCTION_PROMOTION.md` §2. As duas leituras que mais importam:
 
-```sql
--- Políticas em vigor (a matriz documentada vem do SQL versionado, não da BD)
-select schemaname, tablename, policyname, cmd, roles
-from pg_policies where schemaname = 'public' order by tablename, policyname;
-
--- RLS ligada, e onde está FORCE
-select relname, relrowsecurity, relforcerowsecurity
-from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r';
-
--- Grants por role
-select table_name, grantee, privilege_type
-from information_schema.role_table_grants
-where table_schema = 'public' and grantee in ('anon','authenticated','service_role')
-order by table_name, grantee;
-
--- search_path das funções SECURITY DEFINER
-select p.proname, p.prosecdef, p.proconfig
-from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-where n.nspname = 'public' and p.prosecdef;
-
--- Os factos que a sessão anterior assumiu e não pôde confirmar
-select count(*) from public.company_coverage;                 -- esperado: 0
-select company_id, integration from public.company_integration; -- esperado: sem URL nenhuma
-select count(*) from public.audit_log;
-```
-
-Comparar com `docs/sql/001..003`. **Qualquer divergência é um bloqueio**, não uma nota.
-Fecha **B-07** e **B-08**.
-
----
-
-## 3. Publicar um Preview do BFF (15 min)
+- [ ] **`ALLOWED_ORIGINS` existe em Production?** É o risco de promoção nº 1. Sem ela, o
+      endpoint legado — que é o que serve a aplicação hoje — fica sem CORS e a aplicação
+      inteira mostra "indisponível";
+- [ ] **o SHA de `kgcs3qugg`.** Anotar. Fecha `BFF_PRODUCTION_DELTA.md`, que hoje é
+      inferência e passa a ser facto:
 
 ```bash
-cd "C:\Users\User\Documents\VS Code\finer-one-proxy"
-npm run check:predeploy     # tem de estar verde; se bloquear, resolver — não contornar
-vercel                      # NUNCA --prod
+git log --oneline <SHA-de-kgcs3qugg>..74a1e0b     # isto É o delta
 ```
 
-O Preview desta sessão contém quatro alterações que a produção não tem:
-`PERIODO_INVALIDO` nos dois endpoints, e o corte do `requestedCompanyId` no registo de
-auditoria.
-
-Anotar o URL. **Não promover.**
+Se `ALLOWED_ORIGINS` faltar: **configurá-la e parar por hoje.**
 
 ---
 
-## 4. Smoke test sem token (10 min)
+## 3. Promover o BFF (15 min)
 
-Os dez pedidos da tabela em `docs/RUNBOOK_BFF_DEPLOY.md` §3. Os quatro novos desta
-sessão:
+`BFF_PRODUCTION_PROMOTION.md` §3–4. Anotar o deployment **anterior** antes de promover —
+é o alvo do rollback.
 
-```bash
-# 400 PERIODO_INVALIDO — o teste que prova a alteração desta sessão
-curl -s "$PREVIEW/api/pedidos/vendas?dataInicial=2026-07-31&dataFinal=2026-07-01"
+## 4. Smoke de pós-produção (30 min)
 
-# 200 — o contrapeso: um período de um dia continua a atravessar
-curl -s "$PREVIEW/api/pedidos/vendas?dataInicial=2026-07-15&dataFinal=2026-07-15" | head -c 200
+`BFF_POST_PRODUCTION_SMOKE.md`, inteiro e pela ordem escrita.
 
-# 400 DATA_INVALIDA — e não PERIODO_INVALIDO
-curl -s "$PREVIEW/api/pedidos/vendas?dataInicial=2026-02-30"
+O §6 tem uma verificação que **exige isolamento**: fazer uma recusa autenticada, esperar
+dois minutos **sem tráfego nenhum**, e só então consultar o `audit_log`. Foi assim que R-H
+foi apanhado — sob tráfego o registo funcionava.
 
-# sem Allow-Origin para uma origem desconhecida
-curl -sI -H "Origin: https://exemplo.invalid" "$PREVIEW/api/pedidos/vendas" | grep -i "access-control\|vary"
-```
+**Depois disto, parar.** O frontend não se mexe no mesmo dia.
 
 ---
 
-## 5. Smoke test **com** token (20 min) — o que a sessão anterior não pôde fazer
+## 5. (Sessão seguinte) Frontend
 
-Iniciar sessão no frontend com uma conta real e obter o token de acesso das ferramentas
-de programador. **Não colar o token em ficheiro nenhum**; usar só na variável de ambiente
-da shell, e fechá-la no fim.
+`FRONTEND_AUTH_RELEASE_PLAN.md`. Três etapas, uma de cada vez:
 
-| # | Pedido | Esperado | Fecha |
-|---|---|---|---|
-| 1 | `GET /api/companies/overcel/financial-data` com token de membro | `200` + `{"data":[...]}` | B-01 |
-| 2 | `GET /api/companies/finer-teste/financial-data` com o mesmo token | `403` **se** não houver membership; `200` com `debug.fonte: "integracao-nao-configurada"` se houver | B-01 |
-| 3 | `GET /api/companies/nao-existe/financial-data` | `403` — **indistinguível** do anterior | B-01 |
-| 4 | `GET /api/companies/@@@/financial-data` | `400` | B-01 |
-| 5 | período invertido, **com** token | `400 PERIODO_INVALIDO` | — |
-| 6 | `POST /api/companies/overcel/manual-coverage` com token de `viewer` | `403` | B-01 |
+| | | |
+|---|---|---|
+| **E1** | publicar os 18 commits com os interruptores **desligados** | comportamento de hoje, byte a byte |
+| **E2** | ligar `VITE_AUTH_MODE=supabase`, leitura ainda legada | ⚠️ ver abaixo |
+| **E3** | ligar `VITE_PROTECTED_DATA_TRANSPORT=true` | nunca no mesmo dia de E2 |
 
-**O passo 3 é o que importa mais.** Se `nao-existe` responder algo diferente de
-`nao-e-minha`, existe um oráculo de ids de empresa.
-
----
-
-## 6. A cadeia do 502, em rede real (15 min) — fecha B-02
-
-O defeito que já existiu: um `401` do Apps Script chegava ao frontend como `401` do BFF,
-e o utilizador era expulso com "sessão expirada" com a sessão perfeitamente válida.
-
-Provar que já não acontece:
-
-1. no Preview, apontar temporariamente `GAS_URL` para um endpoint que devolva `401`
-   (**variável do Preview, nunca a de produção**);
-2. fazer o pedido protegido com token válido;
-3. **esperado: `502`, código `UPSTREAM`.** Nunca `401`;
-4. no frontend, confirmar que a sessão **não** cai;
-5. repor a variável do Preview.
-
-Se aparecer `401`, é regressão e bloqueia E1.
+> ⚠️ **E2 só é segura a partir de `9531cc8` + `b99c97d`.** Esta sessão encontrou e provou
+> um **P1** (R-18) que vivia exatamente nessa etapa: com autenticação ligada e transporte
+> legado, trocar para a Finer Teste mostrava os números **reais da Overcel** sob o nome da
+> Finer Teste. Publicar a autenticação a partir de `origin/main` reintroduzia-o.
+>
+> O teste de aceitação de E2 é literalmente esse: **trocar para a Finer Teste tem de
+> mostrar "empresa sem dados ligados"**, e não números.
 
 ---
 
-## 7. Cadeia de redirects do Apps Script (10 min) — fecha B-03 / R-06
+## O que **não** fazer
 
-```bash
-curl -sIL "$GAS_URL" | grep -iE "^HTTP|^location"
-```
-
-Registar quantos saltos e para que hosts. Se for sempre
-`script.google.com → script.googleusercontent.com`, então **R-06 pode ser fechado** com
-uma lista de hosts permitidos em vez de `redirect: "follow"` cego. Sem esta observação,
-apertar seria adivinhar — e adivinhar aqui parte produção.
-
----
-
-## 8. Equivalência com produção (10 min) — fecha B-04
-
-Para os quatro recursos, comparar Preview e produção:
-número de registos em `data`, `meta.geradoEm`, `debug.fonte`.
-
-Uma diferença **não** é "provavelmente cache". É um bloqueio até se explicar.
+- **Não** enviar os commits do frontend antes do BFF estar em produção e estável.
+- **Não** ligar `VITE_PROTECTED_DATA_TRANSPORT` no mesmo dia da promoção do BFF.
+- **Não** ligar `COVERAGE_WRITES_ENABLED`.
+- **Não** tocar no Apps Script nem em `ANYONE_ANONYMOUS` (R-14).
+- **Não** executar migrações SQL.
+- **Não** versionar a alteração local do `.mcp.json` (o `check:predeploy` bloqueia se
+  estiver em stage).
+- **Não** apagar o utilizador de smoke `smoke-fb99be3@example.com` — está ativo de
+  propósito.
 
 ---
 
-## 9. Decisão de produção — **e só aqui**
-
-Todos os pré-requisitos estão em `docs/RUNBOOK_BFF_DEPLOY.md` §5. Nenhum é dispensável.
-
-**Uma mudança de cada vez.** Publicar o BFF e ligar
-`VITE_PROTECTED_DATA_TRANSPORT` no mesmo dia torna impossível saber qual delas partiu o
-quê.
-
----
-
-## O que **não** fazer nesta sessão
-
-- Enviar os commits do frontend (nesta altura, **9** por enviar). São locais de
-  propósito: nada foi verificado contra um backend real.
-- Ligar `VITE_PROTECTED_DATA_TRANSPORT`. Depende de E1 estar fechado.
-- Ligar `COVERAGE_WRITES_ENABLED`.
-- Tocar no Apps Script ou mudar `ANYONE_ANONYMOUS`.
-- Executar qualquer migração SQL.
-- Versionar o `.mcp.json`.
-
----
-
-## Se sobrar tempo
-
-Por ordem de valor:
+## Se sobrar tempo, por ordem de valor
 
 1. **R-07** — endurecer o contrato do upstream no BFF: recusar `{"error":true}` com `502`
-   em vez de o reencaminhar com `200`. Local e testável; só precisa do Preview para
+   em vez de o reencaminhar com `200`. Local e testável; precisa do Preview só para
    confirmar que nenhuma resposta legítima do GAS tem essa forma.
-2. **R-12** — fixar o contrato de `monthKeyOf` com um teste que force o ramo de string
-   antes de alguém lhe passar uma. Puro, sem rede, sem risco.
-3. **R-15** — desenhar a migração `004_audit_log_retention.sql`. **Escrever, não
-   executar.**
+2. **R-06 / B-03** — cadeia real de redirects do Apps Script
+   (`curl -sIL "$GAS_URL"`). Se for sempre `script.google.com → script.googleusercontent.com`,
+   R-06 fecha com uma lista de hosts permitidos em vez de `redirect: "follow"` cego.
+3. **R-15** — desenhar `004_audit_log_retention.sql`. **Escrever, não executar.**
+4. **R-09** — repor `cobertura.confirmada` na troca de empresa. Sem impacto visível hoje
+   (o campo é escrito e nunca lido), mas é a última aresta da mesma família de R-18/R-19.

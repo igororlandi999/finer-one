@@ -1,6 +1,7 @@
 # Registo de riscos
 
-> Atualizado a 28/08/2026, ao fim da sessão de auditoria autónoma. Seis riscos fechados, onze abertos, nove bloqueados por falta de acesso.
+> Atualizado a **29/08/2026**, ao fim da segunda sessão de telemóvel (frontend e release
+> engineering). Dois riscos **novos** encontrados, provados e fechados — R-18 e R-19.
 >
 > **Nota de ambiente:** a máquina de desenvolvimento corre em `America/Sao_Paulo` — o mesmo fuso da Overcel. Os testes sensíveis a fuso são executados no fuso que importa, e não num neutro.
 > **Estados:** `aberto` · `mitigado` · `fechado` · `aceite` · `bloqueado` (precisa de
@@ -32,6 +33,22 @@
 
 ---
 
+## Encontrados e fechados na sessão de 29/08 (telemóvel, frontend)
+
+| ID | Risco | Sev. | Estado | Onde |
+|---|---|---|---|---|
+| R-18 | **O dataset era carimbado com a empresa ATIVA mesmo quando a leitura NÃO foi escopada.** `FinerDataProvider` passa `companyId` a `loadFinerData` sem perguntar que transporte foi resolvido. Com autenticação LIGADA e `VITE_PROTECTED_DATA_TRANSPORT` DESLIGADO — a **etapa A do rollout faseado** — o transporte é o legado anónimo: trocar para a Finer Teste lia os dados da **Overcel** e carimbava-os "finer-teste", `resolveCompanyDataScope` devolvia `LIGADA`, e o `AppShell` montava as páginas. Os números reais de uma empresa sob o nome de outra, com o guarda de escopo a dizer que estava tudo bem. | **P1** | **fechado** | `9531cc8` |
+| R-19 | **A cobertura e a moeda da configuração atravessavam para outra empresa.** Mesma classe de R-18, nos outros dois campos que `buildSalesDataset` ia buscar a `ACTIVE_COMPANY`: `historyCoverage` (que é o que autoriza tratar um mês como **real** em vez de `partial`) e a moeda do catálogo documental (Overcel BRL, Finer Teste EUR). `PerformanceFinanceira` já se protegia disto, mas prefere `sales.coverage` — a proteção documentada na página era contornada pelo dataset. | **P2** | **fechado** | `b99c97d` |
+| R-20 | **`neutralizarFormula` decidia sobre a string crua**, portanto um espaço antes do `=` escondia a fórmula do CSV. Não explorável no momento da importação (com espaço, a folha lê a célula como texto), mas basta um "remover espaços" ou uma reimportação com trim para a fórmula ficar armada. | P3 | **fechado** | `3022fef` |
+
+> **Porque nenhum destes tinha sido apanhado antes:** `datasetCarimbaEmpresa.test.js` só
+> exercia o transporte **protegido**, onde a empresa pedida e a lida coincidem por
+> construção. O par "autenticação ligada + transporte legado" — que é precisamente o do
+> meio da migração — não existia em teste nenhum. Foi por ser considerado a etapa
+> inofensiva que não tinha cobertura.
+
+---
+
 ## Sessão de desktop — 29/08/2026
 
 | ID | Risco | Sev. | Estado | Nota |
@@ -53,8 +70,8 @@
 | R-09 | **`cobertura.confirmada` não é reposta na troca de empresa.** | P3 | aberto | E4 | Sem impacto visível: o campo é escrito e nunca lido. Ver `CACHE_E_ESTADO_INVENTARIO.md` §C1. |
 | R-10 | **Empresa preferida é uma chave global de `localStorage`**, partilhada entre utilizadores do mesmo browser. | P3 | mitigado | — | `sessionContract.js` revalida contra as memberships da sessão; um id sem membership é descartado. Pior caso: preferência ignorada. Nunca acesso concedido. |
 | R-11 | **`ALLOWED_ORIGINS="*"` é honrado** (com aviso), em vez de falhar fechado. | P3 | aceite | — | É uma decisão explícita, não um acidente: o `*` só existe se alguém o escrever, nunca por omissão, e é registado em voz alta. Não há `Allow-Credentials` em resposta nenhuma, pelo que `*` não expõe sessões — expõe o endpoint **legado anónimo**, que já é anónimo. |
-| R-17 | **`parseLocalISODate` só trata pelos componentes o que é exatamente `AAAA-MM-DD`.** Uma chave de mês (`"2026-07"`) cai no `new Date` e recua um mês em fusos negativos. | P3 | aberto (latente) | E4 | **Sem chamador demonstrado.** É o ponto único de conversão de datas de todo o motor financeiro; alargá-lo sem um chamador seria mudar a fundação para um problema que ninguém tem — e a fundação é onde um erro produz números errados em vez de um ecrã avariado. Declarado com teste que falha **nas duas direções** em `src/utils/monthKeyFuso.test.js`. |
-| R-13 | **`npm audit`: 5 vulnerabilidades** (1 baixa, 2 moderadas, 2 altas) — `@babel/core`, `esbuild`/`vite`, `nanoid`, `postcss`. | P3 | aceite | — | **Todas em ferramentas de build**, nenhuma no bundle de produção. A do `esbuild` é do servidor de desenvolvimento. Corrigir exige `vite@8` (mudança maior). Reavaliar quando houver janela para a atualização. |
+| R-17 | **`parseLocalISODate` só trata pelos componentes o que é exatamente `AAAA-MM-DD`.** Uma chave de mês (`"2026-07"`) cai no `new Date` e recua um mês em fusos negativos. | P3 | aberto (latente) | E4 | **Sem chamador demonstrado — reconfirmado a 29/08** por varrimento de **todos** os ~50 chamadores de `toDate`/`monthKey`/`monthKeyOf`/`parseLocalISODate`: cada um recebe um campo de data de registo (`o.date`, `p.vencimento`, `r.vencimento`, `comp.date`, `payableDate`, `receivableDate`) ou um objeto `Date` (`referenceDate`, `now`). Nenhum recebe uma chave de mês. É o ponto único de conversão de datas de todo o motor financeiro; alargá-lo sem um chamador seria mudar a fundação para um problema que ninguém tem. Declarado com teste que falha **nas duas direções** em `src/utils/monthKeyFuso.test.js`. |
+| R-13 | **`npm audit`: 5 vulnerabilidades** (1 baixa, 2 moderadas, 2 altas) — `@babel/core`, `esbuild`/`vite`, `nanoid`, `postcss`. | P3 | aceite | — | **Todas em ferramentas de build**, nenhuma no bundle de produção. A do `esbuild` é do servidor de desenvolvimento. Corrigir exige `vite@8` (mudança maior). Reavaliar quando houver janela para a atualização. **Reconfirmado a 29/08: exatamente as mesmas 5, sem alteração.** |
 | R-14 | **Apps Script continua `ANYONE_ANONYMOUS`** e o URL do proxy vai no bundle. | **P1** | aceite (conhecido) | E4 | É o motivo de existir o endpoint legado e de as escritas de cobertura estarem desligadas. Nada a fazer sem tocar no Apps Script — fora do âmbito desta sessão por decisão explícita. |
 | R-15 | **Sem política de retenção no `audit_log`.** | P3 | aberto | E5 | R-04 limitou o tamanho de cada linha; não limita o número. Exige DDL — migração `004` a desenhar, **não executar**. |
 | R-16 | **Sem limitação de taxa em lado nenhum.** | P2 | aberto | E5 | Fora do âmbito local: exige Redis ou o produto da plataforma. Documentar antes de E5. |
