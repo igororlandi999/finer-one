@@ -133,6 +133,65 @@ existe, e não só os quatro que existem hoje.
 
 ---
 
+## AjustesManuais, Relatório e ActionPlanModal — o que a análise estática alcança (29/08)
+
+Os três módulos que a auditoria de módulos tinha deixado por cobrir. O que aqui se afirma
+foi lido no código; o que precisa de browser está dito como tal e não como conclusão.
+
+### AjustesManuais ("Dados a completar")
+
+**A página é READ-ONLY, e isso responde a metade da lista de perguntas.** Não há campo,
+não há "Guardar", "Editar", "Adicionar" nem "Remover" — nem sequer desativados. Logo, as
+perguntas sobre validação de entrada, duplicação, edição e remoção **não se colocam nesta
+camada**: não há entrada nenhuma. A autoridade sobre o que é um valor manual aceitável é
+`valorManualValido` em `manualInputsService.js`, sobre o documento que o backend serve.
+
+| Eixo | Veredito | Prova |
+|---|---|---|
+| Isolamento por empresa | **triplo, e independente** | (1) `normalizeManualInputs` rejeita o documento INTEIRO se `doc.companyId !== companyId` — não filtra, rejeita; (2) o dataset é carimbado e `resolveCompanyDataScope` recusa apresentá-lo sob outro nome (`AppShell.jsx:47`); (3) `envelopeManualInputs` só expõe `document` e `coverage` depois da guarda de empresa. Mutações M3/M4a/M4b mataram. |
+| Isolamento por utilizador | **não aplicável** | O documento é por EMPRESA, não por utilizador. Não há armazenamento por utilizador nesta página. A única chave global de `localStorage` do projeto é a empresa preferida — R-10, já mitigada por revalidação contra as memberships. |
+| Troca de utilizador / logout / login | **coberto por construção** | `sessaoId = status:user.id` está nas dependências de `load` **de propósito** (ver o bloco A IDENTIDADE DA SESSÃO em `FinerDataContext.jsx`): muda no login, no logout e na troca de utilizador, e o contador de geração impede uma leitura anterior de aterrar. |
+| Troca de empresa a meio | **coberto** | `companyId` está nas dependências de `load`; o contador de geração descarta a leitura obsoleta; `FinerDataContext.corrida.test.jsx` exerce a corrida. |
+| Pedidos antigos + `confirmarCobertura` | **mitigado, por outra camada** | `confirmarCobertura` NÃO participa no contador de geração: uma confirmação em voo durante uma troca de empresa faria `setSales` com o dataset da empresa anterior. Não é alcançável de forma observável — o `await` é um `import()` de um módulo já no grafo (é importado estaticamente no mesmo ficheiro), portanto um microtask, enquanto a leitura nova é rede. E se aterrasse, `rebuildComCobertura` **preserva `dataset.companyId`** (linha explícita, com o porquê), pelo que o guarda de escopo recusaria. Fica registado porque a segurança está numa camada que não é a desta função. |
+| Persistência | **nenhuma, e declarada** | A confirmação de cobertura vive só na sessão: nenhum caminho do browser escreve. `coverageWriteClient.js` existe e **não está ligado a nada** — nenhum importador fora do seu próprio teste. É infraestrutura à espera de E-auth, não código morto por acidente. |
+| Zero / NaN / Infinity / string numérica | **fechado** | `valorManualValido`: só `typeof number` **finito**. `0` é valor real e nunca colapsa em ausência (`availabilityPropagacao.test.js` tem um teste só para isso). `NaN`, `Infinity`, `"500"` e booleanos são recusados. |
+| `unavailable` a passar por real | **fechado, e provado por mutação** | O CMV manual é `availability: "manual"` e as linhas derivadas ficam `mixed`, nunca `real`. Mutação **M11** (`dispCmv` → `"real"`) matou **25 testes em 5 ficheiros**; **M10** (`manual` puro → `real`) matou 2. O Resumo escreve-o em português: "Valor manual" / "Inclui valor manual". |
+| Datas | **fechado** | `formatUpdatedAt` devolve `null` para ISO ausente ou inválido, e a UI omite em vez de mostrar "Invalid Date". `new Date(iso)` só é usado sobre valores com fuso explícito — a armadilha de `"aaaa-mm"` é R-17 e não passa por aqui. |
+| Moeda | **fechado** | `formatMoney(valor, formatting)` com o `formatting` da empresa ATIVA passado explicitamente, e não pelo registo global. Era aqui que estavam três `toLocaleString("pt-BR")` escritos à mão. |
+
+### Relatório
+
+**Primeiro provar se continua inalcançável — e continua.** Não está em `screens` de plano
+nenhum, não tem entrada na barra lateral, e nenhum `navigateTo` lhe aponta. **Provado por
+mutação (M6):** pôr `RELATORIO` no plano `team` faz `mockAlcancavelTemSelo.test.js` falhar
+com o nome do ficheiro na mensagem. A regressão do R-25 está armada, não é uma promessa.
+
+Não foi redesenhado nem convertido. Confirmado o resto, sem lhe tocar: 100% `mockData`;
+**zero** `fetch`, `href`, `window.*`, `document.*`, `localStorage`, `Blob` ou `download` —
+não há sink nenhum; nome da empresa em lado nenhum (a varredura do R-23 cobre `pages/`);
+moeda por `formatMoney`, portanto seguiria a empresa ativa. **O que apareceria no dia em
+que fosse ativado**, e que fica aqui escrito para não ser redescoberto: os seis KPIs, o
+forecast, o budget e os "níveis de confiança" são inventados; a frase do rodapé afirma
+"dados atualizados até 31/05/2026 às 09:30" **escrita à mão**; o `<select>` de período e
+os seis botões de secção não têm `onChange`/`onClick` — são a mesma classe do
+`RowActionsButton` do R-24, e o `<select>` não tem nome acessível. Nada disto se corrige
+hoje: seria acrescentar código a um ecrã que ninguém alcança.
+
+### ActionPlanModal
+
+Ver **R-28**. Separado em três, de propósito: o que está **provado** (o DOM montado tem um
+diálogo com nome que resolve, o botão de fechar é nomeado, `aria-modal` está ausente), o
+que é **provável** (o clique no véu fecha e o clique no painel não — a propagação está
+travada, mas o comportamento do rato não foi exercido), e o que **precisa de browser**
+(armadilha de foco, `Escape`, foco inicial, devolução do foco, `inert` no fundo, e o
+scroll do fundo enquanto o diálogo está aberto).
+
+| ID | Risco | Sev. | Estado | Bloqueia | Mitigação |
+|---|---|---|---|---|---|
+| R-30 | **Quem ESCREVE o CMV é mais estrito do que quem o LÊ.** `salvarAjusteManual_` (Apps Script) recusa `value` negativo, não-finito e não-numérico. `valorManualValido` (frontend) só exige **número finito** — aceita negativos. Um CMV negativo aumentaria o lucro bruto em vez de o reduzir, e apareceria marcado apenas como "Valor manual", que é a marca correta para um valor errado. | P3 | aberto (latente) | E4 | **Sem caminho pelo produto:** o único escritor alcançável é `salvarAjusteManual_`, que já recusa. Chegar lá exige editar o JSON no Drive à mão, fora do caminho sancionado. Não se acrescenta guarda sem caminho demonstrado — é como o R-17 chegou a este registo. **Quando houver escrita a partir do browser, é uma linha** (`v >= 0`) e o sítio é `valorManualValido`. Números finitos extremos (`Number.MAX_VALUE`) passam nos dois lados; produzem absurdos visíveis, não plausíveis. |
+
+---
+
 ## Bloqueados — precisam de desktop com sessão iniciada
 
 Nenhum destes é uma falha conhecida. São **verificações que não foi possível fazer**, e
