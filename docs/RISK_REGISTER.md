@@ -27,7 +27,19 @@
 | R-03 | Injeção de fórmula no CSV exportado. As colunas incluem `cliente`, `fornecedor`, `title` e `description`, com origem no Bling. Quem abre o ficheiro é quem tem os números todos à frente. | **P2** | fechado | `15f49e8` |
 | R-04 | `metadata.requestedCompanyId` entrava no `audit_log` **sem limite de tamanho**. Um titular de conta legítimo podia escrever, por pedido recusado, tanto texto quanto coubesse num URL — em 500 MB sem retenção. | **P3** | fechado | `69935df` |
 | R-05 | O score declarava "a empresa atingiu o score máximo" quando uma dimensão não tinha sido avaliada. Em julho/2026, com o CMV ausente, isso é uma afirmação sobre a saúde da empresa a partir da dimensão mais importante, nunca calculada. | **P2** | fechado | `d1b0eff`, `a7c46a4` |
+| R-H | **A auditoria autenticada era `void`** — a resposta partia e a escrita ficava a correr sozinha. Numa função serverless a instância congela quando a resposta sai. Medido no Preview: quatro recusas autenticadas, **três linhas**; a perdida foi a última antes do repouso. Funcionava sob tráfego e falhava na sondagem isolada, que é o caso que existe para apanhar. | **P2** | fechado | `74a1e0b` (BFF) |
 | R-12 | `monthKeyOf` interpretava uma data de calendário como instante UTC: `"2026-07-01"` devolvia **junho** em `America/Sao_Paulo`. Latente (os três chamadores passam `Date`), e invisível em Lisboa — só apareceria no browser do cliente brasileiro. | **P2** | fechado | `f471c77` |
+
+---
+
+## Sessão de desktop — 29/08/2026
+
+| ID | Risco | Sev. | Estado | Nota |
+|---|---|---|---|---|
+| R-A | **A integração Git da Vercel apontava para `igororlandi999/finer-one-proxy`** — público, antigo, com Production Branch `main` e `Ignored Build Step: Automatic`. Um push para lá construía código de junho e ia para `finer-one-proxy.vercel.app`. Não era teoria: a integração já produzira um deployment de produção (`8qeqbaqr6`, 16/jun). | **P1** | **fechado** | Ligação removida. `Connected Git Repository: nenhum`; `Branch Tracking: No branch configuration`; deploy hooks impossíveis. Production, domínio, aliases, envs e os 8 deployments intactos. Deploy do BFF passa a ser **manual por CLI**, por decisão. |
+| R-B | **Protection Bypass for Automation** — um segredo permanente que alcança qualquer deployment protegido do projeto. Três builds anteriores a `6d8c0b0` (`gixpv09c7`, `8qeqbaqr6`, `9jm3rl3m4`) devolvem `Access-Control-Allow-Origin: *` e entregariam os dados reais da Overcel a qualquer origem que os pedisse. | **P1** | **aberto — temporariamente aceite para testes** | Mantido só porque é o que dá acesso automatizado aos Previews protegidos. **Remover imediatamente depois do smoke do último Preview e ANTES de qualquer promoção para Production.** Remover fecha os três de uma vez, sem apagar deployment nem perder alvos de rollback. |
+
+**Aliases residuais, removidos na mesma sessão:** `…-git-main-…` (apontava para `8qeqbaqr6`, junho) e `…-igororlandi999-…` (apontava para `gixpv09c7`). Restam dois, ambos da Production atual `kgcs3qugg`, verificados por comportamento. Os builds antigos continuam a existir como alvos de rollback, alcançáveis apenas pelo URL do deployment e atrás de Deployment Protection.
 
 ---
 
@@ -56,12 +68,12 @@ não fazer uma verificação não é o mesmo que passá-la.
 
 | ID | O que falta verificar | Bloqueia |
 |---|---|---|
-| B-01 | Smoke test do Preview **com token válido**: `200` com membership, `403` sem, e o isolamento entre duas empresas | E1 |
-| B-02 | Que a cadeia `Apps Script 401 → BFF 502 → sem logout` se comporta assim **em rede real**, e não só nos duplos | E1 |
+| B-01 | Smoke test do Preview **com token válido**: `200` com membership, `403` sem, e o isolamento entre duas empresas | E1 | **verificado** 29/08 com conta de smoke dedicada |
+| B-02 | Que a cadeia `Apps Script 401 → BFF 502 → sem logout` se comporta assim **em rede real**, e não só nos duplos | E1 | **verificado** 29/08 — upstream 401 real → BFF 502 |
 | B-03 | A cadeia real de redirects do Apps Script em Preview (quantos saltos, para que hosts) — fecha R-06 | E1 |
 | B-04 | Equivalência entre o Preview e a produção para os quatro recursos do caminho legado | E1 |
-| B-05 | Que `ALLOWED_ORIGINS` está configurada no Vercel **antes** de publicar (⚠️ o legado passou de aberto a fechado por omissão) | E1 |
-| B-06 | Estado real das variáveis de ambiente de produção e da Deployment Protection | E1 |
-| B-07 | Estado real das políticas de RLS no Supabase — a matriz documentada vem do **SQL versionado**, não da base de dados | E2 |
-| B-08 | Que `company_coverage` tem mesmo 0 linhas e `company_integration` não guarda nenhuma URL | E2 |
-| B-09 | Comportamento de `HEAD` **no runtime da Vercel** (a plataforma pode convertê-lo em `GET`). O handler rejeita-o com 405; o que a plataforma faz antes não é verificável localmente | E1 |
+| B-05 | Que `ALLOWED_ORIGINS` está configurada no Vercel **antes** de publicar (⚠️ o legado passou de aberto a fechado por omissão) | E1 | **verificado** 29/08 |
+| B-06 | Estado real das variáveis de ambiente de produção e da Deployment Protection | E1 | **verificado** 29/08 |
+| B-07 | Estado real das políticas de RLS no Supabase — a matriz documentada vem do **SQL versionado**, não da base de dados | E2 | **verificado** 29/08 contra a base de dados |
+| B-08 | Que `company_coverage` tem mesmo 0 linhas e `company_integration` não guarda nenhuma URL | E2 | **verificado** 29/08 — 0 linhas; a integração guarda `{provider, envKey}` |
+| B-09 | Comportamento de `HEAD` **no runtime da Vercel** (a plataforma pode convertê-lo em `GET`). O handler rejeita-o com 405; o que a plataforma faz antes não é verificável localmente | E1 | **verificado** 29/08 — 405 nos três endpoints, sem ida ao upstream |
