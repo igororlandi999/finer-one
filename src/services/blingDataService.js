@@ -712,6 +712,22 @@ export function buildSalesDataset({ orders, payables, receivables, coverage: cov
    * não se lê de config/env/armazenamento. Sem mapa, o comportamento é exatamente o
    * anterior: CMV null e availability unavailable. */
   const manuaisPorMes = manualInputsByMonth || {};
+
+  /* ── A QUEM PERTENCE ESTE DATASET, DECIDIDO UMA VEZ SÓ ─────────────────────────────
+   * Calculado aqui em cima porque três coisas dependem dele e têm de concordar: a
+   * etiqueta (`companyId`, no fim), a cobertura declarada do histórico e a moeda do
+   * catálogo documental. Enquanto a resposta estava escrita três vezes, as três podiam
+   * divergir — e divergiam: a etiqueta já vinha da leitura e as outras duas continuavam
+   * a vir da configuração compilada.
+   *
+   * Sem leitura escopada (transporte legado), a verdade é a empresa da configuração: é
+   * de quem o endpoint anónimo serve os dados. */
+  const empresaDoDataset = (typeof companyId === "string" && companyId !== "")
+    ? companyId
+    : ACTIVE_COMPANY.id;
+  /* Só a empresa CONFIGURADA herda o que a configuração diz sobre ela. Ver o bloco
+   * A CONFIGURAÇÃO DESCREVE UMA EMPRESA, mais abaixo. */
+  const ehAEmpresaConfigurada = empresaDoDataset === ACTIVE_COMPANY.id;
   // Critério único de dados reais de contas a pagar: array presente (mesmo vazio).
   // undefined/null => falha ou ausência => telas usam mock + Demo.
   // [] => dado real com zero títulos => zeros reais, sem selo.
@@ -743,9 +759,24 @@ export function buildSalesDataset({ orders, payables, receivables, coverage: cov
    * `snapshotPartial` ANTES de olhar para o limite, e o limite é escrito primeiro.
    * Uma pessoa pode dizer "os documentos de julho já cá estão"; não pode dizer que a
    * leitura do ERP chegou ao fim quando o próprio ERP declarou que não. */
+  /* ── A CONFIGURAÇÃO DESCREVE UMA EMPRESA, NÃO TODAS ───────────────────────────────
+   * `ACTIVE_COMPANY.historyCoverage` diz até quando os snapshots DA OVERCEL estão
+   * completos. Aplicá-lo a um dataset de outra empresa é afirmar, sobre a empresa B, um
+   * facto que só se sabe da empresa A — e o que se afirma é precisamente "os documentos
+   * de despesas estão cá até junho", que é o que autoriza tratar um mês como real.
+   *
+   * `PerformanceFinanceira` já raciocinava assim e protegia-se: `resolveCompanyProfile`
+   * só herda a cobertura quando o id bate certo. Mas a página prefere `sales.coverage`,
+   * que vinha daqui sem a mesma guarda — a proteção documentada na página era contornada
+   * pelo dataset. Passa a haver uma regra só, e é esta.
+   *
+   * `null` não é uma perda: o motor já lê ausência de limite como cobertura por
+   * confirmar, e o mês fica `partial` em vez de `real`. É o desfecho conservador certo
+   * para uma empresa sobre a qual não se declarou nada. */
   const coverage = coverageComSnapshotParcial(
     resolveEffectiveCoverage({
-      configCoverage: coverageOverride || ACTIVE_COMPANY.historyCoverage,
+      configCoverage: coverageOverride
+        || (ehAEmpresaConfigurada ? ACTIVE_COMPANY.historyCoverage : null),
       manualCoverage,
       referenceDate: new Date(),
     }),
@@ -1002,7 +1033,12 @@ export function buildSalesDataset({ orders, payables, receivables, coverage: cov
       orders,
       payables: hasPayables ? payables : null,
       receivables: hasReceivables ? receivables : null,
-      currency: ACTIVE_COMPANY.currency,
+      /* Mesma regra da cobertura: a moeda da configuração é a da Overcel. Um catálogo
+       * de documentos da empresa B rotulado em BRL seria uma afirmação sobre dinheiro
+       * feita a partir do ficheiro errado. Sem moeda conhecida vai `null` — a camada de
+       * apresentação formata pela empresa ATIVA, que é quem sabe, e este motor continua
+       * a não ter forma de a consultar (é uma fronteira, e tem teste próprio). */
+      currency: ehAEmpresaConfigurada ? ACTIVE_COMPANY.currency : null,
     }),
     // Métricas financeiras centrais (DRE). Fonte única de receita, margem e
     // resultado para Resumo, Diagnóstico e Score.
@@ -1081,7 +1117,7 @@ export function buildSalesDataset({ orders, payables, receivables, coverage: cov
      * Sem `companyId` — o transporte LEGADO, que é anónimo e serve uma empresa só —
      * mantém-se a configuração. É onde a verdade está nesse caminho, e é o
      * comportamento de hoje sem uma vírgula de diferença. */
-    companyId: (typeof companyId === "string" && companyId !== "") ? companyId : ACTIVE_COMPANY.id,
+    companyId: empresaDoDataset,
 
     /* ── ENTRADAS DO REBUILD ───────────────────────────────────────────────────────
      * `orders` e `payables` já eram expostos; faltavam estes dois para se poder

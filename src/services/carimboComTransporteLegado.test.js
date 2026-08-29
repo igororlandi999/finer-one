@@ -67,7 +67,7 @@ vi.mock("../services/api.js", async () => {
   };
 });
 
-const { loadFinerData } = await import("./blingDataService.js");
+const { loadFinerData, buildSalesDataset } = await import("./blingDataService.js");
 const { createLegacyDataTransport } = await import("./dataTransport.js");
 const { ACTIVE_COMPANY } = await import("../config/company.js");
 
@@ -174,5 +174,84 @@ describe("o transporte PROTEGIDO continua a carimbar com a empresa lida", () => 
       datasetCompanyId: sales.companyId,
     });
     expect(escopo.scope).toBe(COMPANY_DATA_SCOPE.LIGADA);
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+ * A CONFIGURAÇÃO DESCREVE UMA EMPRESA, NÃO TODAS
+ * ═══════════════════════════════════════════════════════════════════════════════════
+ * O carimbo era a primeira de TRÊS coisas que `buildSalesDataset` ia buscar à
+ * configuração compilada. As outras duas seguiam-no de perto, e por isso ficam aqui, ao
+ * lado, em vez de num ficheiro próprio: é o mesmo defeito, no mesmo sítio.
+ *
+ *   coverage  `ACTIVE_COMPANY.historyCoverage` diz até quando os snapshots DA OVERCEL
+ *             estão completos. É o que autoriza tratar um mês como REAL em vez de
+ *             partial. Aplicá-lo ao dataset da empresa B é afirmar sobre B um facto que
+ *             só se sabe de A — e afirmá-lo precisamente sobre a completude dos
+ *             documentos de despesas, que é a base da DRE.
+ *
+ *   currency  a moeda do catálogo documental. A Overcel é BRL e a Finer Teste é EUR:
+ *             um catálogo de B rotulado em BRL é uma afirmação sobre dinheiro feita a
+ *             partir do ficheiro errado.
+ *
+ * `PerformanceFinanceira` já se protegia disto — `resolveCompanyProfile` só herda a
+ * cobertura quando o id bate certo — mas a página prefere `sales.coverage`, que vinha do
+ * motor SEM a mesma guarda. A proteção documentada na página era contornada pelo dataset.
+ * ═══════════════════════════════════════════════════════════════════════════════════ */
+describe("a cobertura e a moeda da configuração não atravessam para outra empresa", () => {
+  const entradas = () => ({
+    orders: envelopePedidos().data,
+    payables: envelopeDespesas().data,
+    receivables: envelopeRecebiveis().data,
+  });
+
+  /* A moeda vive em CADA documento do catálogo (`documents.list[].currency`), e não num
+   * campo do catálogo. Lê-se daqui para que a forma exata fique num sítio só. */
+  const moedasDoCatalogo = (ds) => [...new Set((ds.documents?.list ?? []).map((d) => d.currency))];
+
+  it("a empresa CONFIGURADA continua a herdar — a porta certa ficou aberta", () => {
+    /* O contrapeso primeiro, porque é ele que impede a correção de esvaziar a aplicação
+     * de hoje: a instalação real é a Overcel, e ela TEM de continuar a receber a
+     * cobertura declarada, senão nenhum mês volta a ser real. */
+    const ds = buildSalesDataset({ ...entradas(), companyId: ACTIVE_COMPANY.id });
+
+    expect(ds.companyId).toBe(ACTIVE_COMPANY.id);
+    expect(ds.coverage, "a empresa configurada deixou de herdar a sua cobertura").toBeTruthy();
+    /* O catálogo tem de ter documentos, senão a afirmação sobre a moeda é vazia e
+     * passaria com qualquer implementação. */
+    expect(moedasDoCatalogo(ds).length, "catálogo vazio: o teste da moeda não prova nada")
+      .toBeGreaterThan(0);
+    expect(moedasDoCatalogo(ds)).toEqual([ACTIVE_COMPANY.currency]);
+  });
+
+  it("sem companyId (legado) herda na mesma — é a empresa da configuração que foi lida", () => {
+    const ds = buildSalesDataset(entradas());
+    expect(ds.companyId).toBe(ACTIVE_COMPANY.id);
+    expect(ds.coverage).toBeTruthy();
+    expect(moedasDoCatalogo(ds)).toEqual([ACTIVE_COMPANY.currency]);
+  });
+
+  it("OUTRA empresa não herda a cobertura declarada da Overcel", () => {
+    const ds = buildSalesDataset({ ...entradas(), companyId: OUTRA_EMPRESA });
+
+    expect(ds.companyId).toBe(OUTRA_EMPRESA);
+    /* O limite de cobertura da configuração não pode aparecer aqui. Compara-se contra o
+     * valor REAL da configuração, e não contra um literal, para que o teste continue a
+     * dizer a verdade se a configuração mudar. */
+    const limiteConfigurado = ACTIVE_COMPANY.historyCoverage?.payables?.completeThroughMonth;
+    expect(limiteConfigurado, "a fixture perdeu o limite; o teste deixou de provar algo").toBeTruthy();
+    expect(
+      ds.coverage?.payables?.completeThroughMonth,
+      "a empresa B herdou o limite de cobertura declarado para a Overcel: meses dela " +
+      "passam a poder apresentar-se como REAIS com base no que se sabe de outra empresa"
+    ).not.toBe(limiteConfigurado);
+  });
+
+  it("OUTRA empresa não herda a moeda da Overcel", () => {
+    const ds = buildSalesDataset({ ...entradas(), companyId: OUTRA_EMPRESA });
+    expect(
+      moedasDoCatalogo(ds),
+      "o catálogo documental da empresa B saiu rotulado com a moeda da Overcel"
+    ).not.toContain(ACTIVE_COMPANY.currency);
   });
 });
