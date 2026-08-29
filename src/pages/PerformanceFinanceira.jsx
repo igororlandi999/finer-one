@@ -203,7 +203,7 @@ export default function PerformanceFinanceira() {
     <>
       <PageHeader
         title="Performance Financeira"
-        subtitle="Atividade operacional e rentabilidade, a partir dos dados reais da Overcel."
+        subtitle={`Atividade operacional e rentabilidade, a partir dos dados reais da ${empresaAtiva?.name ?? "sua empresa"}.`}
         actions={
           <>
             {real ? (

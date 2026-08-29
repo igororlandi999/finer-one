@@ -15,6 +15,7 @@ import {
   documentsByCategory, filterDocuments, canDownload, resolveDocumentView, DOCUMENT_STATUS,
 } from "../utils/documentNormalizer";
 import { useFinerData } from "../context/FinerDataContext";
+import { useCompany } from "../auth/CompanyContext";
 import DemoTag from "../components/ui/DemoTag";
 
 // ── Mapa categoria → cor pill ───────────────────────────────
@@ -123,6 +124,8 @@ function fromReal(d) {
 // ── Tela ────────────────────────────────────────────────────
 export default function Documentos() {
   const { sales } = useFinerData();
+  /* O nome vem da empresa ATIVA. Estava escrito à mão — ver `nomeDaEmpresaNaCopy.test.js`. */
+  const { company } = useCompany();
 
   // Catálogo real do dataset. `available` descreve a FONTE: uma fonte presente com
   // zero documentos é um zero real e NÃO faz a tela voltar ao mock.
@@ -192,7 +195,7 @@ export default function Documentos() {
     <>
       <PageHeader
         title="Documentos"
-        subtitle="Centralize faturas, recibos e contratos da Overcel — sem perder tempo a procurar."
+        subtitle={`Centralize faturas, recibos e contratos da ${company?.name ?? "sua empresa"} — sem perder tempo a procurar.`}
         actions={
           <>
             <button disabled title={uploadIndisponivel} className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Upload size={14} />Carregar</button>

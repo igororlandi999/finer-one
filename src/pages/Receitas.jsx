@@ -19,6 +19,7 @@ import {
 } from "../data/mockData";
 import { formatMoney, formatMoneyCompact, currencySymbol } from "../lib/currency";
 import { useFinerData } from "../context/FinerDataContext";
+import { useCompany } from "../auth/CompanyContext";
 import { downloadCsv, csvMoney } from "../utils/csvExport";
 import { buildRevenueByCategoryFromOrders } from "../services/blingDataService";
 
@@ -49,6 +50,8 @@ const STATUS_LABEL = {
 export default function Receitas() {
   // Fonte de dados: vendas reais (quando há API) ou fallback ao mock.
   const { sales, source } = useFinerData();
+  /* O nome vem da empresa ATIVA. Estava escrito à mão — ver `nomeDaEmpresaNaCopy.test.js`. */
+  const { company } = useCompany();
   // Exportação CSV: sempre a lista completa real (tabs/busca são só visualização).
   const canExport = source === "api";
   function exportCsv() {
@@ -107,7 +110,7 @@ export default function Receitas() {
     <>
       <PageHeader
         title="Receitas"
-        subtitle="Veja de onde vem o dinheiro da Overcel e quais categorias mais contribuem para o volume de negócios."
+        subtitle={`Veja de onde vem o dinheiro da ${company?.name ?? "sua empresa"} e quais categorias mais contribuem para o volume de negócios.`}
         actions={
           <>
             <button onClick={exportCsv} disabled={!canExport} title={!canExport ? "Exportação disponível apenas com dados reais" : undefined} className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Download size={14} />Exportar</button>

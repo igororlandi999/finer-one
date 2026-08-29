@@ -4,6 +4,7 @@ import {
 } from "lucide-react";
 
 import PageHeader from "../layouts/PageHeader";
+import { useCompany } from "../auth/CompanyContext";
 
 import { benchmarkMetrics, benchmarkComparison, benchmarkInsights, benchmarkPosition } from "../data/mockData";
 
@@ -80,11 +81,15 @@ const INSIGHT_STYLE = {
 
 // ── Tela ────────────────────────────────────────────────────
 export default function BenchmarkingSetor() {
+  /* O nome vem da empresa ATIVA. Estava escrito à mão em quatro sítios desta página —
+   * ver `nomeDaEmpresaNaCopy.test.js`. */
+  const { company } = useCompany();
+  const nomeDaEmpresa = company?.name ?? "sua empresa";
   return (
     <>
       <PageHeader
         title="Benchmarking do Setor"
-        subtitle={`Como é que a Overcel se compara com outras empresas do setor de ${benchmarkMetrics.setor}? Veja em segundos.`}
+        subtitle={`Como é que a ${nomeDaEmpresa} se compara com outras empresas do setor de ${benchmarkMetrics.setor}? Veja em segundos.`}
         actions={
           <>
             <select className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-600 bg-white">
@@ -150,7 +155,7 @@ export default function BenchmarkingSetor() {
             <div className="px-5 py-4 flex items-start justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-slate-800">Comparação de indicadores</h3>
-                <p className="text-xs text-slate-500 mt-0.5">A Overcel vs média do setor vs melhores 25%</p>
+                <p className="text-xs text-slate-500 mt-0.5">A {nomeDaEmpresa} vs média do setor vs melhores 25%</p>
               </div>
               <div className="flex items-center gap-3 text-[11px]">
                 <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-brand-500" />A sua empresa</span>
@@ -205,7 +210,7 @@ export default function BenchmarkingSetor() {
       <div className="card p-5">
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h3 className="text-sm font-semibold text-slate-800">Posição da Overcel no setor</h3>
+            <h3 className="text-sm font-semibold text-slate-800">Posição da {nomeDaEmpresa} no setor</h3>
             <p className="text-xs text-slate-500 mt-0.5">Com base no desempenho global dos principais indicadores</p>
           </div>
           <div className="text-right">
@@ -238,7 +243,7 @@ export default function BenchmarkingSetor() {
         <div className="mt-5 p-4 rounded-lg bg-brand-50/60 border border-brand-100 flex items-start gap-3">
           <Lightbulb size={16} className="text-brand-600 mt-0.5 shrink-0" />
           <p className="text-sm text-slate-700 leading-relaxed">
-            A Overcel tem um desempenho melhor que <span className="font-semibold text-brand-700">{benchmarkPosition}%</span> das empresas do setor.
+            A {nomeDaEmpresa} tem um desempenho melhor que <span className="font-semibold text-brand-700">{benchmarkPosition}%</span> das empresas do setor.
             Mantenha o foco em rentabilidade e prazos de recebimento para continuar a subir no ranking.
           </p>
         </div>

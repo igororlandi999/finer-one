@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 
 import PageHeader from "../layouts/PageHeader";
+import { useCompany } from "../auth/CompanyContext";
 
 import { predictiveSummary, predictiveAlerts, predictiveForecast } from "../data/mockData";
 import { formatMoney, formatMoneyCompact, currencySymbol } from "../lib/currency";
@@ -91,6 +92,8 @@ function PredictiveRow({ alert }) {
 
 // ── Tela ────────────────────────────────────────────────────
 export default function AlertasPreditivos() {
+  /* O nome vem da empresa ATIVA. Estava escrito à mão — ver `nomeDaEmpresaNaCopy.test.js`. */
+  const { company } = useCompany();
   const minSaldo = Math.min(...predictiveForecast.map((p) => p.saldo));
   const maxSaldo = Math.max(...predictiveForecast.map((p) => p.saldo));
 
@@ -98,7 +101,7 @@ export default function AlertasPreditivos() {
     <>
       <PageHeader
         title="Alertas Preditivos"
-        subtitle="A IA analisa o histórico da Overcel e avisa-o antes de problemas de tesouraria, margem ou cobranças acontecerem."
+        subtitle={`A IA analisa o histórico da ${company?.name ?? "sua empresa"} e avisa-o antes de problemas de tesouraria, margem ou cobranças acontecerem.`}
         actions={
           <>
             <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 px-2 py-1 rounded border border-brand-200">

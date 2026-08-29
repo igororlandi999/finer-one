@@ -10,6 +10,7 @@ import {
   chatHistory, chatStartSuggestions, chatInsights, chatRecentQuestions,
 } from "../data/mockData";
 import { useFinerData } from "../context/FinerDataContext";
+import { useCompany } from "../auth/CompanyContext";
 import DemoTag from "../components/ui/DemoTag";
 import { answerQuestion, buildWelcome, SUPPORTED_QUESTIONS, PENDING_CHAT_QUESTION_KEY } from "../utils/chatEngine";
 
@@ -178,6 +179,9 @@ const QUICK_LIVE = [
 // ── Tela ────────────────────────────────────────────────────
 export default function ChatFinanceiro() {
   const { sales, source, loading } = useFinerData();
+  /* O nome vem da empresa ATIVA. Estava escrito à mão — ver `nomeDaEmpresaNaCopy.test.js`. */
+  const { company } = useCompany();
+  const nomeDaEmpresa = company?.name ?? "sua empresa";
   const isLive = source === "api";
   const [input, setInput] = useState("");
   const [sent, setSent] = useState([]); // mensagens desta sessão (modo dados reais)
@@ -229,7 +233,7 @@ export default function ChatFinanceiro() {
     <>
       <PageHeader
         title="Chat Financeiro"
-        subtitle="Pergunte em linguagem natural sobre a Overcel — obtenha respostas com números reais em segundos."
+        subtitle={`Pergunte em linguagem natural sobre a ${nomeDaEmpresa} — obtenha respostas com números reais em segundos.`}
         actions={
           <>
             <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><History size={14} />Histórico</button>
@@ -270,7 +274,7 @@ export default function ChatFinanceiro() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") handleSend(); }}
-                  placeholder="Faça uma pergunta sobre a Overcel..."
+                  placeholder={`Faça uma pergunta sobre a ${nomeDaEmpresa}...`}
                   className="flex-1 text-sm outline-none bg-transparent placeholder:text-slate-400"
                 />
                 <button onClick={handleSend} className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-500 hover:bg-brand-600 text-white transition-colors">

@@ -8,6 +8,7 @@ import DemoTag  from "../components/ui/DemoTag";
 
 import { alertsMetrics as mockAlertsMetrics, alertsList as mockAlertsList } from "../data/mockData";
 import { useFinerData } from "../context/FinerDataContext";
+import { useCompany } from "../auth/CompanyContext";
 import { alertsViewModel } from "../utils/alertsView";
 import { downloadCsv } from "../utils/csvExport";
 
@@ -98,6 +99,8 @@ export default function Alertas() {
 
   // Alertas de vendas (quando há API) somados aos não-comerciais em mock.
   const { sales, source } = useFinerData();
+  /* O nome vem da empresa ATIVA. Estava escrito à mão — ver `nomeDaEmpresaNaCopy.test.js`. */
+  const { company } = useCompany();
   // Exportação CSV: só os alertas reais puros — a lista composta da tela inclui mock não-comercial.
   const canExport = source === "api" && !!sales?.alertas?.list?.length;
   function exportCsv() {
@@ -123,7 +126,7 @@ export default function Alertas() {
     <>
       <PageHeader
         title="Alertas"
-        subtitle="Tudo o que precisa de atenção na Overcel hoje — para não ser apanhado de surpresa."
+        subtitle={`Tudo o que precisa de atenção na ${company?.name ?? "sua empresa"} hoje — para não ser apanhado de surpresa.`}
         actions={
           <>
             <button disabled title="Funcionalidade disponível numa fase futura" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"><Filter size={14} />Filtros</button>

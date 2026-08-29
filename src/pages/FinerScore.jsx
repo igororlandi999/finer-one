@@ -11,6 +11,7 @@ import DiagnosticGauge from "../components/diagnostic/DiagnosticGauge";
 
 import { finerScore } from "../data/mockData";
 import { useFinerData } from "../context/FinerDataContext";
+import { useCompany } from "../auth/CompanyContext";
 import DemoTag from "../components/ui/DemoTag";
 
 const FACTOR_ICONS = {
@@ -94,6 +95,9 @@ const ESTADO_UI = {
 // ── Tela ────────────────────────────────────────────────────
 export default function FinerScore() {
   const { sales, source, reload } = useFinerData();
+  /* O nome vem da empresa ATIVA. Estava escrito à mão, e este ecrã é o que mais o
+   * arriscava: o próprio subtítulo diz que a nota serve para bancos e investidores. */
+  const { company } = useCompany();
   const d = sales?.diagnostico ?? null;
 
   // Vista: score real quando existir; histórico/fatores continuam mock (selados).
@@ -112,7 +116,7 @@ export default function FinerScore() {
     <>
       <PageHeader
         title="Finer Score"
-        subtitle="Uma nota única de 0 a 100 que resume a saúde financeira da Overcel — útil também para bancos e investidores."
+        subtitle={`Uma nota única de 0 a 100 que resume a saúde financeira da ${company?.name ?? "sua empresa"} — útil também para bancos e investidores.`}
         actions={
           <>
             <span className="text-xs text-slate-500 mr-1">Atualizado {view.ultimaAtualizacao}</span>

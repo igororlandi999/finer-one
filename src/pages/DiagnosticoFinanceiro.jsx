@@ -22,6 +22,7 @@ import { SCREENS }       from "../config/planConfig";
 import { diagnostic as mockDiagnostic } from "../data/mockData";
 import { formatMoney } from "../lib/currency";
 import { useFinerData }  from "../context/FinerDataContext";
+import { useCompany }    from "../auth/CompanyContext";
 import DemoTag           from "../components/ui/DemoTag";
 
 // ── helpers visuais por severidade ──────────────────────────
@@ -55,6 +56,8 @@ function PenaltyLine({ pen }) {
 export default function DiagnosticoFinanceiro() {
   const { navigateTo }  = usePlan();
   const { sales, source, reload } = useFinerData();
+  /* O nome vem da empresa ATIVA. Estava escrito à mão — ver `nomeDaEmpresaNaCopy.test.js`. */
+  const { company } = useCompany();
   const diagnostic      = sales?.diagnostico ? { ...mockDiagnostic, ...sales.diagnostico } : mockDiagnostic;
   const demoDiag        = source === "api" && !sales?.diagnostico;
   const isRealDiag      = !!sales?.diagnostico; // fonte real do motor de diagnóstico
@@ -82,7 +85,7 @@ export default function DiagnosticoFinanceiro() {
     <>
       <PageHeader
         title="Diagnóstico Financeiro"
-        subtitle="Uma leitura clara da situação financeira da Overcel, sem precisar interpretar dezenas de gráficos."
+        subtitle={`Uma leitura clara da situação financeira da ${company?.name ?? "sua empresa"}, sem precisar interpretar dezenas de gráficos.`}
         actions={
           <>
             <span className="text-xs text-slate-500 mr-1">Atualizado {diagnostic.ultimaAtualizacao}</span>
