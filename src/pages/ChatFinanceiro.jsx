@@ -271,13 +271,16 @@ export default function ChatFinanceiro() {
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 focus-within:border-brand-400 focus-within:ring-1 focus-within:ring-brand-200">
                 <input
                   type="text"
+                  aria-label="Escreva a sua pergunta"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") handleSend(); }}
                   placeholder={`Faça uma pergunta sobre a ${nomeDaEmpresa}...`}
                   className="flex-1 text-sm outline-none bg-transparent placeholder:text-slate-400"
                 />
-                <button onClick={handleSend} className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-500 hover:bg-brand-600 text-white transition-colors">
+                {/* O `placeholder` desaparece assim que se escreve, e não é nome
+                    acessível: sem `aria-label`, o campo principal da página fica anónimo. */}
+                <button onClick={handleSend} aria-label="Enviar pergunta" className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-500 hover:bg-brand-600 text-white transition-colors">
                   <Send size={14} />
                 </button>
               </div>

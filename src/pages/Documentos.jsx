@@ -365,6 +365,7 @@ export default function Documentos() {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
+              aria-label="Pesquisar documentos"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={isReal ? "Pesquisar por número, pedido ou contraparte..." : "Pesquisar por nome ou contraparte..."}

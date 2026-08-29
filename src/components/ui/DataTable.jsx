@@ -94,6 +94,7 @@ export default function DataTable({
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
+            aria-label="Pesquisar na tabela"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -161,24 +162,44 @@ export default function DataTable({
         <div className="text-xs text-slate-500">
           A mostrar {filtered.length === 0 ? 0 : startIdx + 1} a {endIdx} de {filtered.length} registos
         </div>
+        {/* Os quatro controlos são só ícone. Sem nome acessível, um leitor de ecrã anuncia
+            "botão" quatro vezes seguidas e a paginação fica inutilizável — nesta tabela,
+            que é onde vivem os títulos, os movimentos e as receitas. */}
         <div className="flex items-center gap-1">
-          <button onClick={() => goTo(1)}            disabled={currentPage === 1}          className="p-1.5 rounded text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"><ChevronsLeft size={14} /></button>
-          <button onClick={() => goTo(currentPage - 1)} disabled={currentPage === 1}       className="p-1.5 rounded text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"><ChevronLeft size={14} /></button>
-          <span className="text-xs font-medium text-slate-700 px-2">
+          <button aria-label="Primeira página" onClick={() => goTo(1)}            disabled={currentPage === 1}          className="p-1.5 rounded text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"><ChevronsLeft size={14} /></button>
+          <button aria-label="Página anterior" onClick={() => goTo(currentPage - 1)} disabled={currentPage === 1}       className="p-1.5 rounded text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"><ChevronLeft size={14} /></button>
+          {/* A mudança de página não move o foco: sem `aria-live`, quem não vê o ecrã
+              carrega no botão e não recebe confirmação nenhuma de que algo mudou. */}
+          <span className="text-xs font-medium text-slate-700 px-2" aria-live="polite">
             {currentPage} / {totalPages}
           </span>
-          <button onClick={() => goTo(currentPage + 1)} disabled={currentPage === totalPages} className="p-1.5 rounded text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"><ChevronRight size={14} /></button>
-          <button onClick={() => goTo(totalPages)}    disabled={currentPage === totalPages} className="p-1.5 rounded text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"><ChevronsRight size={14} /></button>
+          <button aria-label="Página seguinte" onClick={() => goTo(currentPage + 1)} disabled={currentPage === totalPages} className="p-1.5 rounded text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"><ChevronRight size={14} /></button>
+          <button aria-label="Última página"   onClick={() => goTo(totalPages)}    disabled={currentPage === totalPages} className="p-1.5 rounded text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent"><ChevronsRight size={14} /></button>
         </div>
       </div>
     </div>
   );
 }
 
-// Pequeno ícone de ação (3 pontos) — útil para colunas de acções
+/* Ícone de ação (3 pontos) na última coluna das tabelas de Receitas, Despesas e
+ * Movimentos — uma vez por linha.
+ *
+ * NÃO TEM `onClick`, e nunca teve: não há menu de linha em fase nenhuma. Era um botão
+ * ativo, focável e sem nome acessível, repetido em cada linha — com a paginação a 25
+ * linhas, 25 paragens de teclado seguidas que anunciam "botão" e não fazem nada.
+ *
+ * Fica DESATIVADO e nomeado, que é o padrão que este projeto já usa para as ações que
+ * ainda não existem (o "Carregar" dos Documentos, o "Novo registo" do Resumo): um
+ * controlo que não faz nada deve parecer que não faz nada, em vez de mentir sobre isso. */
 export function RowActionsButton() {
   return (
-    <button className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+    <button
+      type="button"
+      disabled
+      aria-label="Ações da linha"
+      title="Ações de linha disponíveis numa fase futura"
+      className="p-1 rounded text-slate-400 opacity-40 cursor-not-allowed"
+    >
       <MoreHorizontal size={16} />
     </button>
   );
