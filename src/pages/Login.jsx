@@ -12,7 +12,7 @@
 // pergunta por email. Num produto financeiro, a lista de clientes é ela própria
 // informação comercial, antes ainda de qualquer número.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { LogIn, AlertCircle, FlaskConical } from "lucide-react";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { SIGN_IN_ERROR } from "../auth/authAdapterPort.js";
@@ -30,12 +30,40 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [erro, setErro] = useState(null);
 
+  /* ── UM PEDIDO DE AUTENTICAÇÃO DE CADA VEZ (R-34) ────────────────────────────────
+     O botão já tem `disabled={signingIn}`, e isso NÃO chega. `signingIn` é estado do
+     React: entre o submit e o commit que desativa o botão há uma janela, e um submit
+     PROGRAMÁTICO — `form.requestSubmit()`, que é o que um gestor de palavras-passe
+     dispara — não passa pelo botão e por isso nunca vê o `disabled`. O atributo é uma
+     affordance visual; a guarda tem de ser síncrona.
+
+     Uma `ref` e não estado, porque a decisão tem de valer no instante do evento e não
+     no render seguinte — que é precisamente o render que ainda não aconteceu.
+
+     Porquê insistir nisto: cada submit a mais é uma tentativa de autenticação a mais
+     contra o rate limit do Supabase. Esgotá-lo põe fora quem tem as credenciais certas,
+     e o sintoma que aparece — "Email ou palavra-passe incorretos" — aponta para o sítio
+     errado.
+
+     Isto NÃO explica o R-34, e não se finge que explica: o que se observou no browser
+     foram quatro pedidos com o email a mudar sozinho entre eles, e a troca de email não
+     nasce aqui. Fecha a metade que é nossa e que `Login.submitUnico.test.jsx` prova. */
+  const emVoo = useRef(false);
+
   async function submeter(e) {
     e.preventDefault();
+    if (emVoo.current) return;
+    emVoo.current = true;
     setErro(null);
-    const r = await signIn({ email, password });
-    if (!r || !r.ok) {
-      setErro(MENSAGENS[r?.code] ?? "Não foi possível entrar.");
+    try {
+      const r = await signIn({ email, password });
+      if (!r || !r.ok) {
+        setErro(MENSAGENS[r?.code] ?? "Não foi possível entrar.");
+      }
+    } finally {
+      /* Sempre. Quem errou a palavra-passe tem de poder tentar outra vez — uma guarda
+         que não se levanta é um bloqueio, não uma proteção. */
+      emVoo.current = false;
     }
   }
 
