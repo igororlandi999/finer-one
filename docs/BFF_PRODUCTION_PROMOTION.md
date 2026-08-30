@@ -1,6 +1,23 @@
 # Promoção do BFF a Produção — passos exatos
 
-> Escrito a **29/08/2026**. **Nada disto foi executado nesta sessão.**
+> # ✅ EXECUTADO. ESTE FICHEIRO É REGISTO, NÃO INSTRUÇÕES.
+>
+> **`74a1e0b` está em Production** e o smoke autenticado terminou. **Não voltar a correr
+> os passos abaixo.** O corpo fica como estava, por ser o registo do que se fez.
+>
+> Duas correções ao que o corpo afirma, ambas de **30/08/2026**:
+>
+> 1. **§Estado de partida — "Protection Bypass: ainda existe (R-B)" está DESATUALIZADO.**
+>    O bypass foi removido no passo 1 desta promoção. **R-B está FECHADO**, reconfirmado
+>    pelo fio a 30/08: os quatro deployments antigos respondem `302` sem cabeçalho de
+>    bypass, a Production responde `200`. Evidência em `RISK_REGISTER.md`.
+> 2. **§1 — o critério de aceitação `esperado: 401` está desatualizado.** A Deployment
+>    Protection da Vercel redireciona para o SSO: o que se observa é **`302`**, não `401`.
+>    A afirmação que o passo queria provar — *um deployment protegido não entrega o corpo
+>    sem autenticação* — está provada na mesma. Quem reler isto e vir `302` **não deve
+>    parar**.
+
+> Escrito a **29/08/2026**. **Nada disto foi executado nessa sessão.**
 > Este ficheiro é a sequência para a próxima sessão de desktop, escrita quando havia
 > contexto para a escrever com cuidado — e não a meio da execução, que é quando se salta
 > um passo.
@@ -18,7 +35,7 @@
 | Preview validado | `finer-one-proxy-4exxus4x8-…` · `dpl_D6aQZwbC5hsEywGQeFDMwRZfqkPz` |
 | Produção atual | `kgcs3qugg` · `https://finer-one-proxy.vercel.app` |
 | Git ↔ Vercel | **desligado** (R-A fechado). Deploy manual por CLI. |
-| Protection Bypass | **ainda existe** (R-B). É o passo 1. |
+| Protection Bypass | ~~**ainda existe** (R-B). É o passo 1.~~ → **removido no passo 1. R-B FECHADO** (ver o cabeçalho). |
 | Frontend | `VITE_PROTECTED_DATA_TRANSPORT` **vazio** → produção lê pelo **legado** |
 
 ⚠️ **A última linha é a mais importante desta página.** Hoje o frontend em produção lê

@@ -32,12 +32,18 @@
 
 Se os números divergirem, **parar e perceber porquê** antes de continuar.
 
-> **Uma coisa que este ficheiro afirmava e que esta sessão NÃO confirmou:** o
-> **Protection Bypass (R-B)**. A versão de 29/08 dizia "ainda existe — é o passo 1". O
-> BFF foi promovido depois disso, mas **esta sessão não teve como verificar se o bypass
-> foi removido** — não se tocou no BFF nem na Vercel, por instrução. R-B continua
-> **aberto no registo de riscos** até alguém o confirmar pelo fio. Não assumir que saiu
-> só porque a promoção aconteceu.
+> ~~**Uma coisa que este ficheiro afirmava e que esta sessão NÃO confirmou:** o Protection
+> Bypass (R-B).~~ ✅ **RESOLVIDO a 30/08/2026, na sessão de preparação para E3.** O bypass
+> **saiu** — foi removido na sessão de promoção do BFF (`protectionBypass` ficou `{}`, o
+> segredo antigo passou de `200` a `302`) e a remoção foi **reconfirmada pelo fio**, sem
+> tocar na Vercel: os quatro deployments antigos respondem `302` sem cabeçalho de bypass,
+> e a Production oficial responde `200`. **R-B está FECHADO.** A tabela de evidência está
+> em `RISK_REGISTER.md`, logo a seguir à entrada.
+>
+> Fica a lição, que é a parte que interessa: o risco esteve aberto durante uma sessão
+> inteira **não por estar aberto, mas por a sessão seguinte não ter olhado.** "Não
+> verificado aqui" não é "por fazer" — são duas afirmações diferentes e devem ser escritas
+> de forma diferente.
 
 ---
 
@@ -165,9 +171,9 @@ Substituem qualquer versão anterior. Nenhum depende de memória de conversa.
 
 | Etapa | Veredicto | Fundamento |
 |---|---|---|
-| **BFF → Production** | ✅ **CONCLUÍDO** | `74a1e0b` promovido e validado em Production; smoke autenticado concluído. `0/0`, árvore limpa, 235 testes. **Ressalva:** a remoção do Protection Bypass (R-B) **não foi confirmada nesta sessão** — ver a nota no topo. |
+| **BFF → Production** | ✅ **CONCLUÍDO** | `74a1e0b` promovido e validado em Production; smoke autenticado concluído. `0/0`, árvore limpa, 235 testes. ✅ **Ressalva levantada a 30/08:** a remoção do Protection Bypass (R-B) está **confirmada pelo fio** — R-B fechado. |
 | **E2 — autenticação ligada** | ✅ **CONCLUÍDO** | Publicado a 30/08 a partir de `a8bfca0` (que contém `9531cc8` + `b99c97d`) para `gh-pages 22b0526`. Validado no browser real: os 12 pontos do teste de aceitação passaram, incluindo **zero flash** provado por gravador de alta frequência, **32/32 leituras pelo legado** e **zero chamadas ao transporte protegido**. **R-18 defendido em produção.** |
-| **E3 — transporte protegido** | ⛔ **NÃO INICIADO · GO CONDICIONAL** | Cinco condições, todas por cumprir: (1) não no mesmo dia de E2 — logo **não antes de 31/08**; (2) **R-07** fechado ou aceite por escrito; (3) **B-03** verificado em Preview; (4) **B-04** verificado em Preview; (5) **isolamento forte entre duas empresas reais** demonstrado com uma conta de empresa única — **R-33**, condição nova, descoberta ao validar E2. O R-23 era um bloqueador de E3 e está fechado, com as duas metades da guarda mortas por mutação (M1, M2). |
+| **E3 — transporte protegido** | ⛔ **NÃO INICIADO · NO-GO hoje** | **Atualizado a 30/08 ao fim da sessão de preparação. Duas condições em falta, de seis.** ✅ (1) separação temporal — cumpre-se a partir de 31/08; ✅ (2) **R-07 aceite por escrito**; ❌ (3) **B-03** — `GAS_URL` é *Sensitive* no Vercel e não é exportável; ✅ (4) **B-04 fechado por obsolescência** — `74a1e0b` foi promovido, Preview e Production são o mesmo commit, e a baseline de Production ficou registada; ❌ (5) **isolamento forte** — estratégia desenhada e aditiva, por executar (**R-33**); ✅ (6) **R-32 aceite** — não bloqueia E3, bloqueia E4. Nenhuma das duas em falta exige código novo: uma precisa de um valor, a outra de uma conta. |
 
 ---
 
@@ -181,9 +187,9 @@ verificar, e cada linha diz **porquê é que só ali se verifica**.
 | 1 | **`ActionPlanModal`: `Escape`, foco inicial, devolução do foco, armadilha de foco, `inert` no fundo, scroll do fundo** | São comportamento em tempo de execução com teclado e rato reais. Nenhum existe hoje; declarar `aria-modal` antes de os construir seria pior do que não o declarar. | **R-28** |
 | 2 | **Que o clique no véu fecha e o clique no painel não** | A propagação está travada no código (`stopPropagation`), o que torna o comportamento *provável* — mas não foi exercido com rato. | R-28 |
 | 3 | **Anúncio real num leitor de ecrã** (NVDA/VoiceOver) da paginação, do `aria-live` e do diálogo | O DOM está provado; o que a tecnologia de apoio faz com ele, não. `happy-dom` não é um leitor de ecrã. | R-24 / R-28 |
-| 4 | ~~Smoke autenticado do BFF~~ · **cadeia de redirects do GAS** · **equivalência Preview↔Produção** | Exigem sessão iniciada e rede real. O smoke autenticado **está feito**; os outros dois continuam por fazer e bloqueiam E3. | B-03, B-04 |
+| 4 | ~~Smoke autenticado do BFF~~ · **cadeia de redirects do GAS** · ~~equivalência Preview↔Produção~~ | Atualizado a 30/08: o smoke autenticado **está feito**; a equivalência **B-04 fechou por obsolescência** (Preview e Production são o mesmo commit e nenhum Preview é alcançável sem bypass). Resta **B-03**, e o que lhe falta **não é browser** — é o valor de `GAS_URL`, que o Vercel guarda como *Sensitive*. | **B-03** — bloqueia E3 |
 | 5 | ~~**O teste de aceitação de E2**~~ | ✅ **FEITO a 30/08/2026** em browser real. Passou integralmente. Ver `FRONTEND_AUTH_RELEASE_PLAN.md` §E2. | R-18 — **defendido em produção** |
-| 6 | **Isolamento FORTE entre duas empresas** — que um utilizador de B não alcança A | *Novo, descoberto ao validar E2.* A conta usada é membro **das duas** empresas, portanto o teste de 30/08 não podia provar isto. Exige uma conta que pertença a **uma só** empresa. | **R-33** — bloqueia E3 |
+| 6 | **Isolamento FORTE entre duas empresas** — que um utilizador de B não alcança A | *Novo, descoberto ao validar E2.* A conta usada é membro **das duas** empresas, portanto o teste de 30/08 não podia provar isto. Exige uma conta que pertença a **uma só** empresa. **30/08: a sequência exata, o rollback e o teste de aceitação estão escritos** em `RISK_REGISTER.md` §*R-33 — a saída menos invasiva*. É aditivo: cria-se uma conta, não se toca em nenhuma membership existente. | **R-33** — bloqueia E3 |
 
 ---
 
