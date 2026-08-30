@@ -1,7 +1,11 @@
 # Registo de riscos
 
-> Atualizado a **29/08/2026**, ao fim da segunda sessão de telemóvel (frontend e release
-> engineering). Dois riscos **novos** encontrados, provados e fechados — R-18 e R-19.
+> **Atualizado a 30/08/2026**, na sessão de consolidação pós-E2. Sete entradas novas
+> (R-31 a R-37), todas vindas da validação de E2 em browser real ou de factos conhecidos
+> que ainda não tinham sítio. **Nenhuma abriu trabalho novo** — são registo.
+>
+> *Anterior: 29/08/2026, ao fim da segunda sessão de telemóvel. Dois riscos novos
+> encontrados, provados e fechados — R-18 e R-19.*
 >
 > **Nota de ambiente:** a máquina de desenvolvimento corre em `America/Sao_Paulo` — o mesmo fuso da Overcel. Os testes sensíveis a fuso são executados no fuso que importa, e não num neutro.
 > **Estados:** `aberto` · `mitigado` · `fechado` · `aceite` · `bloqueado` (precisa de
@@ -9,13 +13,18 @@
 
 ## Etapas, para a coluna "bloqueia"
 
-| Etapa | O que é |
-|---|---|
-| **E1** | publicar o BFF em produção |
-| **E2** | ligar autenticação no frontend |
-| **E3** | ligar `VITE_PROTECTED_DATA_TRANSPORT` |
-| **E4** | primeiro cliente-piloto além da Overcel |
-| **E5** | escala (vários clientes, escritas ligadas) |
+| Etapa | O que é | Estado a 30/08/2026 |
+|---|---|---|
+| **E1** | publicar o BFF em produção | ✅ **concluído** — `74a1e0b` em Production, smoke concluído |
+| **E2** | ligar autenticação no frontend | ✅ **concluído** — 30/08, `a8bfca0` → `gh-pages 22b0526` |
+| **E3** | ligar `VITE_PROTECTED_DATA_TRANSPORT` | ⛔ **não iniciado** |
+| **E4** | primeiro cliente-piloto além da Overcel | não iniciado |
+| **E5** | escala (vários clientes, escritas ligadas) | não iniciado |
+
+> ⚠️ **Atenção à numeração.** Aqui `E1` = *publicar o BFF*. Em
+> `FRONTEND_AUTH_RELEASE_PLAN.md`, `E1` = *publicar os commits do frontend com os
+> interruptores desligados* — e é **esse** o E1 que foi saltado (desvio **D-1**). A
+> tabela de tradução entre as duas numerações está no topo desse ficheiro.
 
 ---
 
@@ -37,7 +46,7 @@
 
 | ID | Risco | Sev. | Estado | Onde |
 |---|---|---|---|---|
-| R-18 | **O dataset era carimbado com a empresa ATIVA mesmo quando a leitura NÃO foi escopada.** `FinerDataProvider` passa `companyId` a `loadFinerData` sem perguntar que transporte foi resolvido. Com autenticação LIGADA e `VITE_PROTECTED_DATA_TRANSPORT` DESLIGADO — a **etapa A do rollout faseado** — o transporte é o legado anónimo: trocar para a Finer Teste lia os dados da **Overcel** e carimbava-os "finer-teste", `resolveCompanyDataScope` devolvia `LIGADA`, e o `AppShell` montava as páginas. Os números reais de uma empresa sob o nome de outra, com o guarda de escopo a dizer que estava tudo bem. | **P1** | **fechado** | `9531cc8` |
+| R-18 | **O dataset era carimbado com a empresa ATIVA mesmo quando a leitura NÃO foi escopada.** `FinerDataProvider` passa `companyId` a `loadFinerData` sem perguntar que transporte foi resolvido. Com autenticação LIGADA e `VITE_PROTECTED_DATA_TRANSPORT` DESLIGADO — a **etapa A do rollout faseado** — o transporte é o legado anónimo: trocar para a Finer Teste lia os dados da **Overcel** e carimbava-os "finer-teste", `resolveCompanyDataScope` devolvia `LIGADA`, e o `AppShell` montava as páginas. Os números reais de uma empresa sob o nome de outra, com o guarda de escopo a dizer que estava tudo bem. | **P1** | **fechado — e VALIDADO EM PRODUÇÃO a 30/08/2026** | `9531cc8` · verificado no browser real: trocar para a Finer Teste mostra *"ainda não tem dados ligados"* e **zero** números da Overcel, com ausência de flash provada por gravador de alta frequência nas duas voltas |
 | R-19 | **A cobertura e a moeda da configuração atravessavam para outra empresa.** Mesma classe de R-18, nos outros dois campos que `buildSalesDataset` ia buscar a `ACTIVE_COMPANY`: `historyCoverage` (que é o que autoriza tratar um mês como **real** em vez de `partial`) e a moeda do catálogo documental (Overcel BRL, Finer Teste EUR). `PerformanceFinanceira` já se protegia disto, mas prefere `sales.coverage` — a proteção documentada na página era contornada pelo dataset. | **P2** | **fechado** | `b99c97d` |
 | R-20 | **`neutralizarFormula` decidia sobre a string crua**, portanto um espaço antes do `=` escondia a fórmula do CSV. Não explorável no momento da importação (com espaço, a folha lê a célula como texto), mas basta um "remover espaços" ou uma reimportação com trim para a fórmula ficar armada. | P3 | **fechado** | `3022fef` |
 
@@ -189,6 +198,33 @@ scroll do fundo enquanto o diálogo está aberto).
 | ID | Risco | Sev. | Estado | Bloqueia | Mitigação |
 |---|---|---|---|---|---|
 | R-30 | **Quem ESCREVE o CMV é mais estrito do que quem o LÊ.** `salvarAjusteManual_` (Apps Script) recusa `value` negativo, não-finito e não-numérico. `valorManualValido` (frontend) só exige **número finito** — aceita negativos. Um CMV negativo aumentaria o lucro bruto em vez de o reduzir, e apareceria marcado apenas como "Valor manual", que é a marca correta para um valor errado. | P3 | aberto (latente) | E4 | **Sem caminho pelo produto:** o único escritor alcançável é `salvarAjusteManual_`, que já recusa. Chegar lá exige editar o JSON no Drive à mão, fora do caminho sancionado. Não se acrescenta guarda sem caminho demonstrado — é como o R-17 chegou a este registo. **Quando houver escrita a partir do browser, é uma linha** (`v >= 0`) e o sítio é `valorManualValido`. Números finitos extremos (`Number.MAX_VALUE`) passam nos dois lados; produzem absurdos visíveis, não plausíveis. |
+
+---
+
+## Validação de E2 em browser real — 30/08/2026
+
+E2 foi publicado a 30/08/2026 02:56:56 (−03:00) a partir de `a8bfca0` para
+`gh-pages 22b0526`, e validado em browser real no mesmo dia. **Os doze pontos do teste de
+aceitação passaram** — ver `FRONTEND_AUTH_RELEASE_PLAN.md` §E2 para a lista.
+
+**O que a validação provou, e o que não provou.** Provou o **R-18**: com autenticação
+ligada e transporte legado, trocar de empresa não mostra os números de uma empresa sob o
+nome de outra, e não há sequer um fotograma em que isso aconteça. Provou também que as
+leituras continuam todas pelo legado (32/32) e que o transporte protegido não foi ativado
+por acidente (0 chamadas). **Não** provou isolamento forte — ver **R-33**.
+
+As sete entradas abaixo são o que ficou por registar. Nenhuma foi corrigida nesta sessão,
+por decisão: a sessão era de consolidação, não de correção.
+
+| ID | Risco | Sev. | Estado | Bloqueia | Mitigação / nota |
+|---|---|---|---|---|---|
+| R-31 | **A leitura anónima legada continua a partir em E2, em dois momentos em que não seria preciso.** (1) Quatro pedidos a `/api/pedidos/vendas` saem **antes de qualquer autenticação**, ainda no ecrã de login; (2) outros quatro saem ao trocar para a **Finer Teste**, uma empresa sem integração configurada. Nos dois casos os dados reais da Overcel atravessam o fio. | P3 | **aceite para E2** | fecha em **E3** | **O resultado é corretamente descartado** — o guarda de escopo (`9531cc8`) recusa carimbá-lo e o `AppShell` não monta as páginas; foi isso que o browser confirmou. Não é regressão: é a natureza do endpoint legado, que é anónimo por construção (R-14) e não sabe o que é uma empresa. **É precisamente o que E3 fecha:** com o transporte protegido, faltando empresa ou token o transporte é `NENHUM` e não o anónimo. Não se corrige antes disso — seria acrescentar uma guarda a um caminho que vai desaparecer. |
+| R-32 | **O token de sessão do Supabase vive numa origem partilhada com outros projetos.** `sb-bysqekhcyrvtiejcupoa-auth-token` (1942 bytes, com `access_token` **e** `refresh_token`) é guardado no `localStorage` de `https://igororlandi999.github.io`. Essa origem tem 14 chaves, e **12 são de outros projetos publicados na mesma conta de GitHub Pages** (`ml_orders_cache_v1` com 1,6 MB, `austinMissionBoard`, `cf_products`, `canton_*`, `decoratto:ui-prefs`). O GitHub Pages serve **todos** os repositórios de uma conta na mesma origem, portanto qualquer JavaScript em qualquer dessas páginas consegue ler o token da Finer One. | **P2** | **aberto** | E4 · **rever antes de E3** | **O mecanismo da aplicação está correto** e foi verificado: o logout remove o token integralmente, sem resíduo. O problema é o **alojamento**, não o código. **E2 foi o que introduziu isto** — antes não existia token nenhum nessa origem, e é por isso que aparece agora e não antes. Agrava-se em E3, que dá a esse mesmo token poder de leitura financeira no BFF. Saídas possíveis, nenhuma para hoje: domínio próprio para a Finer One (separa a origem e resolve na raiz); ou sessão em memória em vez de `localStorage` (custa a persistência entre separadores e o refresh); ou não publicar outros projetos nesta conta. **Decidir antes de E4**, que é quando deixa de haver só um utilizador. |
+| R-33 | **Isolamento FORTE entre duas empresas não é demonstrável com a configuração de contas actual.** A conta usada na validação (`Proprietário` na Overcel, `Consulta` na Finer Teste) é membro **das duas** empresas. O que se provou foi o R-18 — que os dados de A não aparecem sob o nome de B para um utilizador multiempresa. **Não** se provou o que é uma pergunta diferente e mais forte: que um utilizador que pertença **só** a B não consegue alcançar A. | **P2** | **bloqueado** | **E3** (condição 5) · E4 | Não é uma falha conhecida — é uma **verificação que não foi possível fazer**, e não fazer uma verificação não é passá-la. Exige uma conta que pertença a **uma só** empresa. As políticas de RLS foram verificadas contra a base de dados a 29/08 (B-07), o que é evidência do lado do servidor; falta a evidência do lado do produto montado. **Resolver quando existir a configuração de contas que o permita** — e antes disso E3 não deve arrancar. |
+| R-34 | **Comportamento inconsistente do autofill no primeiro login.** Um único clique em "Entrar" produziu **quatro** `POST` a `/auth/v1/token?grant_type=password` — três `400` e depois um `200` — e o `200` ocorreu **sem novo clique**. Entre a falha e o sucesso, o campo de email mudou sozinho de uma conta guardada para outra. | P3 | **aberto** | rever antes de **E3** | **Não investigado de propósito:** os corpos dos pedidos contêm credenciais e não se abrem para depurar. **Hipótese, não facto:** o formulário de login não tem `<label for>` nem `id`/`name` nos campos — a consola reporta *"No label associated with a form field"* e *"A form field element should have an id or name attribute"* —, e essa é uma causa clássica de comportamento errático dos gestores de palavras-passe. Note-se que os campos **têm** nome acessível (a árvore de acessibilidade mostra `EMAIL` e `PALAVRA-PASSE`), pelo que **não** é o defeito do R-24. **Se for a aplicação a resubmeter**, e não o browser, então cada falha de login gasta rate limit do Supabase a triplicar — e é isso que um teste controlado tem de distinguir. |
+| R-35 | **O relógio da máquina de desenvolvimento está atrasado.** Medido a 30/08/2026 contra o cabeçalho `Date` do GitHub: **−48 s**. | P3 | **aceite** | — | Sem impacto observado. Fica registado porque desloca carimbos temporais locais (mtimes, horas de commit) face aos do servidor, e porque **48 s é ruído suficiente para confundir uma reconstrução forense** — foi por comparar mtimes com horas de commit que se reconstruiu a queda de energia de 30/08. Não afeta a validade de tokens: o Supabase valida do lado do servidor. |
+| R-36 | **O SQL do `BFF_POST_PRODUCTION_SMOKE.md` refere colunas do `audit_log` que já não correspondem ao esquema.** | P3 | **aberto** | — | Não corrigido nesta sessão por decisão explícita — a sessão não abria trabalho novo e o ficheiro pertence ao fluxo do BFF, que estava congelado. **Consequência prática:** quem correr o smoke tal como está escrito recebe um erro de SQL, não um resultado errado — falha ruidosamente, que é o modo de falhar aceitável. Corrigir na próxima sessão que toque no BFF. |
+| R-37 | **A RLS de escrita não foi testada em Production.** | P3 | **aceite (decisão deliberada)** | E5 | Não é um esquecimento. As escritas estão desligadas (`COVERAGE_WRITES_ENABLED` off, `coverageWriteClient.js` sem importador fora do próprio teste), portanto não há caminho pelo produto que exercite a RLS de escrita. Testá-la exigiria ligar a escrita em Production para a testar — que é precisamente o que não se quer fazer. **Fica para quando as escritas forem ligadas**, e faz parte dessa decisão, não desta. |
 
 ---
 

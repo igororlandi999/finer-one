@@ -1,28 +1,43 @@
 # Próxima sessão — o que exige desktop
 
-> **Atualizado a 29/08/2026**, ao fim da TERCEIRA sessão de telemóvel (a segunda foi
-> interrompida a meio de uma mutação — ver a nota de recuperação no fim deste ficheiro).
-> Escrito a 29/08/2026, ao fim da segunda sessão de telemóvel.
-> A versão anterior (28/08) está **obsoleta**: descrevia 222 testes no BFF, 2272 no
-> frontend, "BFF ahead 4, frontend ahead 9" e o repositório Git **ligado** à Vercel.
-> Nenhuma dessas coisas é verdade hoje. Os passos 3 a 8 dessa versão **foram executados**.
+> # ✅ OS PASSOS 1 A 5 DESTE FICHEIRO FORAM EXECUTADOS
 >
-> **Ordem importa.** Cada passo assume os anteriores.
+> **Atualizado a 30/08/2026**, ao fim da sessão de consolidação pós-E2.
+>
+> A versão de 29/08 descrevia trabalho **por fazer**. Esse trabalho está feito: o BFF foi
+> promovido e validado, e o frontend publicou E2. **Os passos 1 a 5 abaixo ficam como
+> registo do que se fez, não como instruções por executar** — não os voltar a correr.
+>
+> O que resta deste ficheiro para o futuro são duas secções, e só essas:
+> **"O que NÃO se consegue fechar sem browser/desktop"** e **"Se sobrar tempo"**.
 
 ---
 
-## Estado real no início desta sessão de desktop
+## Estado real — 30/08/2026
 
 | | |
 |---|---|
-| **BFF** | `74a1e0b`, **0 à frente / 0 atrás** de `origin/main`, árvore limpa. **235** testes. **Congelado — não se lhe tocou.** |
-| **Frontend** | **27 commits à frente** de `origin/main` (o HEAD é o commit que escreveu esta linha — `git log --oneline -1`). **2337** testes, **96** ficheiros. Build verde, `check:predeploy` tudo verde, `git diff --check` limpo. |
+| **BFF** | `74a1e0b` **em Production**, smoke autenticado concluído. `0/0` face a `origin/main`, árvore limpa. **235** testes. **Não se lhe tocou nesta sessão.** |
+| **Frontend — HEAD** | `a8bfca0` |
+| **Frontend — `origin/main`** | `a8bfca0` — **0 à frente / 0 atrás**. Os 27 commits foram enviados a 30/08 por fast-forward, sem force. |
+| **`gh-pages`** | `22b0526` — o deploy de E2, de 30/08 02:56:56. **Inalterado desde então.** |
+| **Site** | `https://igororlandi999.github.io/finer-one/` · HTTP 200 · `assets/index-DVG67Kg3.js` |
+| **Interruptores publicados** | `VITE_AUTH_MODE=supabase` · `VITE_PROTECTED_DATA_TRANSPORT` **vazio** |
+| **Testes / build** | **2337** testes, **96** ficheiros. `check:predeploy` tudo verde. `git diff --check` limpo. |
+| **Reprodutibilidade** | o rebuild local reproduz o artefacto publicado **byte a byte** |
 | `.mcp.json` | modificado localmente, **fora do stage**. Não versionar a alteração. |
 | Vercel ↔ Git | **desligado** (R-A fechado). Deploy manual por CLI. |
-| Production | `kgcs3qugg` — **não** é o candidato, e **não está mapeado a um SHA**. |
-| Protection Bypass | **ainda existe** (R-B). É o passo 1. |
+| **E2** | **CONCLUÍDO** — validado no browser real a 30/08 |
+| **E3** | **NÃO INICIADO** |
 
 Se os números divergirem, **parar e perceber porquê** antes de continuar.
+
+> **Uma coisa que este ficheiro afirmava e que esta sessão NÃO confirmou:** o
+> **Protection Bypass (R-B)**. A versão de 29/08 dizia "ainda existe — é o passo 1". O
+> BFF foi promovido depois disso, mas **esta sessão não teve como verificar se o bypass
+> foi removido** — não se tocou no BFF nem na Vercel, por instrução. R-B continua
+> **aberto no registo de riscos** até alguém o confirmar pelo fio. Não assumir que saiu
+> só porque a promoção aconteceu.
 
 ---
 
@@ -95,11 +110,11 @@ foi apanhado — sob tráfego o registo funcionava.
 
 `FRONTEND_AUTH_RELEASE_PLAN.md`. Três etapas, uma de cada vez:
 
-| | | |
-|---|---|---|
-| **E1** | publicar os 27 commits com os interruptores **desligados** | comportamento de hoje, byte a byte |
-| **E2** | ligar `VITE_AUTH_MODE=supabase`, leitura ainda legada | ⚠️ ver abaixo |
-| **E3** | ligar `VITE_PROTECTED_DATA_TRANSPORT=true` | nunca no mesmo dia de E2 |
+| | | | Estado |
+|---|---|---|---|
+| **E1** | publicar os 27 commits com os interruptores **desligados** | comportamento de hoje, byte a byte | ⛔ **SALTADO** — desvio **D-1**, aceite. Não voltar atrás. |
+| **E2** | ligar `VITE_AUTH_MODE=supabase`, leitura ainda legada | ⚠️ ver abaixo | ✅ **CONCLUÍDO** 30/08, `a8bfca0` → `gh-pages 22b0526` |
+| **E3** | ligar `VITE_PROTECTED_DATA_TRANSPORT=true` | nunca no mesmo dia de E2 | ⛔ **NÃO INICIADO** — condições em `FRONTEND_AUTH_RELEASE_PLAN.md` §E3 |
 
 > ⚠️ **E2 só é segura a partir de `9531cc8` + `b99c97d`.** Esta sessão encontrou e provou
 > um **P1** (R-18) que vivia exatamente nessa etapa: com autenticação ligada e transporte
@@ -113,8 +128,13 @@ foi apanhado — sob tráfego o registo funcionava.
 
 ## O que **não** fazer
 
-- **Não** enviar os commits do frontend antes do BFF estar em produção e estável.
-- **Não** ligar `VITE_PROTECTED_DATA_TRANSPORT` no mesmo dia da promoção do BFF.
+- ~~**Não** enviar os commits do frontend antes do BFF estar em produção e estável.~~
+  *Cumprido: o BFF entrou em Production primeiro; os 27 commits só foram enviados a 30/08,
+  depois de E2 estar validado.*
+- **Não** ligar `VITE_PROTECTED_DATA_TRANSPORT` (E3) — nem no mesmo dia de E2, nem antes
+  de as cinco condições do §E3 do `FRONTEND_AUTH_RELEASE_PLAN.md` estarem cumpridas.
+- **Não** voltar atrás para executar E1 (D-1). Está saltado e aceite.
+- **Não** republicar o `gh-pages`: `22b0526` é o que está validado.
 - **Não** ligar `COVERAGE_WRITES_ENABLED`.
 - **Não** tocar no Apps Script nem em `ANYONE_ANONYMOUS` (R-14).
 - **Não** executar migrações SQL.
@@ -139,16 +159,15 @@ foi apanhado — sob tráfego o registo funcionava.
 
 ---
 
-## Veredicto de prontidão, ao fim da terceira sessão de telemóvel
+## Veredicto de prontidão — 30/08/2026
 
-Estes três veredictos são a razão de este ficheiro existir. Substituem qualquer versão
-anterior. Nenhum deles depende de memória de conversa.
+Substituem qualquer versão anterior. Nenhum depende de memória de conversa.
 
-| Etapa | Veredicto | Do que depende |
+| Etapa | Veredicto | Fundamento |
 |---|---|---|
-| **BFF → Production** | **GO condicional** | Condição única e bloqueante: **remover o Protection Bypass (R-B) antes de promover**, e confirmar `ALLOWED_ORIGINS` em Production **antes** de promover (passos 1 e 2 acima). O candidato `74a1e0b` está congelado, limpo, 0/0 face a `origin/main`, com 235 testes. Nada nas três sessões de telemóvel lhe tocou nem encontrou defeito nele. |
-| **E2 — autenticação ligada** | **GO condicional** | Condição: publicar **a partir do HEAD local**, nunca de `origin/main`. E2 é exatamente a etapa onde vivia o R-18 (P1): autenticação ligada + transporte legado mostrava os números reais da Overcel sob o nome da Finer Teste. Está fechado em `9531cc8` + `b99c97d`, e as duas guardas foram **mortas por mutação** nesta sessão (M3, M4a, M4b) — logo a regressão é real e não decorativa. **Teste de aceitação:** trocar para a Finer Teste tem de mostrar "empresa sem dados ligados", e não números. |
-| **E3 — transporte protegido** | **GO condicional** | Condições, por ordem: (1) E2 estável, e **nunca no mesmo dia**; (2) **R-07 fechado ou aceite por escrito** — o `{"error":true}` do Apps Script continua a sair do BFF como `200`, e hoje só há uma camada de defesa a jusante (`linhasOuFalha`); (3) B-03 e B-04 verificados em Preview. O R-23 (nome da empresa escrito à mão) era um bloqueador de E3 e está fechado, com as duas metades da guarda mortas por mutação (M1, M2). |
+| **BFF → Production** | ✅ **CONCLUÍDO** | `74a1e0b` promovido e validado em Production; smoke autenticado concluído. `0/0`, árvore limpa, 235 testes. **Ressalva:** a remoção do Protection Bypass (R-B) **não foi confirmada nesta sessão** — ver a nota no topo. |
+| **E2 — autenticação ligada** | ✅ **CONCLUÍDO** | Publicado a 30/08 a partir de `a8bfca0` (que contém `9531cc8` + `b99c97d`) para `gh-pages 22b0526`. Validado no browser real: os 12 pontos do teste de aceitação passaram, incluindo **zero flash** provado por gravador de alta frequência, **32/32 leituras pelo legado** e **zero chamadas ao transporte protegido**. **R-18 defendido em produção.** |
+| **E3 — transporte protegido** | ⛔ **NÃO INICIADO · GO CONDICIONAL** | Cinco condições, todas por cumprir: (1) não no mesmo dia de E2 — logo **não antes de 31/08**; (2) **R-07** fechado ou aceite por escrito; (3) **B-03** verificado em Preview; (4) **B-04** verificado em Preview; (5) **isolamento forte entre duas empresas reais** demonstrado com uma conta de empresa única — **R-33**, condição nova, descoberta ao validar E2. O R-23 era um bloqueador de E3 e está fechado, com as duas metades da guarda mortas por mutação (M1, M2). |
 
 ---
 
@@ -162,8 +181,9 @@ verificar, e cada linha diz **porquê é que só ali se verifica**.
 | 1 | **`ActionPlanModal`: `Escape`, foco inicial, devolução do foco, armadilha de foco, `inert` no fundo, scroll do fundo** | São comportamento em tempo de execução com teclado e rato reais. Nenhum existe hoje; declarar `aria-modal` antes de os construir seria pior do que não o declarar. | **R-28** |
 | 2 | **Que o clique no véu fecha e o clique no painel não** | A propagação está travada no código (`stopPropagation`), o que torna o comportamento *provável* — mas não foi exercido com rato. | R-28 |
 | 3 | **Anúncio real num leitor de ecrã** (NVDA/VoiceOver) da paginação, do `aria-live` e do diálogo | O DOM está provado; o que a tecnologia de apoio faz com ele, não. `happy-dom` não é um leitor de ecrã. | R-24 / R-28 |
-| 4 | **Smoke autenticado do BFF, isolamento entre duas empresas, cadeia de redirects do GAS, equivalência Preview↔Produção** | Exigem sessão iniciada e rede real. | B-03, B-04 |
-| 5 | **O teste de aceitação de E2** (trocar de empresa mostra "sem dados ligados") | É o comportamento do produto montado, com duas empresas reais e sessão. | R-18 |
+| 4 | ~~Smoke autenticado do BFF~~ · **cadeia de redirects do GAS** · **equivalência Preview↔Produção** | Exigem sessão iniciada e rede real. O smoke autenticado **está feito**; os outros dois continuam por fazer e bloqueiam E3. | B-03, B-04 |
+| 5 | ~~**O teste de aceitação de E2**~~ | ✅ **FEITO a 30/08/2026** em browser real. Passou integralmente. Ver `FRONTEND_AUTH_RELEASE_PLAN.md` §E2. | R-18 — **defendido em produção** |
+| 6 | **Isolamento FORTE entre duas empresas** — que um utilizador de B não alcança A | *Novo, descoberto ao validar E2.* A conta usada é membro **das duas** empresas, portanto o teste de 30/08 não podia provar isto. Exige uma conta que pertença a **uma só** empresa. | **R-33** — bloqueia E3 |
 
 ---
 

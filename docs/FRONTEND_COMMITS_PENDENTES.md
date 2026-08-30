@@ -1,5 +1,27 @@
 # Frontend — os commits locais por publicar
 
+> # ✅ ENCERRADO — SNAPSHOT HISTÓRICO (não atualizar)
+>
+> **A 30/08/2026 já não há commits por publicar.** `origin/main` = `a8bfca0`, **0 à
+> frente / 0 atrás**. A cadeia foi enviada por fast-forward, sem force e sem reescrita de
+> histórico, e o artefacto correspondente está em `gh-pages 22b0526`.
+>
+> O corpo deste ficheiro descreve o estado a **29/08/2026**, quando eram 17 commits, e
+> **fica deliberadamente por corrigir** — é um registo do que se sabia na altura.
+> Os números abaixo (17 commits, `b99c97d` como ponta, 2316 testes em 92 ficheiros) estão
+> **obsoletos**: a cadeia publicada tem **27** commits, a ponta é `a8bfca0`, e a base é de
+> **2337** testes em **96** ficheiros.
+>
+> **Porque não foi apagado**, apesar de o próprio ficheiro o mandar fazer no fim: o *grafo
+> de dependências* e o argumento sobre o **ponto de paragem seguro** continuam a ser a
+> melhor explicação escrita de porque `9531cc8` e `b99c97d` não podiam ficar de fora — e
+> essa explicação não existe em mais lado nenhum. Apagá-lo perderia isso. Se se preferir
+> apagar mesmo assim, a decisão é de quem o escreveu.
+>
+> ---
+>
+> *Texto original de 29/08/2026, mantido tal como estava:*
+>
 > **29/08/2026.** `origin/main` = `4e8b309`. Local = `b99c97d`. **17 commits à frente.**
 > Nada enviado. Histórico **não** reescrito.
 >
