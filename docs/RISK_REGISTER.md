@@ -1116,3 +1116,119 @@ partilham `igororlandi999.github.io`: `canton_script_url`, `cf_products`, `cf_su
 
 Não é um achado novo — é o R-32, agora com a prova à vista em vez de inferida. **Continua
 ACEITE TEMPORARIAMENTE** e **obrigatório resolver antes de E4 / primeiro cliente-piloto**.
+
+---
+
+## E3 VALIDADO EM PRODUCTION — 31/08/2026
+
+> Substitui a caixa *"E3 PUBLICADO … validação INCOMPLETA"* acima, que era verdade no
+> momento em que foi escrita. A validação **está feita**, com a conta principal, em browser
+> real, contra Production. Ficam **duas verificações residuais**, nomeadas no fim.
+
+### O artefacto
+
+| | |
+|---|---|
+| Frontend | `66682a4` |
+| `gh-pages` | **`3d668e1`** (rollback: `6e8c0ae`) |
+| Bundle | `assets/index-DVBYao2b.js` — servido, e byte a byte igual ao `dist/` local |
+| Publicado | 31/08/2026, 20:30:19 (−03:00) |
+| Interruptores **no bundle servido** | `VITE_AUTH_MODE:"supabase"` · `VITE_PROTECTED_DATA_TRANSPORT:"true"` |
+| BFF | `74a1e0b` — **não foi tocado** |
+
+### Contagem de rede — a afirmação central de E3
+
+Conta principal (`igororlandibarros`, *Proprietário*), Production, dois ciclos completos
+separados por quatro minutos:
+
+| Fluxo | protegidas | **legado** |
+|---|---|---|
+| Carga inicial | 4 | **0** |
+| Overcel → Finer Teste | 4 | **0** |
+| Finer Teste → Overcel | 4 | **0** |
+| Refresh (hard) | 4 | **0** |
+| *(4 min depois)* carga | 4 | **0** |
+| Overcel → Finer Teste | 4 | **0** |
+| Finer Teste → Overcel | 4 | **0** |
+| **Total** | **28** | **0** |
+
+Mais, antes de publicar: conta de smoke em Production, Finer Teste — 4 protegidas, 0 legado;
+e sem sessão nenhuma — **0 pedidos financeiros**, que é o caso que o R-39 partia.
+
+**`legacy = 0` em todos os fluxos financeiros.** É a promessa de E3, cumprida e medida.
+
+### Overcel — dados reais pelo caminho novo
+
+Todas as leituras em `/api/companies/overcel/financial-data`. O ecrã mostra os números
+reais (receitas do mês, contas a pagar, DRE, cashflow, faturas em atraso com nomes e
+valores), 20 valores monetários em **R$**, e o papel correto (*Proprietário*).
+
+O que **não** aparece disfarçado de dado: `SALDO BANCÁRIO —` com *"Integração bancária não
+configurada"*, e os blocos demonstrativos com selo `DEMO`. A doutrina *ausência ≠ zero*
+mantém-se sob o transporte protegido.
+
+### Finer Teste — a prova de isolamento, agora em E3
+
+Trocar de empresa dispara **novas** leituras protegidas para `finer-teste`, e o ecrã passa a:
+
+| Verificação | Resultado |
+|---|---|
+| Assinatura numérica da Overcel (`421.262,97`, `445.682,09`, `136.789,61`, …) | **nenhuma** |
+| Nomes de clientes/fornecedores da Overcel | **nenhum** |
+| A palavra "Overcel" no DOM | **ausente** |
+| Valores em `R$` | **0** — a moeda passa a `€`, que é a da Finer Teste |
+| Chamadas ao legado durante a troca | **0** |
+
+**R-18 continua defendido, agora na camada de transporte.** Em E2 a defesa era
+`companyDataScope` a recusar um dataset de outra empresa; em E3 o dataset **é** da empresa
+pedida, por construção, e as três camadas continuam todas de pé.
+
+### Voltar à Overcel
+
+Os mesmos valores regressam, 20 em `R$`, zero em `€`, sem qualquer resíduo da Finer Teste.
+Feito **duas vezes**, com quatro minutos de intervalo. Sem regressão intermitente.
+
+### CORS
+
+| | |
+|---|---|
+| Preflight no browser real | `OPTIONS …/financial-data` → **`204`**, nos quatro recursos |
+| Preflight por `curl`, origem oficial | `204` · `Allow-Origin: https://igororlandi999.github.io` · `Allow-Headers: Content-Type, Authorization` · `Vary: Origin` |
+| Preflight por `curl`, origem estranha | `204` **sem `Allow-Origin`** — o browser bloqueia. Falha fechada |
+
+`Cache-Control: private, no-store` na resposta protegida — **confirmado manualmente** com
+*Disable cache*, com `X-Vercel-Cache: BYPASS`. A suspeita de cache público (levantada num
+cabeçalho de `304`) **não se confirmou**.
+
+### Consola
+
+Três entradas, todas pré-existentes e nenhuma ligada a E3: dois avisos de campo de
+formulário (vêm de outro formulário, não do Login — ver R-34) e um `404` do `favicon.ico`.
+
+### As duas verificações residuais
+
+Nenhuma bloqueia a operação, e as duas são de minutos:
+
+1. **`logout` → `login`.** Não foi exercido: sair da sessão de Production exigia credenciais
+   da conta principal para voltar a entrar, e essas não se pedem nem se usam nesta sessão.
+   É um teste de ciclo de sessão, não de isolamento de dados;
+2. **R-33 revalidado em E3 ao nível da rede** (`403` na Overcel com token da conta de
+   smoke). O ficheiro de credenciais foi removido, por decisão. **O que já se observou em
+   E3:** a conta de smoke entrou em Production, viu **só** a Finer Teste, **sem seletor de
+   empresas**, com 4 leituras protegidas e **0** ao legado. Falta a metade de rede — e E3
+   **não altera a autorização**, que vive no BFF e não mudou.
+
+### Riscos, sem alterações
+
+- **R-32** — origem partilhada. **ACEITE TEMPORARIAMENTE.** Visto em concreto: o
+  `localStorage` da origem de Production tem chaves de outros projetos (`canton_script_url`,
+  `cf_products`, `austinMissionBoard`, `decoratto:ui-prefs`, …) ao lado da nossa.
+  **OBRIGATÓRIO resolver antes de E4 / primeiro cliente-piloto;**
+- **R-38** — `localhost:5173` continua em `ALLOWED_ORIGINS` de Production. **Não foi
+  removido hoje**, por decisão: não se empilha essa mudança no mesmo rollout;
+- **R-06** — evidência completa, endurecimento por aplicar (dois ficheiros do BFF);
+- **R-39** — **fechado**, e a correção está **verificada no ar**.
+
+### Rollback
+
+`gh-pages 6e8c0ae`, reproduzível byte a byte a partir de `bd615ee`. **Não foi necessário.**

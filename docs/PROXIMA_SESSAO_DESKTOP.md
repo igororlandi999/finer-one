@@ -320,6 +320,20 @@ sessão o esperado é **zero pedidos financeiros**, não zero legado apenas.
 
 Se aparecer **um** pedido ao legado, parar. É o R-39 outra vez ou um parente dele.
 
+> ✅ **31/08 — E3 PUBLICADO E VALIDADO EM PRODUCTION.** `gh-pages 3d668e1`, bundle
+> `index-DVBYao2b.js`, `PROTECTED_DATA_TRANSPORT=true`. **28 leituras protegidas, 0 ao
+> legado**, em dois ciclos separados por 4 minutos. Overcel com dados reais; Finer Teste sem
+> um único número da Overcel; A→B→A duas vezes; CORS a falhar fechado para origem estranha.
+> Detalhe em `RISK_REGISTER.md` §*E3 VALIDADO EM PRODUCTION*.
+>
+> **Duas verificações residuais, ambas tuas e de minutos:** (1) `logout` → `login`, que
+> exige as credenciais da conta principal; (2) o `403` da conta de smoke na Overcel em E3 —
+> recriar `~/.finer-smoke.json` e correr `node scripts/r33-smoke.mjs`.
+>
+> **Antes de E4:** R-32 (origem própria) passa a **obrigatório**.
+>
+> *(A caixa abaixo é o registo da publicação e fica como estava.)*
+
 > ✅ **31/08, 20:30 — E3 FOI PUBLICADO.** `gh-pages 3d668e1`, bundle
 > `index-DVBYao2b.js`, `VITE_PROTECTED_DATA_TRANSPORT=true`. O Passo 0 correu limpo
 > (3 reloads, legacy 0) e o R-39 não reapareceu.
