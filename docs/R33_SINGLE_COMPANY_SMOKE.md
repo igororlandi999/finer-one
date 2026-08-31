@@ -238,54 +238,107 @@ corrigido (`protect.js` espera pela escrita), e é essa correção que se está 
 Colunas reais, lidas de `001_saas_foundation.sql:146` — **as do
 `BFF_POST_PRODUCTION_SMOKE.md` estão desatualizadas (R-36) e dão erro de SQL**:
 
-```sql
-select id, company_id, actor_user_id, action, occurred_at, metadata
-from public.audit_log
-where actor_user_id = '<USER_ID_DA_CONTA_NOVA>'
-order by occurred_at desc
-limit 10;
+```
+audit_log(id bigserial, company_id text, actor_user_id uuid, action text,
+          month_key text, occurred_at timestamptz, metadata jsonb)
 ```
 
-O que tem de estar lá — a forma vem de `protect.js:287-303`:
+O `user_id` da conta de smoke, confirmado pelo Igor a 31/08/2026:
 
-> ⚠️ **CORRIGIDO a 31/08.** A versão anterior desta tabela dizia que `company_id` seria
-> `overcel`. **É falso, e vale a pena perceber porquê.** `negar()` devolve
-> `companyId: null` (`authorizationCore.js:274`) — o `companyId` da decisão é o da
-> **membership**, e numa recusa por ausência de membership não há membership nenhuma de
-> onde o tirar. `protect.js:288` escreve `decisao.companyId ?? null`. Logo:
->
-> **`company_id` da linha é `NULL`. O `overcel` vive só em `metadata.requestedCompanyId`.**
->
-> Não é um defeito — é a distinção entre "a empresa a que este registo pertence" e "a
-> empresa que foi pedida". Numa recusa, só a segunda existe.
+```
+a1a84e5d-99cf-4612-a187-93c676492c42
+```
 
-| Verificação | Esperado |
+### 3.A — BASELINE · correr **ANTES** dos testes 1 e 2
+
+```sql
+select count(*) as baseline_total
+from public.audit_log
+where actor_user_id = 'a1a84e5d-99cf-4612-a187-93c676492c42';
+```
+
+**Esperado: `0`.** A conta é nova e nunca foi usada. Se não for `0`, anotar o número — o
+delta é o que conta, não o total.
+
+> **O TESTE 1 não escreve linha nenhuma.** `protect.js` só audita o caminho da **recusa**
+> (`:286`). Um `200` na Finer Teste não produz auditoria. Portanto o delta vem todo do
+> TESTE 2, e tem de ser exatamente **1**.
+
+### 3.B — ESPERAR
+
+**Dois minutos sem tráfego nenhum** antes de consultar. Não é superstição: foi assim que
+R-H foi apanhado — sob tráfego o registo funcionava, e falhava justamente na sondagem
+isolada, porque a instância serverless congelava com a escrita ainda pendente. Está
+corrigido (`protect.js` **espera** pela escrita, deixou de ser `void`), e é essa correção
+que se está a verificar.
+
+### 3.C — O VEREDITO, numa consulta
+
+Todas as colunas têm de vir `true`, e `chaves_metadata` tem de ser exatamente
+`{capability,decision,reason,requestedCompanyId}`.
+
+```sql
+with alvo as (
+  select *
+  from public.audit_log
+  where actor_user_id = 'a1a84e5d-99cf-4612-a187-93c676492c42'
+),
+ultima as (
+  select * from alvo order by occurred_at desc limit 1
+)
+select
+  (select count(*) from alvo) = 1                                    as delta_exatamente_1,
+  (select company_id is null                       from ultima)      as company_id_null,
+  (select action = 'access.denied'                 from ultima)      as action_ok,
+  (select month_key is null                        from ultima)      as month_key_null,
+  (select metadata->>'requestedCompanyId' = 'overcel'        from ultima) as requested_overcel,
+  (select metadata->>'decision'   = 'forbidden'              from ultima) as decision_ok,
+  (select metadata->>'reason'     = 'sem_membership'         from ultima) as reason_ok,
+  (select metadata->>'capability' = 'read_financial_data'    from ultima) as capability_ok,
+  (select array(select jsonb_object_keys(metadata) order by 1) from ultima) as chaves_metadata;
+```
+
+**`reason` tem de ser `sem_membership` e não `membership_insuficiente`.** O segundo seria
+papel a menos numa empresa a que se pertence — outra pergunta, outra resposta.
+
+### 3.D — QUE NÃO HÁ LÁ NADA QUE NÃO DEVA ESTAR
+
+```sql
+select
+  id,
+  metadata::text                                                   as metadata_completo,
+  length(metadata::text)                                           as tamanho,
+  metadata::text ~* '(token|bearer|password|secret|service_role|apikey|eyJ|sb_|https?://)'
+                                                                   as parece_credencial_ou_url,
+  metadata::text ~ '[0-9]{4,}[.,][0-9]{2}'                         as parece_valor_financeiro
+from public.audit_log
+where actor_user_id = 'a1a84e5d-99cf-4612-a187-93c676492c42'
+order by occurred_at desc;
+```
+
+| Coluna | Esperado |
 |---|---|
-| Número de linhas | **exatamente uma** para esta experiência |
-| `action` | `access.denied` |
-| `actor_user_id` | o `user_id` da conta nova |
-| `company_id` | **`NULL`** — ver a nota acima |
-| `month_key` | `NULL` |
-| `metadata.requestedCompanyId` | **`overcel`** — é aqui que a empresa pedida aparece |
-| `metadata.capability` | `read_financial_data` |
-| `metadata.decision` | `forbidden` |
-| `metadata.reason` | `sem_membership` — e **não** `membership_insuficiente`, que seria papel a menos numa empresa a que se pertence |
-| **Sem segredo** | nenhum token, nenhuma `GAS_URL`, nenhum cabeçalho |
-| **Sem conteúdo financeiro** | nenhum valor, nenhum número da Overcel |
+| `parece_credencial_ou_url` | **`false`** — sem JWT, sem palavra-passe, sem `service_role`, sem `GAS_URL` |
+| `parece_valor_financeiro` | **`false`** — nenhum número da Overcel |
+| `metadata_completo` | as quatro chaves e mais nada. É curto de propósito — o `requestedCompanyId` é truncado a 64 caracteres (`protect.js:74`) |
 
-> ⛔ **E uma consequência operacional do `company_id = NULL`:** a política
-> `audit_select_owner` (`001_saas_foundation.sql:303`) exige
-> `m.company_id = audit_log.company_id` com `role = 'owner'`. Com `company_id` a `NULL`, a
-> comparação nunca é verdadeira. **Nenhum utilizador autenticado consegue ler esta linha —
-> nem o Igor, nem a conta de smoke.** Só a `service_role` a vê.
->
-> Portanto o TESTE 3 **tem** de ser corrido no **SQL Editor** do painel, ou com a
-> `service_role` fornecida localmente. Não há terceira via, e isto não é uma limitação
-> desta sessão: é assim para toda a gente.
+### 3.E — E QUE NADA MAIS FOI TOCADO
 
-> **O acesso com `200` à Finer Teste NÃO gera linha.** `protect.js` só audita o caminho da
-> **recusa**. Duas linhas aqui significa que algo foi pedido duas vezes — verificar antes
-> de concluir seja o que for.
+```sql
+-- a conta de smoke continua com UMA membership, em finer-teste
+select company_id, role
+from public.memberships
+where user_id = 'a1a84e5d-99cf-4612-a187-93c676492c42';
+
+-- e o total de memberships do sistema não mudou por causa deste teste
+select company_id, count(*) as membros
+from public.memberships
+group by company_id
+order by company_id;
+```
+
+A primeira tem de devolver **uma** linha: `finer-teste | viewer`. A segunda é o retrato de
+controlo — a Overcel tem de ter **exatamente** os membros que já tinha.
 
 ---
 
