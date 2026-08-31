@@ -160,7 +160,7 @@ foi apanhado — sob tráfego o registo funcionava.
 1. **R-07** — endurecer o contrato do upstream no BFF: recusar `{"error":true}` com `502`
    em vez de o reencaminhar com `200`. Local e testável; precisa do Preview só para
    confirmar que nenhuma resposta legítima do GAS tem essa forma.
-2. **R-06 / B-03** — cadeia real de redirects do Apps Script
+2. ~~**R-06 / B-03**~~ ✅ **fechado a 31/08** — cadeia real de redirects do Apps Script
    (`curl -sIL "$GAS_URL"`). Se for sempre `script.google.com → script.googleusercontent.com`,
    R-06 fecha com uma lista de hosts permitidos em vez de `redirect: "follow"` cego.
 3. **R-15** — desenhar `004_audit_log_retention.sql`. **Escrever, não executar.**
@@ -232,7 +232,7 @@ NÃO INICIADO, o BFF continua `74a1e0b`, o `gh-pages` continua `6e8c0ae`.
 |---|---|---|
 | **Estado real** | E2.1 confirmado pelo fio: site = `gh-pages 6e8c0ae`, rebuild de `bd615ee` reproduz os 7 ficheiros **byte a byte**, interruptores lidos **do bundle servido** | `RISK_REGISTER.md` §31/08 |
 | **R-34** | A metade **sequencial** fechada: N pedidos === N eventos `submit`, provado dos dois lados, mais a prova de que o SDK não repete pedidos | `Login.submitSequencial.test.jsx` (9 testes) |
-| **R-06 / B-03** | `redirect: "follow"` **medido no fio** pela primeira vez (nunca tinha sido: os duplos ignoram a opção). Sonda escrita e verificada | `finer-one-proxy/test/upstream-redirects.test.mjs`, `scripts/gas-redirect-probe.mjs`, `B03_GAS_REDIRECT_RUNBOOK.md` |
+| **R-06 / B-03** | ✅ **B-03 FECHADO a 31/08** com a `GAS_URL` fornecida localmente: 1 salto, `script.google.com` → `script.googleusercontent.com`, `200` `application/json`. Antes disso, `redirect: "follow"` **medido no fio** pela primeira vez (nunca tinha sido: os duplos ignoram a opção) | `finer-one-proxy/test/upstream-redirects.test.mjs`, `scripts/gas-redirect-probe.mjs`, `B03_GAS_REDIRECT_RUNBOOK.md` |
 | **R-32** | Levantamento do acoplamento ao GitHub Pages — **é uma linha de código e uma de verificação**, não um refactor — e checklist de 11 passos | `OWN_ORIGIN_MIGRATION_PLAN.md` |
 | **R-33** | Runbook completo, com o esquema real e o SQL do `audit_log` corrigido (o do smoke do BFF está desatualizado — R-36) | `R33_SINGLE_COMPANY_SMOKE.md` |
 | **R-38** | Proposta concreta: valor por ambiente, mudança mínima, impacto, rollback, verificação | `RISK_REGISTER.md` §31/08 |
@@ -243,7 +243,7 @@ NÃO INICIADO, o BFF continua `74a1e0b`, o `gh-pages` continua `6e8c0ae`.
 
 | # | Bloqueado | Razão | Desbloqueia com |
 |---|---|---|---|
-| 1 | **B-03** — cadeia real de redirects | `GAS_URL` é *Sensitive* no Vercel e não é exportável. **Não se tentou obtê-la por meios indiretos** | o valor, localmente, uma vez |
+| 1 | ~~**B-03**~~ ✅ **FECHADO 31/08** | resolvido: a `GAS_URL` foi fornecida localmente, a sonda correu, e a `GAS_URL` não foi impressa nem guardada | — |
 | 2 | **R-33** — smoke de empresa única | Exige **criar um utilizador** e **uma membership** | autorização explícita |
 | 3 | **R-32** — origem própria | Exige decidir e possivelmente comprar um domínio, e mexer em DNS | decisão de produto |
 | 4 | **R-38** — tirar `localhost` da Production | Alteração a Production | autorização, e só **durante** o rollout de E3 |
@@ -261,8 +261,8 @@ NÃO INICIADO, o BFF continua `74a1e0b`, o `gh-pages` continua `6e8c0ae`.
 | **B-04** | ✅ fechado por obsolescência | Preview e Production são o mesmo commit; baseline registada | **NÃO** | nenhuma | **NÃO** |
 | **R-34** | ✅ mitigado; causa externa por determinar | 12 testes (3 concorrentes + 9 sequenciais); mutação mata 4; SDK não repete pedidos | **NÃO** (P3) | cenários C/F num browser real — opcional | opcional |
 | **R-32** | ⚠️ aceite, condicional | prova completa + plano de migração de 11 passos | **NÃO** (bloqueia **E4**) | decidir o domínio | **SIM** |
-| **R-33** | ❌ **por executar** | runbook pronto; ~25 min quando autorizado | **SIM** | criar conta de smoke de empresa única | **SIM** |
-| **B-03** | ❌ **por executar** | sonda pronta e verificada; lógica de redirects já medida | **SIM** | correr a sonda com a `GAS_URL` | **SIM** |
+| **R-33** | ❌ **por executar — autorizado, mas sem meio** | runbook pronto; execução tentada a 31/08 e **bloqueada: não há `SUPABASE_SERVICE_ROLE_KEY` local** e a `anon` é travada pela RLS. **Nada foi criado** | **SIM** | criar a conta no painel (3 cliques) **ou** fornecer a chave localmente | **SIM** |
+| **B-03** | ✅ **FECHADO 31/08** | cadeia medida: **1 salto**, `script.google.com` → `script.googleusercontent.com`, `200` `application/json`. Nenhum host inesperado | **NÃO** | nenhuma | **NÃO** |
 | **R-38** | ⚠️ aceite | proposta concreta escrita | **NÃO** | remover `localhost` **durante** o rollout de E3 | **SIM**, depois |
 | **Bloqueador novo** | — | **nenhum.** A revisão de segurança pré-E3 não encontrou nenhum P1/P2 por registar causado por ligar o transporte protegido | — | — | — |
 
@@ -270,16 +270,21 @@ NÃO INICIADO, o BFF continua `74a1e0b`, o `gh-pages` continua `6e8c0ae`.
 
 # E3 = **GO CONDICIONAL**
 
-**Duas condições, as mesmas de 30/08, e nenhuma exige código novo** — uma precisa de um
-**valor**, a outra de uma **conta**:
+> **Atualizado a 31/08/2026, ao fim da sessão do runbook.** ✅ **B-03 FECHOU** — a cadeia
+> foi medida com a `GAS_URL` fornecida localmente: **um** salto,
+> `script.google.com` → `script.googleusercontent.com`, `200` com `application/json`.
+> Nenhum host inesperado.
 
-1. **B-03** — correr a sonda com a `GAS_URL` e confirmar que a cadeia só toca hosts do
-   Google;
+**Falta UMA condição, e não precisa de código nenhum — precisa de uma conta:**
+
+1. ~~**B-03**~~ ✅ **cumprida a 31/08.**
 2. **R-33** — o smoke de isolamento forte com uma conta de empresa única, com `403` na
-   Overcel e `200` na Finer Teste.
+   Overcel e `200` na Finer Teste. **Autorizado pelo Igor; a execução foi tentada e ficou
+   bloqueada** por não haver `SUPABASE_SERVICE_ROLE_KEY` nesta máquina. **Nada foi criado.**
 
-As outras quatro condições do §E3 estão cumpridas. **A separação temporal cumpre-se desde
-31/08.** Nada do que esta sessão fez aproximou ou adiou E3: o interruptor não foi tocado.
+As outras cinco condições do §E3 estão cumpridas. **A separação temporal cumpre-se desde
+31/08.** Nada do que estas sessões fizeram aproximou ou adiou E3: o interruptor não foi
+tocado.
 
 ---
 

@@ -1,11 +1,58 @@
 # R-33 — smoke de isolamento FORTE com uma conta de empresa única
 
-> **Estado: PREPARADO, POR EXECUTAR.** Nada aqui foi corrido. Nenhum utilizador foi
-> criado, nenhuma membership foi tocada, nenhuma linha foi escrita.
+> # ⛔ EXECUÇÃO TENTADA E BLOQUEADA — 31/08/2026
 >
-> Escrito na sessão autónoma de **31/08/2026**, a partir do esquema versionado e do
-> código do BFF — não de memória de conversa. O passo 1 exige **autorização humana
-> explícita** e é por isso que a sessão parou aqui.
+> **A autorização foi dada. O que falta é um meio, não uma permissão.**
+>
+> O Igor autorizou explicitamente criar a conta de smoke e dar-lhe membership **só** em
+> `finer-teste`. A execução **não avançou** e o motivo é único e concreto:
+>
+> ### Não existe `SUPABASE_SERVICE_ROLE_KEY` acessível a esta sessão
+>
+> Verificado nos dois sítios onde é legítimo procurar, e em mais nenhum:
+>
+> | Onde | Resultado |
+> |---|---|
+> | `finer-one-proxy/.env.local` | existe, mas tem **uma só** linha: `VERCEL_OIDC_TOKEN`. Nenhuma chave do Supabase |
+> | Variáveis de ambiente do processo | **nenhuma** variável `SUPABASE_*` definida |
+>
+> Sem essa chave não há Admin API, e sem Admin API não há como criar um utilizador nem
+> escrever em `public.memberships` (a `anon` key é travada pela RLS, que é precisamente o
+> que ela deve fazer).
+>
+> **Não se procurou o segredo em mais lado nenhum** — nem em históricos de shell, nem em
+> ficheiros de browser, nem em gestores de palavras-passe. Foi instrução explícita e é
+> também a regra da casa.
+>
+> **Nada foi criado, nada foi alterado, nada foi escrito.** O estado remoto está
+> exatamente como estava.
+>
+> ### O que se conseguiu confirmar, mesmo sem a chave
+>
+> - `GET /api/companies/finer-teste/financial-data` **sem token** → **`401`**
+> - `GET /api/companies/overcel/financial-data` **sem token** → **`401`**
+>
+> A guarda está viva nas duas empresas. Falta exercê-la com um token **real sem
+> membership** — que é a metade que só a conta nova consegue provar.
+>
+> ### O que desbloqueia, e são duas opções
+>
+> **Opção A — pela mão do Igor, no painel (recomendada, ~5 min).**
+> Executar os passos 1 a 3 abaixo no painel do Supabase e devolver **só o `user_id`**
+> (UUID — não é credencial) e o `access_token` num ficheiro temporário local, nunca na
+> conversa. A partir daí a sessão corre os testes 1, 2 e 3 sozinha.
+>
+> **Opção B — fornecer a `SUPABASE_SERVICE_ROLE_KEY` localmente.**
+> `$env:SUPABASE_SERVICE_ROLE_KEY = "<valor>"` numa shell, e a sessão faz tudo:
+> cria, testa, lê o `audit_log` e limpa. **Não colar a chave na conversa.**
+>
+> A opção A é a preferível: a `service_role` ignora a RLS por completo e não tem de existir
+> nesta máquina para se criar uma conta que se cria em três cliques.
+>
+> ---
+>
+> **O resto deste documento continua exato e por executar.** Foi escrito a partir do
+> esquema versionado e do código do BFF, não de memória.
 
 ---
 

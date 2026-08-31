@@ -123,7 +123,7 @@ Documentos, Clientes/Fornecedores, Chat, Alertas, rótulos de demonstração,
 
 | ID | Risco | Sev. | Estado | Bloqueia | Mitigação |
 |---|---|---|---|---|---|
-| R-06 | **`redirect: "follow"` nos dois endpoints.** Se o upstream for comprometido, um `302` para `169.254.169.254` seria seguido pelo BFF. | P2 | **aceite** | — | É **obrigatório**: o Apps Script responde `302` de `script.google.com` para `script.googleusercontent.com`, e `redirect: "error"` partiria produção. Mitigado por o destino inicial vir só de `process.env` (nenhum input do cliente lhe toca — testado) e por o corpo ter de passar `corpoEhJsonDoContrato`. **Fechar com uma lista de hosts permitidos após confirmar a cadeia real de redirects do GAS.** ⚠️ **30/08:** a medição foi tentada e **não foi possível** Ver B-03. Continua aceite. ⚠️ **31/08: o comportamento passou de suposto a MEDIDO** — `test/upstream-redirects.test.mjs` prova, com o `fetch` real contra servidores locais, que um `302` para outro host **É seguido** e o corpo de lá é servido como o documento financeiro. Continua P2 aceite; ver a sessão de 31/08 e `B03_GAS_REDIRECT_RUNBOOK.md`. |
+| R-06 | **`redirect: "follow"` nos dois endpoints.** Se o upstream for comprometido, um `302` para `169.254.169.254` seria seguido pelo BFF. | P2 | **fechado (evidência) — endurecimento por aplicar** · 31/08/2026 | — | É **obrigatório**: o Apps Script responde `302` de `script.google.com` para `script.googleusercontent.com`, e `redirect: "error"` partiria produção. Mitigado por o destino inicial vir só de `process.env` (nenhum input do cliente lhe toca — testado) e por o corpo ter de passar `corpoEhJsonDoContrato`. **Fechar com uma lista de hosts permitidos após confirmar a cadeia real de redirects do GAS.** ⚠️ **30/08:** a medição foi tentada e **não foi possível** Ver B-03. Continua aceite. ⚠️ **31/08: o comportamento passou de suposto a MEDIDO** — `test/upstream-redirects.test.mjs` prova, com o `fetch` real contra servidores locais, que um `302` para outro host **É seguido** e o corpo de lá é servido como o documento financeiro. ✅ **31/08: FECHADO.** A cadeia real foi medida com a `GAS_URL` fornecida localmente e é exatamente a esperada: **um** salto, `script.google.com` → `script.googleusercontent.com`, `200` final com `application/json`. **A lista de hosts permitidos é conhecida e tem dois elementos.** O desconhecido que mantinha este risco aberto desapareceu. ⚠️ **Fica um endurecimento por aplicar, e diz-se que fica:** o código continua com `redirect: "follow"` cego, e `test/upstream-redirects.test.mjs` prova que um `302` para outro host seria seguido. Trocar por seguir com verificação de host contra esses dois nomes é uma alteração pequena, **de código do BFF**, e por isso não se fez nesta sessão. Quando for feita, o teste de caracterização `SEGUE PARA OUTRO HOST` passa a falhar — é esse o sinal de que o endurecimento entrou. |
 | R-07 | **`{"error":true}` do Apps Script chega ao BFF com HTTP 200 e sai como 200.** `corpoEhJsonDoContrato` só prova "é um objeto". | P2 | **aceite por escrito** — 30/08/2026 | **já não bloqueia E3** | A aceitação está justificada por extenso na secção *"R-07 — aceitação por escrito"*, mais abaixo. Resumo: a defesa não é de uma camada só (são quatro consumidores, todos verificados), o Apps Script **não consegue** emitir outro estado, e o endurecimento — que continua a ser a coisa certa a fazer — obrigaria a re-promover o BFF na véspera de E3. **Patch redigido e por autorizar; a fazer depois de E3 estabilizar.** |
 | R-08 | **`{ok:false, error:{...}}` passaria a guarda do frontend**, porque `res.error === true` é falso quando `error` é um objeto. | P3 | aberto | E3 | Hoje **não é alcançável**: essa forma é produzida por `erroAjuste_`, que só serve o `doPost`, e o BFF só faz `GET`. Fica registado porque a distância entre "não alcançável" e "alcançável" é uma rota nova. |
 | R-09 | **`cobertura.confirmada` não é reposta na troca de empresa.** | P3 | aberto | E4 | Sem impacto visível: o campo é escrito e nunca lido. Ver `CACHE_E_ESTADO_INVENTARIO.md` §C1. |
@@ -274,7 +274,7 @@ não fazer uma verificação não é o mesmo que passá-la.
 |---|---|---|
 | B-01 | Smoke test do Preview **com token válido**: `200` com membership, `403` sem, e o isolamento entre duas empresas | E1 | **verificado** 29/08 com conta de smoke dedicada |
 | B-02 | Que a cadeia `Apps Script 401 → BFF 502 → sem logout` se comporta assim **em rede real**, e não só nos duplos | E1 | **verificado** 29/08 — upstream 401 real → BFF 502 |
-| B-03 | A cadeia real de redirects do Apps Script (quantos saltos, para que hosts) — fecha R-06 | E1 | **continua ABERTO** — tentado a 30/08 e **impossível com o acesso desta sessão**. Ver a nota abaixo. **31/08: tudo o que NÃO exige a `GAS_URL` está feito** — sonda escrita e verificada ponta a ponta (`scripts/gas-redirect-probe.mjs`) e a lógica de redirects medida contra servidor local. Falta **só o valor**. Ver `B03_GAS_REDIRECT_RUNBOOK.md`. |
+| B-03 | A cadeia real de redirects do Apps Script (quantos saltos, para que hosts) — fecha R-06 | E1 | ✅ **FECHADO 31/08/2026.** *(o texto abaixo é o registo de como esteve aberto)* **continua ABERTO** — tentado a 30/08 e **impossível com o acesso desta sessão**. Ver a nota abaixo. **31/08: tudo o que NÃO exige a `GAS_URL` está feito** — sonda escrita e verificada ponta a ponta (`scripts/gas-redirect-probe.mjs`) e a lógica de redirects medida contra servidor local. ✅ **31/08: FECHADO.** A `GAS_URL` foi fornecida localmente, a sonda correu, e a cadeia é **um salto**: `script.google.com` → `script.googleusercontent.com`, `200` final, `application/json`. **B-03 deixa de bloquear E3.** Ver `B03_GAS_REDIRECT_RUNBOOK.md` §resultado. |
 | B-04 | Equivalência entre o Preview e a produção para os quatro recursos do caminho legado | E1 | **fechado por OBSOLESCÊNCIA** — 30/08. Ver a nota abaixo. |
 | B-05 | Que `ALLOWED_ORIGINS` está configurada no Vercel **antes** de publicar (⚠️ o legado passou de aberto a fechado por omissão) | E1 | **verificado** 29/08 |
 | B-06 | Estado real das variáveis de ambiente de produção e da Deployment Protection | E1 | **verificado** 29/08 |
@@ -773,3 +773,97 @@ sobrevivem — mas quem o apagar durante E3 remove uma defesa contra R-18/R-19 n
 em que muda o transporte, que é o pior dia possível para o fazer. **Não apagar
 `companyDataScope.js` no intervalo de E3.** Se for para remover, é depois de E3 estabilizar
 e com os testes de R-18 a correr antes e depois.
+
+---
+
+## Sessão do runbook R-33 — 31/08/2026 (segunda sessão do dia)
+
+Mandato: fechar B-03 com a evidência fornecida e **executar apenas** o runbook do R-33.
+Nada mais foi tocado. **E3 continua NÃO INICIADO.**
+
+### ✅ B-03 — FECHADO
+
+A `GAS_URL` foi fornecida **localmente** pelo Igor e a sonda
+(`finer-one-proxy/scripts/gas-redirect-probe.mjs`) mediu a cadeia real:
+
+```
+salto 0  host inicial: script.google.com
+salto 1  302 -> script.googleusercontent.com
+salto 2  200 (final)
+
+redirects seguidos : 1
+host final         : script.googleusercontent.com
+hosts distintos    : script.google.com, script.googleusercontent.com
+estado final       : 200
+content-type final : application/json
+```
+
+**É exatamente a cadeia que se supunha — e a diferença entre supor e medir é a razão de
+B-03 ter existido.** Um salto, dois hosts, ambos do Google, `200` com `application/json`
+(se o deployment tivesse perdido autorização viria `text/html`).
+
+**A `GAS_URL` não foi impressa, não foi guardada e não entrou em commit nenhum.** A sonda
+foi escrita para que não fosse preciso.
+
+**B-03 deixa de bloquear E3.**
+
+### R-06 — evidência completa, endurecimento por aplicar
+
+A lista de hosts permitidos que faltava é conhecida e tem dois elementos:
+
+```
+script.google.com
+script.googleusercontent.com
+```
+
+**O desconhecido que mantinha R-06 aberto desapareceu.** O que fica é uma alteração de
+código, pequena e localizada, em dois ficheiros do BFF: trocar `redirect: "follow"` cego
+por seguir com verificação de host contra esses dois nomes.
+
+**Não se fez nesta sessão** porque o mandato era correr o runbook do R-33, e código do BFF
+está fora dele. Quando for feita, `test/upstream-redirects.test.mjs` avisa sozinho: o teste
+de caracterização `SEGUE PARA OUTRO HOST` passa a falhar, **e é esse o sinal de que
+entrou**.
+
+Registar isto como "fechado" sem a mitigação seria fazer o registo mentir, e por isso o
+estado é **fechado (evidência) — endurecimento por aplicar**.
+
+### ⛔ R-33 — autorizado, tentado, bloqueado. Nada foi criado
+
+A autorização foi explícita e completa. **O que faltou foi um meio, não uma permissão.**
+
+**Não existe `SUPABASE_SERVICE_ROLE_KEY` acessível a esta sessão:**
+
+| Onde se procurou (e só aqui) | Resultado |
+|---|---|
+| `finer-one-proxy/.env.local` | existe, mas tem **uma só** linha — `VERCEL_OIDC_TOKEN`. Nenhuma chave do Supabase |
+| Variáveis de ambiente do processo | **nenhuma** variável `SUPABASE_*` definida |
+
+Sem ela não há Admin API; e sem Admin API não há como criar um utilizador nem escrever em
+`public.memberships`. A chave `anon` é travada pela RLS — que é exatamente o que ela deve
+fazer, e é bom sinal que assim seja.
+
+**Não se procurou o segredo em mais lado nenhum** — nem em históricos de shell, nem em
+ficheiros de browser, nem em gestores de palavras-passe.
+
+**Estado remoto: intacto.** Nenhum utilizador criado, nenhuma membership escrita, nenhuma
+linha alterada. A Overcel e a Finer Teste estão como estavam. Nenhuma configuração remota
+foi tocada.
+
+**O que se conseguiu confirmar sem a chave** — as duas metades da pré-condição:
+
+| Pedido | Resultado |
+|---|---|
+| `GET /api/companies/finer-teste/financial-data` **sem token** | **`401`** |
+| `GET /api/companies/overcel/financial-data` **sem token** | **`401`** |
+
+A guarda está viva nas duas empresas. **Falta exercê-la com um token real sem
+membership** — e essa é, por construção, a única metade que a conta nova consegue provar.
+
+**R-33 NÃO pode ser fechado**, e não é: o `200`/`403` e o `audit_log` não foram provados.
+Continua a bloquear E3.
+
+**O que desbloqueia** está em `R33_SINGLE_COMPANY_SMOKE.md`, no cabeçalho: ou a conta é
+criada no painel (três cliques) e chega o `user_id`, ou a `service_role` é fornecida
+localmente numa shell. A primeira é preferível — a `service_role` ignora a RLS por completo
+e não tem de existir nesta máquina para se criar uma conta que se cria em três cliques.

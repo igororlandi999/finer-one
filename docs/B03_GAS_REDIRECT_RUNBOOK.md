@@ -1,11 +1,67 @@
 # B-03 / R-06 — a cadeia de redirects do Apps Script
 
-> **Estado: tudo o que NÃO exige a `GAS_URL` está feito e medido.** O que falta é um
-> valor, e só isso. Escrito na sessão autónoma de **31/08/2026**.
+> # ✅ B-03 ESTÁ FECHADO — 31/08/2026
 >
-> **Não se tentou obter a `GAS_URL` por meios indiretos, e não se deve.** Ela está marcada
-> como *Sensitive* no Vercel; `vercel env pull --environment=production` devolve-a como
-> `[SENSITIVE]`, e é assim que tem de ser.
+> A `GAS_URL` foi fornecida **localmente** pelo Igor, a sonda correu, e a cadeia foi
+> medida. **B-03 deixa de bloquear E3.** O resultado está logo abaixo.
+>
+> O resto do documento fica como está: descreve **como** se mediu e continua a ser o
+> procedimento a repetir se o deployment do Apps Script alguma vez mudar.
+>
+> **A `GAS_URL` não foi impressa, não foi guardada e não entrou em commit nenhum.**
+
+---
+
+## ✅ O resultado — 31/08/2026
+
+Medido com a `GAS_URL` real, fornecida localmente e usada só em memória.
+
+```
+  salto 0  host inicial: script.google.com
+  salto 1  302 -> script.googleusercontent.com
+  salto 2  200 (final)
+
+  ── resumo ─────────────────────────────────────
+  redirects seguidos : 1
+  host final         : script.googleusercontent.com
+  hosts distintos    : script.google.com, script.googleusercontent.com
+  estado final       : 200
+  content-type final : application/json
+```
+
+### O que isto responde
+
+| Pergunta do B-03 | Resposta |
+|---|---|
+| Quantos saltos? | **Um.** |
+| Para que hosts? | **`script.google.com` → `script.googleusercontent.com`** |
+| Algum host inesperado? | **Nenhum.** Os dois são do Google e são exatamente os que a documentação do Apps Script descreve |
+| O deployment está autorizado? | **Sim.** `200` final com `application/json` — se tivesse perdido a autorização viria `text/html`, a página de login |
+
+**É exatamente a cadeia que se supunha, e agora é medida.** A diferença entre as duas
+coisas é a razão de B-03 ter existido.
+
+### A lista de hosts permitidos, que é o que R-06 precisava
+
+```
+script.google.com
+script.googleusercontent.com
+```
+
+### O que continua por fazer — e é código, não medição
+
+**R-06 fica com a evidência completa e o endurecimento por aplicar.** O BFF continua com
+`redirect: "follow"` cego, e `test/upstream-redirects.test.mjs` prova que um `302` para
+outro host seria seguido e o corpo de lá servido como o documento financeiro.
+
+Trocar o `follow` cego por seguir com verificação de host contra os dois nomes acima é uma
+alteração **pequena e localizada**, em dois ficheiros
+(`api/companies/[companyId]/financial-data.js` e `api/pedidos/vendas.js`). Não se fez nesta
+sessão porque é código do BFF e a sessão estava mandatada para correr o runbook do R-33.
+
+**Quando for feita, o teste `SEGUE PARA OUTRO HOST` passa a falhar — e é suposto.** É esse
+o sinal de que o endurecimento entrou. Trocar a expectativa por `502` e apagar o aviso do
+cabeçalho do teste.
 
 ---
 

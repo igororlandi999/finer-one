@@ -221,7 +221,7 @@ dia.**
 > |---|---|---|
 > | 1 | E2 estável, e **não no mesmo dia** de E2 | ⏳ E2 publicado a 30/08 — logo, **não antes de 31/08**. Cumpre-se com o calendário. |
 > | 2 | **R-07 fechado ou aceite por escrito** | ✅ **ACEITE POR ESCRITO** — `RISK_REGISTER.md` §*R-07 — aceitação por escrito*. Quatro consumidores defendidos, e o Apps Script não consegue emitir outro estado. |
-> | 3 | **B-03** — cadeia real de redirects do Apps Script | ❌ **POR VERIFICAR.** Tentado a 30/08: `GAS_URL` é variável **Sensitive** no Vercel e não é exportável, e não há cópia local. **É a única condição que precisa de um dado que ninguém tem à mão.** |
+> | 3 | **B-03** — cadeia real de redirects do Apps Script | ✅ **CUMPRIDA — 31/08/2026.** A `GAS_URL` foi fornecida localmente e a sonda mediu a cadeia: **um** salto, `script.google.com` → `script.googleusercontent.com`, `200` final com `application/json`. Nenhum host inesperado. Fecha B-03 **e** dá a lista de hosts que fecha R-06. |
 > | 4 | **B-04** — equivalência Preview ↔ Produção nos quatro recursos | ✅ **FECHADO por obsolescência.** `74a1e0b` foi promovido: Preview e Production são o mesmo commit. A baseline de Production dos quatro recursos está registada e é o que se compara **depois** de E3. |
 > | 5 | **Isolamento forte entre duas empresas reais** com uma conta de **uma só** empresa | ❌ **POR EXECUTAR.** A estratégia está desenhada e é aditiva — `RISK_REGISTER.md` §*R-33 — a saída menos invasiva*. Falta criar a conta e correr o teste. |
 > | 6 | **R-32 — token numa origem partilhada** | ✅ **ACEITE, condicional.** Provado em código; **não bloqueia E3** (E3 não muda onde o token vive) e **bloqueia E4**. A decisão de domínio próprio tem de ter dono e data antes de E4. |
@@ -229,6 +229,10 @@ dia.**
 > A condição 5 não estava neste plano e foi acrescentada a 30/08: a validação de E2
 > mostrou que a configuração de contas actual **não consegue** demonstrar isolamento
 > forte. A condição 6 foi acrescentada na sessão de preparação, e nasce aceite.
+>
+> ✅ **Atualizado a 31/08/2026: a condição 3 caiu.** Falta **uma** condição, a **5** (R-33) — e
+> essa não precisa de código nenhum, precisa de uma **conta**. Ver o veredito no fim desta
+> caixa e a matriz em `PROXIMA_SESSAO_DESKTOP.md`.
 >
 > **Veredito a 30/08/2026: E3 = NO-GO hoje.** Faltam **duas** condições, as 3 e 5 — e
 > nenhuma delas é opinião: uma precisa de um valor (`GAS_URL`), a outra de uma conta.
