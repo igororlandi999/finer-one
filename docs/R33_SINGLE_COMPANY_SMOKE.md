@@ -35,21 +35,29 @@
 > A guarda está viva nas duas empresas. Falta exercê-la com um token **real sem
 > membership** — que é a metade que só a conta nova consegue provar.
 >
-> ### O que desbloqueia, e são duas opções
+> ### Ponto da situação — 31/08, depois da conta criada
 >
-> **Opção A — pela mão do Igor, no painel (recomendada, ~5 min).**
-> Executar os passos 1 a 3 abaixo no painel do Supabase e devolver **só o `user_id`**
-> (UUID — não é credencial) e o `access_token` num ficheiro temporário local, nunca na
-> conversa. A partir daí a sessão corre os testes 1, 2 e 3 sozinha.
+> A conta **foi criada** pelo Igor no Supabase. Faltam duas coisas, e ambas são dele:
 >
-> **Opção B — fornecer a `SUPABASE_SERVICE_ROLE_KEY` localmente.**
-> `$env:SUPABASE_SERVICE_ROLE_KEY = "<valor>"` numa shell, e a sessão faz tudo:
-> cria, testa, lê o `audit_log` e limpa. **Não colar a chave na conversa.**
+> | # | O que falta | Porquê não posso fazer eu |
+> |---|---|---|
+> | 1 | **O `user_id` verdadeiro** | a mensagem trouxe o texto literal `COLOQUE_AQUI_O_UUID` — o placeholder não foi substituído. Não se inventa um UUID |
+> | 2 | **Executar o `insert` da membership** | `authenticated` só tem `select` em `memberships` (`002_grants.sql:40`). Escrever exige `service_role`, que não existe nesta máquina, ou o SQL Editor |
 >
-> A opção A é a preferível: a `service_role` ignora a RLS por completo e não tem de existir
-> nesta máquina para se criar uma conta que se cria em três cliques.
+> **Medido ao vivo a 31/08**, com a chave publicável:
 >
-> ---
+> ```
+> GET /rest/v1/memberships  (anon)  ->  401  code 42501  permission denied
+> GET /rest/v1/  (OpenAPI)          ->  401  "Secret API key required"
+> ```
+>
+> Ou seja: o papel `anon` não tem sequer `select`. **Bate certo, à letra, com
+> `002_grants.sql`** — que não dá nada ao `anon`. A defesa em profundidade está confirmada
+> por medição, e não só pelo SQL versionado.
+>
+> Como o esquema real **não é legível** com a chave publicável, tudo o que se segue vem do
+> **SQL versionado** (`001_saas_foundation.sql`, `002_grants.sql`), que foi verificado
+> contra a base de dados a 29/08 (B-07). Está dito porque a diferença importa.
 >
 > **O resto deste documento continua exato e por executar.** Foi escrito a partir do
 > esquema versionado e do código do BFF, não de memória.
@@ -240,17 +248,40 @@ limit 10;
 
 O que tem de estar lá — a forma vem de `protect.js:287-303`:
 
+> ⚠️ **CORRIGIDO a 31/08.** A versão anterior desta tabela dizia que `company_id` seria
+> `overcel`. **É falso, e vale a pena perceber porquê.** `negar()` devolve
+> `companyId: null` (`authorizationCore.js:274`) — o `companyId` da decisão é o da
+> **membership**, e numa recusa por ausência de membership não há membership nenhuma de
+> onde o tirar. `protect.js:288` escreve `decisao.companyId ?? null`. Logo:
+>
+> **`company_id` da linha é `NULL`. O `overcel` vive só em `metadata.requestedCompanyId`.**
+>
+> Não é um defeito — é a distinção entre "a empresa a que este registo pertence" e "a
+> empresa que foi pedida". Numa recusa, só a segunda existe.
+
 | Verificação | Esperado |
 |---|---|
 | Número de linhas | **exatamente uma** para esta experiência |
 | `action` | `access.denied` |
 | `actor_user_id` | o `user_id` da conta nova |
-| `company_id` | `overcel` |
-| `metadata.requestedCompanyId` | `overcel` |
+| `company_id` | **`NULL`** — ver a nota acima |
+| `month_key` | `NULL` |
+| `metadata.requestedCompanyId` | **`overcel`** — é aqui que a empresa pedida aparece |
 | `metadata.capability` | `read_financial_data` |
-| `metadata.decision` / `.reason` | preenchidos — é onde vive o motivo que o corpo da resposta **não** diz |
+| `metadata.decision` | `forbidden` |
+| `metadata.reason` | `sem_membership` — e **não** `membership_insuficiente`, que seria papel a menos numa empresa a que se pertence |
 | **Sem segredo** | nenhum token, nenhuma `GAS_URL`, nenhum cabeçalho |
 | **Sem conteúdo financeiro** | nenhum valor, nenhum número da Overcel |
+
+> ⛔ **E uma consequência operacional do `company_id = NULL`:** a política
+> `audit_select_owner` (`001_saas_foundation.sql:303`) exige
+> `m.company_id = audit_log.company_id` com `role = 'owner'`. Com `company_id` a `NULL`, a
+> comparação nunca é verdadeira. **Nenhum utilizador autenticado consegue ler esta linha —
+> nem o Igor, nem a conta de smoke.** Só a `service_role` a vê.
+>
+> Portanto o TESTE 3 **tem** de ser corrido no **SQL Editor** do painel, ou com a
+> `service_role` fornecida localmente. Não há terceira via, e isto não é uma limitação
+> desta sessão: é assim para toda a gente.
 
 > **O acesso com `200` à Finer Teste NÃO gera linha.** `protect.js` só audita o caminho da
 > **recusa**. Duas linhas aqui significa que algo foi pedido duas vezes — verificar antes
