@@ -64,6 +64,9 @@ export const TRANSPORTE = {
 export const TRANSPORTE_MOTIVO = {
   SEM_BACKEND: "sem_backend",
   AUTENTICACAO_DESLIGADA: "autenticacao_desligada",
+  /** O modo de autenticação ainda NÃO foi resolvido. Não é o mesmo que estar desligado
+   *  — ver o bloco "ainda não sei" em `resolveDataTransport`. */
+  AUTENTICACAO_POR_RESOLVER: "autenticacao_por_resolver",
   SEM_EMPRESA_VALIDA: "sem_empresa_valida",
   SEM_TOKEN: "sem_token",
   PROTEGIDO_NAO_ATIVADO: "protegido_nao_ativado",
@@ -193,6 +196,9 @@ export function protectedTransportRequested(env) {
 export function resolveDataTransport({
   env,
   requiresAuth,
+  /** A autenticação já se pronunciou? `false` significa "ainda não sei", e NÃO "não".
+   *  Omitir mantém o contrato antigo (assume-se resolvido) — ver o bloco abaixo. */
+  authResolved = true,
   companyId,
   getAccessToken,
   onUnauthorized,
@@ -204,6 +210,38 @@ export function resolveDataTransport({
   if (!protectedTransportRequested(env)) {
     return { transport: createLegacyDataTransport(), motivo: TRANSPORTE_MOTIVO.PROTEGIDO_NAO_ATIVADO };
   }
+
+  /* ── "AINDA NÃO SEI" NÃO É "NÃO" ────────────────────────────────────────────────
+   * `AuthContext` arranca com `mode = null` e resolve-o num efeito assíncrono. Durante
+   * essa janela `modeRequiresAuthentication(null)` é `false` — e a guarda seguinte lia
+   * esse `false` como "a autenticação está desligada", devolvendo o LEGADO ANÓNIMO.
+   *
+   * Medido em browser real no pré-deploy de E3: quatro leituras dos números REAIS da
+   * Overcel a cada carregamento, antes de se saber quem está ao teclado. Também para
+   * quem não é membro da Overcel, e também para quem não tem sessão nenhuma.
+   *
+   * São dois estados diferentes e só um deles autoriza o anónimo:
+   *
+   *   A. a autenticação está DESLIGADA por configuração  -> legado, por decisão
+   *   B. o modo ainda NÃO FOI RESOLVIDO                  -> não há veredito nenhum
+   *
+   * Fundir os dois é o mesmo erro que este projeto já nomeou noutros eixos: um
+   * `unavailable` nunca vira zero, e "sessão em LOADING não concede nada — ausência de
+   * veredito não é autorização". Quem PEDIU leituras autenticadas não pode receber, em
+   * silêncio e antes de qualquer verificação, uma leitura que não é autenticada.
+   *
+   * Esta guarda vem DEPOIS de `protectedTransportRequested`, e a ordem é o contrato:
+   * com o interruptor desligado nada muda face a E2.1, esteja o modo resolvido ou não.
+   *
+   * O default é `true` para não mudar o significado de nenhuma chamada existente. Quem
+   * o passa é `FinerDataContext`, e há um teste que o obriga a passá-lo. */
+  if (authResolved !== true) {
+    return {
+      transport: createNullDataTransport(TRANSPORTE_MOTIVO.AUTENTICACAO_POR_RESOLVER),
+      motivo: TRANSPORTE_MOTIVO.AUTENTICACAO_POR_RESOLVER,
+    };
+  }
+
   if (requiresAuth !== true) {
     return { transport: createLegacyDataTransport(), motivo: TRANSPORTE_MOTIVO.AUTENTICACAO_DESLIGADA };
   }

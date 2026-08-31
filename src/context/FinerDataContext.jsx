@@ -76,7 +76,7 @@ export function FinerDataProvider({ children, env }) {
 
   /* A sessão e a empresa ativa. Lidas AQUI e passadas para baixo — nenhuma camada
    * abaixo desta as vai buscar sozinha. */
-  const { requiresAuth, getAccessToken, signOut, status, user } = useAuth();
+  const { requiresAuth, authResolved, getAccessToken, signOut, status, user } = useAuth();
   const { company } = useCompany();
   const companyId = company?.id ?? null;
 
@@ -109,6 +109,9 @@ export function FinerDataProvider({ children, env }) {
     const r = resolveDataTransport({
       env: env ?? import.meta.env,
       requiresAuth,
+      /* Enquanto isto for `false`, o modo ainda não se pronunciou e NENHUMA leitura
+       * anónima pode sair. Sem ele, a janela de arranque servia o legado. */
+      authResolved,
       companyId,
       getAccessToken,
       /* 401 durante o uso: a sessão morreu do lado do servidor. Cai-se para fora em vez
@@ -116,7 +119,10 @@ export function FinerDataProvider({ children, env }) {
       onUnauthorized: () => { try { signOut(); } catch { /* a sessão local já caiu */ } },
     });
     return { transport: r.transport, motivoTransporte: r.motivo };
-  }, [env, requiresAuth, companyId, getAccessToken, signOut]);
+    /* `authResolved` é dependência e não decoração: é a passagem de "ainda não sei"
+     * para o veredito que TEM de recalcular o transporte. Sem ela, a janela de arranque
+     * fechava e nunca mais reabria — a aplicação ficava sem ler nada. */
+  }, [env, requiresAuth, authResolved, companyId, getAccessToken, signOut]);
 
   /* ════════════════════════════════════════════════════════════════════════════════
    * A CORRIDA ENTRE DUAS EMPRESAS

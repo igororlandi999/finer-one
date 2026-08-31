@@ -200,6 +200,16 @@ export function AuthProvider({ children, env, adapter: adapterInjetado, mode: mo
 
     mode,
     modeReason,
+    /* ── JÁ SE PRONUNCIOU? ─────────────────────────────────────────────────────────
+     * `mode` é `null` entre o primeiro render e o fim do efeito de arranque. Nessa
+     * janela, `requiresAuth` é `false` — mas por ignorância, não por decisão. Quem
+     * consome tem de conseguir distinguir as duas coisas, e `requiresAuth` sozinho não
+     * o permite: é um booleano com três significados.
+     *
+     * Sem isto, `resolveDataTransport` lia a janela de arranque como "autenticação
+     * desligada" e servia o transporte ANÓNIMO. Ver o bloco "ainda não sei não é não"
+     * em `services/dataTransport.js`. */
+    authResolved: mode !== null,
     /* `true` só quando há um provider a sério a decidir. É isto que o gate de rotas lê,
      * e é isto que mantém o modo de desenvolvimento atual a funcionar (FASE 19). */
     requiresAuth: modeRequiresAuthentication(mode),
