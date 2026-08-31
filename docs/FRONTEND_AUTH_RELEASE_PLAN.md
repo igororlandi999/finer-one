@@ -230,6 +230,26 @@ dia.**
 > mostrou que a configuração de contas actual **não consegue** demonstrar isolamento
 > forte. A condição 6 foi acrescentada na sessão de preparação, e nasce aceite.
 >
+> # ⛔ 31/08/2026 (fim do dia) — TENTATIVA DE E3 ABORTADA NO PRÉ-DEPLOY
+>
+> **E3 NÃO foi ligado e nada foi publicado.** A sessão de rollout parou na validação: o
+> artefacto E3, servido em `localhost` antes de publicar, fazia **4 leituras anónimas ao
+> legado** a cada carregamento — os números reais da Overcel, antes de a autenticação
+> resolver, e também para quem não tem sessão nenhuma.
+>
+> **Era um P1, e nunca chegou a produção.** Causa, patch, testes e mutation check em
+> `RISK_REGISTER.md` §*R-39* e §*Sessão de rollout de E3 — 31/08/2026*.
+>
+> **Corrigido.** O rollout de E3 recomeça na Fase 3, com o código corrigido. As seis
+> condições abaixo continuam cumpridas — o que falhou não era uma condição, era o próprio
+> artefacto.
+>
+> ⚠️ **Mudança permanente ao procedimento de E3:** servir o `dist` em `localhost` e medir
+> a rede num browser real **ANTES** de `npm run deploy`. O plano mandava publicar primeiro
+> e medir depois; se se tivesse seguido essa ordem, o P1 tinha ido para o ar.
+
+---
+
 > # ✅ 31/08/2026 — AS SEIS CONDIÇÕES ESTÃO CUMPRIDAS
 >
 > As duas que faltavam caíram no mesmo dia: **B-03** (cadeia de redirects medida) e

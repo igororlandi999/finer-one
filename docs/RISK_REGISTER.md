@@ -262,6 +262,7 @@ por decisão: a sessão era de consolidação, não de correção.
 | R-36 | **O SQL do `BFF_POST_PRODUCTION_SMOKE.md` refere colunas do `audit_log` que já não correspondem ao esquema.** | P3 | **aberto** | — | Não corrigido nesta sessão por decisão explícita — a sessão não abria trabalho novo e o ficheiro pertence ao fluxo do BFF, que estava congelado. **Consequência prática:** quem correr o smoke tal como está escrito recebe um erro de SQL, não um resultado errado — falha ruidosamente, que é o modo de falhar aceitável. Corrigir na próxima sessão que toque no BFF. |
 | R-37 | **A RLS de escrita não foi testada em Production.** | P3 | **aceite (decisão deliberada)** | E5 | Não é um esquecimento. As escritas estão desligadas (`COVERAGE_WRITES_ENABLED` off, `coverageWriteClient.js` sem importador fora do próprio teste), portanto não há caminho pelo produto que exercite a RLS de escrita. Testá-la exigiria ligar a escrita em Production para a testar — que é precisamente o que não se quer fazer. **Fica para quando as escritas forem ligadas**, e faz parte dessa decisão, não desta. |
 | R-38 | **`ALLOWED_ORIGINS` de Production inclui `http://localhost:5173`.** Lido a 30/08: `https://igororlandi999.github.io,http://localhost:5173`. Uma página servida em `localhost:5173` na máquina de alguém recebe cabeçalho de CORS do BFF — incluindo do endpoint **legado anónimo**, que serve os números reais da Overcel. | P3 | **aceite** | — | Não acrescenta superfície ao que já existe: o endpoint legado é anónimo por construção (R-14) e responde a qualquer `curl` sem Origin nenhuma — o CORS só restringe browsers. E chegar a `localhost:5173` da vítima exige já estar a correr código na máquina dela. Fica registado por duas razões: é uma origem de **desenvolvimento** numa variável de **produção**, e **E3 é o momento certo para a remover** — depois de E3 o legado deixa de servir a aplicação, e a lista devia passar a ter uma entrada só. **31/08: a proposta concreta está escrita** — valor por ambiente, mudança mínima, impacto nos testes locais, rollback e verificação pelo fio. Ver a sessão de 31/08. |
+| R-39 | **A janela de arranque caía no legado ANÓNIMO com E3 ligado.** `AuthContext` arranca com `mode = null` e resolve-o num efeito assíncrono; nessa janela `modeRequiresAuthentication(null)` é `false`, e `resolveDataTransport` lia esse `false` como *"a autenticação está desligada"* — devolvendo o transporte anónimo. Medido em browser real: **4 leituras dos números reais da Overcel a cada carregamento**, antes de se saber quem está ao teclado, e também para quem não tem sessão nenhuma. | **P1** | **fechado** — 31/08/2026, **antes de qualquer publicação** | ~~E3~~ | **Encontrado no pré-deploy de E3 e nunca chegou a produção.** A causa é semântica: `requiresAuth: false` fundia *"está desligada"* com *"ainda não sei"*. Fechado com `authResolved`, passado por `AuthContext` e lido em `resolveDataTransport` **antes** da guarda de `requiresAuth` e **depois** da do interruptor — com E3 desligado nada muda face a E2.1. Defendido por `transporteNaJanelaDeArranque.test.jsx` (12 testes), que falhava antes do patch e cujas duas mutações morrem. Ver a sessão de 31/08 mais abaixo. |
 
 ---
 
@@ -917,3 +918,124 @@ qualquer forma, porque não há FK para `auth.users` (`001_saas_foundation.sql:1
 
 **Estado do sistema:** nenhuma membership existente alterada · `overcel` e `finer-teste`
 intactas · BFF `74a1e0b` intacto, sem deploy · **E3 continua OFF**.
+
+
+---
+
+## Sessão de rollout de E3 — 31/08/2026 · **abortada no pré-deploy, e ainda bem**
+
+**E3 NÃO foi ligado. Nada foi publicado.** A sessão parou na validação e o que saiu dela
+foi um **P1** que teria ido para produção.
+
+### O que aconteceu
+
+A sessão seguiu o plano até à Fase 6 (publicar). Antes de publicar, o artefacto E3 foi
+servido em `localhost:5173` e aberto num browser real. Cada carregamento produziu, de
+forma determinística:
+
+```
+GET /api/pedidos/vendas                     <- LEGADO ANÓNIMO
+GET /api/pedidos/vendas?recurso=despesas    <- LEGADO ANÓNIMO
+GET /api/pedidos/vendas?recurso=recebiveis  <- LEGADO ANÓNIMO
+GET /api/pedidos/vendas?recurso=ajustes…    <- LEGADO ANÓNIMO
+GET /rest/v1/memberships                       (a autenticação resolve aqui)
+GET /api/companies/overcel/financial-data   <- protegido, já tarde
+```
+
+**protected = 4 · legacy = 4.** A Fase 9 exige `legacy = 0`. Foi condição de paragem, e a
+publicação não se fez.
+
+### A causa — semântica, não descuido
+
+`AuthContext.jsx:58` arranca com `mode = null`, resolvido num efeito assíncrono.
+`modeRequiresAuthentication(null)` é `false` (`authMode.js:167`). Em
+`resolveDataTransport`, com o interruptor ligado e `requiresAuth !== true`, caía-se em
+`AUTENTICACAO_DESLIGADA` → **legado anónimo**.
+
+O `false` significava duas coisas incompatíveis:
+
+| | |
+|---|---|
+| **A** · a autenticação está **desligada por configuração** | o legado é a resposta certa, e é E2.1 |
+| **B** · o modo **ainda não foi resolvido** | não há veredito nenhum — e um transporte anónimo não pode ser o default |
+
+Fundir *"não"* com *"ainda não sei"* é o erro que este projeto já nomeou noutros eixos:
+`unavailable` nunca vira zero, e *"sessão em LOADING não concede nada — ausência de
+veredito não é autorização"*. Faltava aqui.
+
+**O comentário do próprio ficheiro já descrevia este perigo** — mas fechara só o caso do
+`companyId` nulo (→ NENHUM). O caso do `mode` nulo passava antes, na guarda anterior.
+
+### Porque era P1
+
+O legado é **anónimo**: serve os números reais da Overcel sem token e sem membership. Com
+E3 ligado, isso acontecia **a cada carregamento**, para toda a gente — incluindo quem não
+é membro da Overcel, e incluindo **quem não tem sessão nenhuma**. É a família do R-18, na
+camada de transporte, e contradizia a promessa de E3.
+
+### Porque os testes não a apanharam
+
+Todo o harness de `transporteProtegido.semLegado.test.js` passa `requiresAuth: true`. **A
+janela em que ele ainda não é `true` nunca era exercida** — e é a única em que o defeito
+existe. Lacuna real de cobertura, não descuido dos testes existentes.
+
+### O patch
+
+Três ficheiros, 56 linhas (quase todas comentário):
+
+- `services/dataTransport.js` — aceita `authResolved` (default `true`, para não mudar o
+  significado de nenhuma chamada existente) e, com o interruptor ligado e o modo por
+  resolver, devolve **NENHUM** com motivo `autenticacao_por_resolver`. A guarda entra
+  **depois** da do interruptor — com E3 desligado, E2.1 não muda — e **antes** da de
+  `requiresAuth`;
+- `auth/AuthContext.jsx` — expõe `authResolved: mode !== null`;
+- `context/FinerDataContext.jsx` — lê-o, passa-o, e **põe-no nas dependências** do
+  `useMemo`: é a transição de "ainda não sei" para o veredito que tem de recalcular o
+  transporte. Sem ela, a janela fechava e nunca mais reabria.
+
+### A defesa
+
+`src/services/transporteNaJanelaDeArranque.test.jsx` — 12 testes. **Falhava antes do
+patch**, com 6 vermelhos, e a mensagem do teste de integração era literalmente *"saíram 4
+leituras anónimas na janela de arranque"*: a mesma assinatura observada no browser.
+
+Cobre os cinco contratos, incluindo os que **não** mudam (interruptor desligado → legado,
+esteja o modo resolvido ou não), e monta a **árvore real** — `AuthProvider` +
+`CompanyProvider` + `FinerDataProvider` — com só o SDK do Supabase substituído.
+
+**Mutation check — as duas morrem:**
+
+| Mutação | Resultado |
+|---|---|
+| `resolveDataTransport` volta a devolver o legado quando o modo está por resolver | **6 testes vermelhos** |
+| `FinerDataContext` deixa de passar `authResolved` | **3 testes vermelhos** — são os de integração, e é isso que guarda a ligação que o default `true` deixaria em aberto |
+
+### A prova no artefacto E3, em browser real
+
+Build com `VITE_PROTECTED_DATA_TRANSPORT=true`, servido em `localhost:5173`:
+
+| Execução | legacy | protected |
+|---|---|---|
+| hard reload 1 | **0** | 4 |
+| hard reload 2 | **0** | 4 |
+| hard reload 3 | **0** | 4 |
+| **sem sessão** (contexto isolado) | **0** | **0** — e `localStorage` vazio, ecrã de login, zero menções à Overcel |
+| sem sessão · reload | **0** | **0** |
+
+Antes do patch, o caso "sem sessão" era o pior de todos: **4 leituras anónimas**. Passou a
+zero pedidos.
+
+Consola: só os dois avisos de campo de formulário já conhecidos (vêm de outro formulário,
+não do Login — ver R-34) e um `404` do `favicon.ico` do preview local.
+
+### O que isto não fecha
+
+**E3 continua NÃO INICIADO.** O patch remove o bloqueador; não liga o transporte. O rollout
+recomeça na Fase 3 do plano, com este código.
+
+E fica uma lição operacional, que é a parte que interessa: **a validação foi feita em
+`localhost` antes de publicar, e foi isso que impediu o P1 de chegar a produção.** O plano
+original mandava publicar primeiro (Fase 6) e só depois medir a rede (Fase 9). Se se
+tivesse seguido essa ordem, o defeito teria ido para o ar e o rollback seria a descoberta,
+não a prevenção. **Servir o `dist` localmente antes de `npm run deploy` passa a ser parte
+do procedimento de E3.**

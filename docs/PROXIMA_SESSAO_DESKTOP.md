@@ -297,6 +297,29 @@ cumpridas. O que falta é **executar E3**, e isso é um procedimento, não uma i
 
 ---
 
+> ⛔ **31/08, fim do dia: a primeira tentativa de E3 foi abortada no pré-deploy.** O
+> artefacto E3 fazia 4 leituras anónimas ao legado a cada carregamento (**R-39**, P1).
+> Corrigido e defendido por testes; **nada foi publicado**. O passo 1 abaixo continua
+> válido, com uma adição obrigatória: **o passo 0**.
+
+### 0 · ANTES de publicar: servir o `dist` e medir a rede (obrigatório)
+
+Foi isto que impediu o R-39 de chegar a produção, e passa a ser parte do procedimento.
+
+```bash
+npx vite preview --port 5173 --strictPort   # serve o dist, não o código-fonte
+```
+
+No browser, com DevTools → Network, **hard reload** e contar:
+
+- `pedidos/vendas` (legado) → **tem de ser 0**;
+- `companies/:id/financial-data` (protegido) → tem de ser > 0 depois de a sessão resolver.
+
+Repetir três vezes, e uma vez **sem sessão** (janela anónima ou contexto isolado): sem
+sessão o esperado é **zero pedidos financeiros**, não zero legado apenas.
+
+Se aparecer **um** pedido ao legado, parar. É o R-39 outra vez ou um parente dele.
+
 ### 1 · Ligar E3 — num dia próprio, e só ele
 
 `VITE_PROTECTED_DATA_TRANSPORT=true` no `.env.local`, `npm run check:predeploy`,
