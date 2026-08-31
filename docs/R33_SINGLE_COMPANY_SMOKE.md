@@ -1,67 +1,56 @@
 # R-33 — smoke de isolamento FORTE com uma conta de empresa única
 
-> # ⛔ EXECUÇÃO TENTADA E BLOQUEADA — 31/08/2026
+> # ⏳ EXECUTADO EM PARTE — 31/08/2026 · falta o TESTE 3
 >
-> **A autorização foi dada. O que falta é um meio, não uma permissão.**
+> **Os testes 1 e 2 passaram contra a Production real.** O `audit_log` está por verificar,
+> e por isso **R-33 continua ABERTO**: fecha quando as três metades estiverem provadas.
 >
-> O Igor autorizou explicitamente criar a conta de smoke e dar-lhe membership **só** em
-> `finer-teste`. A execução **não avançou** e o motivo é único e concreto:
+> ## ✅ Pré-condição e testes 1 e 2 — passaram
 >
-> ### Não existe `SUPABASE_SERVICE_ROLE_KEY` acessível a esta sessão
+> Corrido com `node scripts/r33-smoke.mjs`, contra
+> `https://finer-one-proxy.vercel.app/api` (Production, `74a1e0b`). **Quatro leituras.
+> Nenhuma escrita.**
 >
-> Verificado nos dois sítios onde é legítimo procurar, e em mais nenhum:
+> ```
+> user_id: a1a84e5d-99cf-4612-a187-93c676492c42
 >
-> | Onde | Resultado |
+> PRE-CONDICAO — memberships da conta (lidas sob RLS, memberships_select_own)
+>   memberships: [{"company_id":"finer-teste","role":"viewer"}]
+>   OK  membership em finer-teste                 esperado true,  obtido true
+>   OK  membership em overcel (tem de ser false)  esperado false, obtido false
+>   OK  total de memberships                      esperado 1,     obtido 1
+>
+> TESTE 1 — finer-teste (a que pertence)
+>   OK  GET finer-teste/financial-data            esperado 200, obtido 200
+>       debug.fonte: integracao-nao-configurada | bytes: 58
+>
+> TESTE 2 — overcel (a que NAO pertence) — CRITICO
+>   OK  GET overcel/financial-data                esperado 403, obtido 403
+>       corpo: {"error":true,"code":"FORBIDDEN","message":"Sem acesso a este recurso."}
+> ```
+>
+> ### O que cada metade prova
+>
+> | | |
 > |---|---|
-> | `finer-one-proxy/.env.local` | existe, mas tem **uma só** linha: `VERCEL_OIDC_TOKEN`. Nenhuma chave do Supabase |
-> | Variáveis de ambiente do processo | **nenhuma** variável `SUPABASE_*` definida |
+> | **A pré-condição** | a conta tem **uma** membership e **não** é na Overcel. Sem isto, o `403` seguinte não provaria nada — é o passo 3 do runbook a fazer o seu trabalho |
+> | **`200` na Finer Teste** | o servidor **decide**, não recusa tudo. E `integracao-nao-configurada` é a ausência **declarada**: a Finer Teste é o caso de controlo e não tem integração, portanto o `200` com 58 bytes é o comportamento certo — *avaria ≠ vazio* |
+> | **`403` na Overcel** | **é esta a prova que faltava desde 30/08.** Um utilizador que só pertence a B **não alcança** A. Não é um duplo, não é um teste unitário: é o BFF de Production, com um token real verificado contra o JWKS e as memberships relidas do lado do servidor |
+> | **O corpo da recusa** | `FORBIDDEN` e mais nada. Não diz se a empresa existe, não diz o motivo. O motivo vive no `audit_log` — que é o TESTE 3 |
 >
-> Sem essa chave não há Admin API, e sem Admin API não há como criar um utilizador nem
-> escrever em `public.memberships` (a `anon` key é travada pela RLS, que é precisamente o
-> que ela deve fazer).
+> **`401` teria sido uma falha, não um sucesso:** significaria token inválido e responderia
+> a outra pergunta. Veio `403`, que é o servidor a dizer *"sei quem és e não podes"*.
 >
-> **Não se procurou o segredo em mais lado nenhum** — nem em históricos de shell, nem em
-> ficheiros de browser, nem em gestores de palavras-passe. Foi instrução explícita e é
-> também a regra da casa.
+> ## ⏳ TESTE 3 — por correr, e só o Igor o pode correr
 >
-> **Nada foi criado, nada foi alterado, nada foi escrito.** O estado remoto está
-> exatamente como estava.
+> A linha de recusa é escrita com `company_id = NULL`, e `audit_select_owner` exige
+> igualdade com esse campo. **Nenhum utilizador autenticado a lê** — só a `service_role`.
+> O SQL exato está mais abaixo, em *3.A–3.E*.
 >
-> ### O que se conseguiu confirmar, mesmo sem a chave
+> Espera-se **exatamente uma** linha. As tentativas de login falhadas não contam (são do
+> Supabase Auth, não do BFF) e os `401` sem token também não — `protect.js:286` só audita
+> recusas **com identidade**.
 >
-> - `GET /api/companies/finer-teste/financial-data` **sem token** → **`401`**
-> - `GET /api/companies/overcel/financial-data` **sem token** → **`401`**
->
-> A guarda está viva nas duas empresas. Falta exercê-la com um token **real sem
-> membership** — que é a metade que só a conta nova consegue provar.
->
-> ### Ponto da situação — 31/08, depois da conta criada
->
-> A conta **foi criada** pelo Igor no Supabase. Faltam duas coisas, e ambas são dele:
->
-> | # | O que falta | Porquê não posso fazer eu |
-> |---|---|---|
-> | 1 | **O `user_id` verdadeiro** | a mensagem trouxe o texto literal `COLOQUE_AQUI_O_UUID` — o placeholder não foi substituído. Não se inventa um UUID |
-> | 2 | **Executar o `insert` da membership** | `authenticated` só tem `select` em `memberships` (`002_grants.sql:40`). Escrever exige `service_role`, que não existe nesta máquina, ou o SQL Editor |
->
-> **Medido ao vivo a 31/08**, com a chave publicável:
->
-> ```
-> GET /rest/v1/memberships  (anon)  ->  401  code 42501  permission denied
-> GET /rest/v1/  (OpenAPI)          ->  401  "Secret API key required"
-> ```
->
-> Ou seja: o papel `anon` não tem sequer `select`. **Bate certo, à letra, com
-> `002_grants.sql`** — que não dá nada ao `anon`. A defesa em profundidade está confirmada
-> por medição, e não só pelo SQL versionado.
->
-> Como o esquema real **não é legível** com a chave publicável, tudo o que se segue vem do
-> **SQL versionado** (`001_saas_foundation.sql`, `002_grants.sql`), que foi verificado
-> contra a base de dados a 29/08 (B-07). Está dito porque a diferença importa.
->
-> **O resto deste documento continua exato e por executar.** Foi escrito a partir do
-> esquema versionado e do código do BFF, não de memória.
-
 ---
 
 ## A pergunta que só esta conta consegue responder
