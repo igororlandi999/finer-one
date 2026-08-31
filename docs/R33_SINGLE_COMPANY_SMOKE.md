@@ -1,55 +1,82 @@
 # R-33 — smoke de isolamento FORTE com uma conta de empresa única
 
-> # ⏳ EXECUTADO EM PARTE — 31/08/2026 · falta o TESTE 3
+> # ✅ R-33 FECHADO — 31/08/2026
 >
-> **Os testes 1 e 2 passaram contra a Production real.** O `audit_log` está por verificar,
-> e por isso **R-33 continua ABERTO**: fecha quando as três metades estiverem provadas.
+> **Isolamento FORTE entre empresas está provado.** As três metades passaram contra a
+> Production real (`74a1e0b`). Foi a última condição de E3 por cumprir.
 >
-> ## ✅ Pré-condição e testes 1 e 2 — passaram
->
-> Corrido com `node scripts/r33-smoke.mjs`, contra
-> `https://finer-one-proxy.vercel.app/api` (Production, `74a1e0b`). **Quatro leituras.
-> Nenhuma escrita.**
->
-> ```
-> user_id: a1a84e5d-99cf-4612-a187-93c676492c42
->
-> PRE-CONDICAO — memberships da conta (lidas sob RLS, memberships_select_own)
->   memberships: [{"company_id":"finer-teste","role":"viewer"}]
->   OK  membership em finer-teste                 esperado true,  obtido true
->   OK  membership em overcel (tem de ser false)  esperado false, obtido false
->   OK  total de memberships                      esperado 1,     obtido 1
->
-> TESTE 1 — finer-teste (a que pertence)
->   OK  GET finer-teste/financial-data            esperado 200, obtido 200
->       debug.fonte: integracao-nao-configurada | bytes: 58
->
-> TESTE 2 — overcel (a que NAO pertence) — CRITICO
->   OK  GET overcel/financial-data                esperado 403, obtido 403
->       corpo: {"error":true,"code":"FORBIDDEN","message":"Sem acesso a este recurso."}
-> ```
->
-> ### O que cada metade prova
+> ## A conta
 >
 > | | |
 > |---|---|
-> | **A pré-condição** | a conta tem **uma** membership e **não** é na Overcel. Sem isto, o `403` seguinte não provaria nada — é o passo 3 do runbook a fazer o seu trabalho |
-> | **`200` na Finer Teste** | o servidor **decide**, não recusa tudo. E `integracao-nao-configurada` é a ausência **declarada**: a Finer Teste é o caso de controlo e não tem integração, portanto o `200` com 58 bytes é o comportamento certo — *avaria ≠ vazio* |
-> | **`403` na Overcel** | **é esta a prova que faltava desde 30/08.** Um utilizador que só pertence a B **não alcança** A. Não é um duplo, não é um teste unitário: é o BFF de Production, com um token real verificado contra o JWKS e as memberships relidas do lado do servidor |
-> | **O corpo da recusa** | `FORBIDDEN` e mais nada. Não diz se a empresa existe, não diz o motivo. O motivo vive no `audit_log` — que é o TESTE 3 |
+> | `user_id` | `a1a84e5d-99cf-4612-a187-93c676492c42` |
+> | email | `igororlandi12@gmail.com` — conta **própria e distinta**, não um alias da principal |
+> | membership | **`finer-teste` · `viewer`** — uma, e só uma |
+> | membership em `overcel` | **nenhuma** |
 >
-> **`401` teria sido uma falha, não um sucesso:** significaria token inválido e responderia
-> a outra pergunta. Veio `403`, que é o servidor a dizer *"sei quem és e não podes"*.
+> **A conta NÃO foi apagada** e é para manter: E4 volta a precisar exatamente desta forma
+> de conta, e repetir o smoke durante o rollout de E3 é barato só enquanto ela existir.
 >
-> ## ⏳ TESTE 3 — por correr, e só o Igor o pode correr
+> ## Pré-condição e testes 1 e 2 — `node scripts/r33-smoke.mjs`
 >
-> A linha de recusa é escrita com `company_id = NULL`, e `audit_select_owner` exige
-> igualdade com esse campo. **Nenhum utilizador autenticado a lê** — só a `service_role`.
-> O SQL exato está mais abaixo, em *3.A–3.E*.
+> ```
+> PRE-CONDICAO   memberships: [{"company_id":"finer-teste","role":"viewer"}]
+>                finer-teste SIM · overcel NAO · total 1              OK
 >
-> Espera-se **exatamente uma** linha. As tentativas de login falhadas não contam (são do
-> Supabase Auth, não do BFF) e os `401` sem token também não — `protect.js:286` só audita
-> recusas **com identidade**.
+> TESTE 1        GET finer-teste/financial-data   -> 200              OK
+>                debug.fonte: integracao-nao-configurada | 58 bytes
+>
+> TESTE 2        GET overcel/financial-data       -> 403 FORBIDDEN    OK
+>                corpo: {"error":true,"code":"FORBIDDEN",
+>                        "message":"Sem acesso a este recurso."}
+> ```
+>
+> ## TESTE 3 — o `audit_log`, corrido no SQL Editor
+>
+> ```
+> 3.C  total_linhas          = 1        delta_exatamente_1 = true
+>      company_id_null       = true     action_ok          = true
+>      month_key_null        = true     requested_overcel  = true
+>      decision_ok           = true     reason_ok          = true
+>      capability_ok         = true
+>
+> 3.D  parece_credencial     = false
+>      parece_url            = false
+>      parece_financeiro     = false
+>      chaves_metadata       = capability, decision, reason, requestedCompanyId
+>
+> 3.E  memberships           = 1        empresas = ["finer-teste"]
+> ```
+>
+> ## O que cada metade prova — e porque as três eram precisas
+>
+> | | |
+> |---|---|
+> | **A pré-condição** | a conta tem **uma** membership e **não** é na Overcel. Sem isto o `403` seguinte não provaria nada: uma conta sem acesso a coisa nenhuma também daria `403`. É o passo 3 do runbook a fazer o seu trabalho |
+> | **`200` na Finer Teste** | o servidor **decide**, não recusa tudo. E `integracao-nao-configurada` é a ausência **declarada** — a Finer Teste é o caso de controlo, e *avaria ≠ vazio* até aqui |
+> | **`403` na Overcel** | **a prova que faltava desde 30/08.** Não é um duplo nem um teste unitário: é o BFF de Production, com um token real verificado contra o JWKS e as memberships relidas do lado do servidor. Um utilizador que só pertence a B **não alcança** A |
+> | **O corpo da recusa** | `FORBIDDEN` e mais nada — não diz se a empresa existe, não diz o motivo |
+> | **`delta = 1`** | uma recusa, um registo. Sem duplicação, e sem a linha se perder — que era o R-H, e é a correção que este teste também verificou |
+> | **`company_id = NULL` + `requestedCompanyId = overcel`** | o registo distingue *"a empresa a que este registo pertence"* de *"a empresa que foi pedida"*. Numa recusa só a segunda existe |
+> | **`reason = sem_membership`** | e não `membership_insuficiente`, que seria papel a menos numa empresa a que se pertence. A recusa é pela razão certa |
+> | **3.D tudo `false`** | o registo forense não é um sítio onde vazam segredos: sem token, sem palavra-passe, sem `GAS_URL`, sem números da Overcel. Quatro chaves e mais nada |
+>
+> `401` teria sido **falha**, não sucesso: significaria token inválido e responderia a
+> outra pergunta. Veio `403` — o servidor a dizer *"sei quem és e não podes"*.
+>
+> ## Estado do sistema depois do teste
+>
+> - nenhuma membership existente alterada — `overcel` e `finer-teste` intactas;
+> - nenhuma configuração remota tocada além da conta e da membership autorizadas;
+> - BFF de Production intacto (`74a1e0b`), sem deploy;
+> - **E3 continua OFF** (`VITE_PROTECTED_DATA_TRANSPORT` vazio);
+> - nenhum segredo residual. O ficheiro `~/.finer-smoke.json` vive **fora** do repositório
+>   e deve ser apagado: `Remove-Item $HOME\.finer-smoke.json`.
+>
+> ---
+>
+> **O resto deste documento é o procedimento**, e fica como está: é o que se repete durante
+> o rollout de E3 e outra vez em E4.
 >
 ---
 

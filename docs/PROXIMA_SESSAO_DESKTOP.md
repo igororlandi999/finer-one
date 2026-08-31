@@ -244,7 +244,7 @@ NÃO INICIADO, o BFF continua `74a1e0b`, o `gh-pages` continua `6e8c0ae`.
 | # | Bloqueado | Razão | Desbloqueia com |
 |---|---|---|---|
 | 1 | ~~**B-03**~~ ✅ **FECHADO 31/08** | resolvido: a `GAS_URL` foi fornecida localmente, a sonda correu, e a `GAS_URL` não foi impressa nem guardada | — |
-| 2 | **R-33** — smoke de empresa única | Exige **criar um utilizador** e **uma membership** | autorização explícita |
+| 2 | ~~**R-33**~~ ✅ **FECHADO 31/08** | resolvido: conta criada e membership inserida pelo Igor; smoke corrido de ponta a ponta | — |
 | 3 | **R-32** — origem própria | Exige decidir e possivelmente comprar um domínio, e mexer em DNS | decisão de produto |
 | 4 | **R-38** — tirar `localhost` da Production | Alteração a Production | autorização, e só **durante** o rollout de E3 |
 | 5 | **R-34** — cenários C (`Enter`) e F (autofill) | **A automação de browser não respondeu nesta sessão** — nem a extensão do Chrome, nem o DevTools MCP. O `happy-dom` não implementa submissão implícita por `Enter` | um browser real com gestor de palavras-passe |
@@ -261,7 +261,7 @@ NÃO INICIADO, o BFF continua `74a1e0b`, o `gh-pages` continua `6e8c0ae`.
 | **B-04** | ✅ fechado por obsolescência | Preview e Production são o mesmo commit; baseline registada | **NÃO** | nenhuma | **NÃO** |
 | **R-34** | ✅ mitigado; causa externa por determinar | 12 testes (3 concorrentes + 9 sequenciais); mutação mata 4; SDK não repete pedidos | **NÃO** (P3) | cenários C/F num browser real — opcional | opcional |
 | **R-32** | ⚠️ aceite, condicional | prova completa + plano de migração de 11 passos | **NÃO** (bloqueia **E4**) | decidir o domínio | **SIM** |
-| **R-33** | ❌ **por executar — autorizado, mas sem meio** | runbook pronto; execução tentada a 31/08 e **bloqueada: não há `SUPABASE_SERVICE_ROLE_KEY` local** e a `anon` é travada pela RLS. **Nada foi criado** | **SIM** | criar a conta no painel (3 cliques) **ou** fornecer a chave localmente | **SIM** |
+| **R-33** | ✅ **FECHADO 31/08** | conta `a1a84e5d…`, membership única em `finer-teste`: **`200`** na Finer Teste, **`403`** na Overcel, **1** linha de `access.denied` com `requestedCompanyId = overcel`, `reason = sem_membership`, sem segredo nem valor financeiro | **NÃO** | manter a conta para E3/E4 | **NÃO** |
 | **B-03** | ✅ **FECHADO 31/08** | cadeia medida: **1 salto**, `script.google.com` → `script.googleusercontent.com`, `200` `application/json`. Nenhum host inesperado | **NÃO** | nenhuma | **NÃO** |
 | **R-38** | ⚠️ aceite | proposta concreta escrita | **NÃO** | remover `localhost` **durante** o rollout de E3 | **SIM**, depois |
 | **Bloqueador novo** | — | **nenhum.** A revisão de segurança pré-E3 não encontrou nenhum P1/P2 por registar causado por ligar o transporte protegido | — | — | — |
@@ -275,99 +275,103 @@ NÃO INICIADO, o BFF continua `74a1e0b`, o `gh-pages` continua `6e8c0ae`.
 > `script.google.com` → `script.googleusercontent.com`, `200` com `application/json`.
 > Nenhum host inesperado.
 
-**Falta UMA condição, e não precisa de código nenhum — precisa de uma conta:**
+**AS SEIS CONDIÇÕES ESTÃO CUMPRIDAS.** As duas que faltavam caíram a 31/08:
 
-1. ~~**B-03**~~ ✅ **cumprida a 31/08.**
-2. **R-33** — o smoke de isolamento forte com uma conta de empresa única, com `403` na
-   Overcel e `200` na Finer Teste. **Autorizado pelo Igor; a execução foi tentada e ficou
-   bloqueada** por não haver `SUPABASE_SERVICE_ROLE_KEY` nesta máquina. **Nada foi criado.**
+1. ~~**B-03**~~ ✅ cadeia de redirects medida — 1 salto, dois hosts do Google.
+2. ~~**R-33**~~ ✅ isolamento forte provado — **`403` na Overcel** com um token real de uma
+   conta que só pertence à Finer Teste, e o `audit_log` com exatamente uma linha, limpa.
 
-As outras cinco condições do §E3 estão cumpridas. **A separação temporal cumpre-se desde
-31/08.** Nada do que estas sessões fizeram aproximou ou adiou E3: o interruptor não foi
-tocado.
+**Não há bloqueadores.** O que resta não é uma verificação — é o **procedimento** de E3.
+Nada do que estas sessões fizeram ligou ou adiou E3: o interruptor não foi tocado.
 
 ---
 
-## QUANDO O IGOR VOLTAR — cinco ações, por ordem
+## O QUE FALTA — e já não é verificação nenhuma
 
-### 1 · Fornecer a `GAS_URL` **localmente** — desbloqueia B-03 (~2 min)
+> *Substitui a lista "QUANDO O IGOR VOLTAR" de 31/08 de manhã. As duas primeiras ações
+> dessa lista — fornecer a `GAS_URL` e autorizar a conta de smoke — **estão feitas**, e
+> fecharam B-03 e R-33. O que resta é o rollout.*
 
-**O que fazer:** no Vercel, copiar o valor de `GAS_URL` de Production. Depois, no terminal:
+**Não há bloqueadores.** As seis condições do §E3 do `FRONTEND_AUTH_RELEASE_PLAN.md` estão
+cumpridas. O que falta é **executar E3**, e isso é um procedimento, não uma investigação.
+
+---
+
+### 1 · Ligar E3 — num dia próprio, e só ele
+
+`VITE_PROTECTED_DATA_TRANSPORT=true` no `.env.local`, `npm run check:predeploy`,
+`npm run deploy`.
+
+**Duas coisas que o `check:predeploy` faz e que valem o tempo de olhar:** imprime os
+interruptores que vão ser compilados — é a última oportunidade de ver `true` antes de ele
+existir em produção — e reconstrói o `dist/`, que se compara com o publicado.
+
+**Não fazer mais nada nesse dia.** É a mesma regra que separou E2 de E3, e existe para que,
+se algo partir, se saiba o que foi.
+
+**Rollback:** repor o interruptor a vazio e republicar. O `gh-pages` anterior é `6e8c0ae` —
+está identificado, reproduz byte a byte a partir de `bd615ee`, e é para onde se volta.
+
+### 2 · Depois de ligar: repetir o smoke do R-33 — agora pelo produto
+
+A conta `a1a84e5d…` **existe de propósito** e não foi apagada. Com E3 ligado, o teste passa
+a ter uma segunda metade que hoje não tinha: as leituras do **frontend** passam a ir por
+`/financial-data`.
+
+- [ ] `node scripts/r33-smoke.mjs` — `200`/`403` têm de continuar iguais;
+- [ ] login na aplicação com a conta de smoke: o seletor mostra **só** a Finer Teste, e ela
+      diz "sem dados ligados" — que agora vem do transporte protegido, e não do legado;
+- [ ] login com a conta principal: a Overcel mostra os números **pelo caminho novo**;
+- [ ] trocar de empresa nos dois sentidos, e confirmar **zero** números da Overcel sob o
+      nome Finer Teste. É o R-18, que muda de camada com E3;
+- [ ] `audit_log`: nenhuma linha nova de `access.denied` para a conta principal.
+
+### 3 · Só depois de E3 validado: tirar o `localhost` da Production — R-38 (~2 min)
+
+`ALLOWED_ORIGINS` no âmbito **Production apenas**, deixando
+`https://igororlandi999.github.io` e tirando `,http://localhost:5173`. Nenhuma linha de
+código muda; não exige redeploy, exige uma nova invocação. Proposta completa, com
+verificação e rollback, em `RISK_REGISTER.md` §31/08.
+
+### 4 · Fechar o R-06 — o endurecimento que a medição destrancou (~15 min)
+
+A lista de hosts permitidos é conhecida e tem dois elementos:
+`script.google.com` e `script.googleusercontent.com`.
+
+Trocar `redirect: "follow"` cego por seguir com verificação de host, em
+`api/companies/[companyId]/financial-data.js` e `api/pedidos/vendas.js`. **É código do
+BFF** — implica deploy, portanto não é para o dia de E3.
+
+`test/upstream-redirects.test.mjs` avisa sozinho: o teste de caracterização
+`SEGUE PARA OUTRO HOST` **passa a falhar**, e é esse o sinal de que o endurecimento entrou.
+Trocar a expectativa por `502` e apagar o aviso do cabeçalho.
+
+### 5 · Decidir o domínio — R-32, antes de **E4** (~5 min de decisão)
+
+`finerone.pt` está registado? Por quem? Se não, compra-se?
+
+**Não bloqueia E3** — o token já vive nessa origem hoje, e E3 aumenta o valor do token, não
+a exposição dele. **Bloqueia E4.** Com a resposta,
+`OWN_ORIGIN_MIGRATION_PLAN.md` passa de plano a runbook: o levantamento já mostrou que a
+migração é **uma linha de código** (`vite.config.js:8`), **uma de verificação**
+(`predeploy-check.mjs:297`) e configuração.
+
+---
+
+### Duas coisas para não fazer
+
+- **Não apagar a conta de smoke** (`a1a84e5d…`). E4 volta a precisar exatamente desta forma
+  de conta. Quando deixar de servir, **desativa-se** em vez de se apagar;
+- **Não apagar `src/auth/companyDataScope.js` no intervalo de E3.** O cabeçalho do ficheiro
+  diz que o módulo "desaparece" com o transporte protegido. É quase verdade — as outras duas
+  camadas sobrevivem — mas apagá-lo no dia em que o transporte muda é remover uma defesa
+  contra R-18 no pior dia possível. Se for para remover, é depois de E3 estabilizar.
+
+### Higiene, se ainda não foi feita
 
 ```powershell
-cd "C:\Users\User\Documents\VS Code\finer-one-proxy"
-$env:GAS_URL = "<colar aqui>"
-node scripts/gas-redirect-probe.mjs
-Remove-Item Env:GAS_URL
+Remove-Item $HOME\.finer-smoke.json
 ```
 
-**O que NÃO colar na conversa:** a `GAS_URL`. Nem inteira, nem em pedaços, nem o id do
-deployment. A sonda foi escrita precisamente para que não seja preciso.
-
-**O que me permite continuar:** colar a **saída** da sonda — em particular a linha
-`hosts distintos`. É literalmente a lista de hosts permitidos, e com ela fecho o R-06.
-
----
-
-### 2 · Autorizar a conta de smoke — desbloqueia R-33 (~25 min)
-
-**O que fazer:** seguir `docs/R33_SINGLE_COMPANY_SMOKE.md`, do passo 1 ao 4. Tudo no
-painel do Supabase. É **aditivo**: cria-se uma conta e **uma** membership em `finer-teste`,
-e não se toca em nenhuma linha existente.
-
-**O passo 3 não se salta.** Contar as memberships antes de testar é o que impede o teste
-de passar por má razão.
-
-**O que NÃO colar na conversa:** a palavra-passe da conta nova, e o `access_token`. O
-`user_id` (UUID) pode ser colado — não é credencial.
-
-**O que me permite continuar:** os dois códigos de estado (`overcel` → esperado `403`,
-`finer-teste` → esperado `200`) e o resultado da consulta ao `audit_log` **sem a coluna
-`metadata` em bruto** — basta dizer se `action`, `actor_user_id` e
-`metadata.requestedCompanyId` batem certo.
-
-> ⛔ **Se a Overcel responder `200`, parar tudo e dizer-me.** Isso é dado cruzado entre
-> empresas e é uma paragem imediata, não um resultado a registar.
-
----
-
-### 3 · Decidir o domínio — desbloqueia R-32 / E4 (~5 min de decisão)
-
-**O que fazer:** responder a três perguntas — `finerone.pt` está registado? Por quem? Se
-não estiver, compra-se?
-
-**Onde:** no registrar do domínio. **Nada nesta sessão o verificou** e não se assumiu que
-existe.
-
-**O que me permite continuar:** a resposta. Com ela transformo
-`docs/OWN_ORIGIN_MIGRATION_PLAN.md` de plano em runbook executável, com os valores reais.
-**R-32 não bloqueia E3** — esta ação pode ficar para depois das duas primeiras.
-
----
-
-### 4 · Dar-me um browser — fecha os cenários C e F do R-34 (~10 min, opcional)
-
-**O que fazer:** confirmar que a extensão do Chrome está ligada e autenticada na mesma
-conta, ou que o DevTools MCP consegue anexar. **Nenhuma das duas respondeu nesta sessão.**
-
-**O que NÃO fazer:** escrever credenciais reais no formulário. Os testes são com
-credenciais **inválidas** e a instrumentação bloqueia o pedido antes de sair para o
-Supabase — nem uma tentativa consome o rate limit.
-
-**O que me permite continuar:** com browser, instrumento os eventos de submit e conto os
-pedidos com o `Enter` e com o autofill. É a única parte do R-34 que falta, e **não bloqueia
-E3**.
-
----
-
-### 5 · Só DEPOIS de E3 validado: tirar o `localhost` da Production — R-38 (~2 min)
-
-**O que fazer:** no Vercel, editar `ALLOWED_ORIGINS` **no âmbito Production apenas**,
-deixando `https://igororlandi999.github.io` e tirando `,http://localhost:5173`.
-
-**Não antes de E3 estar validado.** Antes disso o legado ainda serve a aplicação, e mexer
-na lista de origens no mesmo intervalo torna impossível dizer qual das duas mudanças
-partiu o quê, se algo partir.
-
-**O que me permite continuar:** a saída do `curl -i -X OPTIONS` com
-`Origin: http://localhost:5173` — o objetivo é deixar de vir cabeçalho `Allow-Origin`.
+O ficheiro vive **fora** do repositório de propósito, mas não tem razão para continuar a
+existir entre testes.

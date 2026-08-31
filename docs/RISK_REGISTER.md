@@ -860,10 +860,60 @@ foi tocada.
 A guarda está viva nas duas empresas. **Falta exercê-la com um token real sem
 membership** — e essa é, por construção, a única metade que a conta nova consegue provar.
 
-**R-33 NÃO pode ser fechado**, e não é: o `200`/`403` e o `audit_log` não foram provados.
-Continua a bloquear E3.
+> ✅ **ATUALIZADO — R-33 FECHOU nesta mesma data.** O bloco acima é o registo de como
+> esteve bloqueado. A conta foi criada pelo Igor, a membership inserida no SQL Editor, e o
+> smoke correu integralmente. Ver a secção seguinte.
+
+**R-33 estava por fechar neste ponto da sessão:** o `200`/`403` e o `audit_log` ainda não
+tinham sido provados.
 
 **O que desbloqueia** está em `R33_SINGLE_COMPANY_SMOKE.md`, no cabeçalho: ou a conta é
 criada no painel (três cliques) e chega o `user_id`, ou a `service_role` é fornecida
 localmente numa shell. A primeira é preferível — a `service_role` ignora a RLS por completo
 e não tem de existir nesta máquina para se criar uma conta que se cria em três cliques.
+
+
+---
+
+## ✅ R-33 FECHADO — 31/08/2026
+
+**Isolamento FORTE entre empresas está provado contra a Production real.** Era a última
+condição de E3 por cumprir. Runbook e evidência completa em
+`R33_SINGLE_COMPANY_SMOKE.md`.
+
+**A conta:** `a1a84e5d-99cf-4612-a187-93c676492c42` · `igororlandi12@gmail.com` ·
+membership **única** em `finer-teste` (`viewer`), **nenhuma** em `overcel`.
+
+| Metade | Resultado |
+|---|---|
+| Pré-condição | uma membership, em `finer-teste`. Nenhuma em `overcel` |
+| **TESTE 1** — `GET finer-teste/financial-data` | **`200`**, `debug.fonte: integracao-nao-configurada`, 58 bytes |
+| **TESTE 2** — `GET overcel/financial-data` | **`403 FORBIDDEN`**, corpo sem motivo |
+| **TESTE 3.C** — `audit_log` | `total_linhas = 1` · `delta_exatamente_1` · `company_id_null` · `action_ok` · `month_key_null` · `requested_overcel` · `decision_ok` · `reason_ok` · `capability_ok` — **todos `true`** |
+| **TESTE 3.D** — higiene | `parece_credencial`, `parece_url`, `parece_financeiro` — **todos `false`**. `chaves_metadata` = exatamente `capability, decision, reason, requestedCompanyId` |
+| **TESTE 3.E** — estado | `memberships = 1`, `empresas = ["finer-teste"]` |
+
+**Porque é que isto é a prova e o resto não era.** `protect.test.mjs` já cobria a negação
+com duplos, e a validação de E2 já mostrava a Finer Teste sem dados. Nenhuma das duas podia
+responder à pergunta, porque a conta usada em E2 era membro das **duas** empresas — com ela,
+um `200` na Overcel é o comportamento correto, e portanto não havia resposta errada possível
+para observar. Foi preciso um **negativo**: uma conta que só pertence a B, e a prova de que
+A lhe é recusada. É isso que está feito.
+
+**Três coisas que o `audit_log` confirmou de passagem**, e que não eram o objetivo:
+
+1. **A correção do R-H funciona.** Uma recusa isolada, sem tráfego à volta, produziu a sua
+   linha. Era exatamente o caso em que o registo falhava quando a escrita era `void` e a
+   instância serverless congelava antes de ela assentar;
+2. **`reason = sem_membership`** e não `membership_insuficiente` — a recusa foi pela razão
+   certa, e não por acaso;
+3. **O registo forense não vaza.** Sem token, sem palavra-passe, sem `GAS_URL`, sem números
+   da Overcel. Quatro chaves e mais nada.
+
+**A conta NÃO foi apagada, deliberadamente.** E4 volta a precisar exatamente desta forma de
+conta, e repetir o smoke durante o rollout de E3 só é barato enquanto ela existir. Quando
+deixar de servir, desativa-se em vez de se apagar — a linha do `audit_log` sobrevive de
+qualquer forma, porque não há FK para `auth.users` (`001_saas_foundation.sql:138`).
+
+**Estado do sistema:** nenhuma membership existente alterada · `overcel` e `finer-teste`
+intactas · BFF `74a1e0b` intacto, sem deploy · **E3 continua OFF**.
