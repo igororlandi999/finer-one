@@ -320,7 +320,23 @@ sessão o esperado é **zero pedidos financeiros**, não zero legado apenas.
 
 Se aparecer **um** pedido ao legado, parar. É o R-39 outra vez ou um parente dele.
 
-### 1 · Ligar E3 — num dia próprio, e só ele
+> ✅ **31/08, 20:30 — E3 FOI PUBLICADO.** `gh-pages 3d668e1`, bundle
+> `index-DVBYao2b.js`, `VITE_PROTECTED_DATA_TRANSPORT=true`. O Passo 0 correu limpo
+> (3 reloads, legacy 0) e o R-39 não reapareceu.
+>
+> ⚠️ **Mas a validação está INCOMPLETA:** a sessão de produção estava expirada, por isso o
+> smoke com dados reais, a troca de empresa e o R-33 em E3 **ficaram por fazer**. Ver
+> `RISK_REGISTER.md` §*E3 PUBLICADO*. **Duas ações, ambas tuas:**
+>
+> 1. **entrar na aplicação** em `https://igororlandi999.github.io/finer-one/` — depois
+>    disso posso medir Overcel, Finer Teste, A→B→A, refresh e as contagens de rede;
+> 2. **recriar `~/.finer-smoke.json`** (email + password da conta de smoke) para o R-33 em
+>    E3. Não colar credenciais na conversa.
+>
+> Se alguma coisa correr mal antes disso: rollback é republicar o `dist` de `bd615ee`
+> (`gh-pages 6e8c0ae`). O BFF não muda.
+
+### 1 · ~~Ligar E3~~ — FEITO a 31/08. O que resta é validar
 
 `VITE_PROTECTED_DATA_TRANSPORT=true` no `.env.local`, `npm run check:predeploy`,
 `npm run deploy`.

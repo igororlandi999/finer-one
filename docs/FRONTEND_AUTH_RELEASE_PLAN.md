@@ -369,3 +369,80 @@ existir.
 
 **A única etapa cara de desfazer é a última.** Todas as outras são uma variável de
 ambiente e uma republicação — e é assim de propósito.
+
+---
+
+## E3 PUBLICADO — 31/08/2026, 20:30 (−03:00) · **validação INCOMPLETA**
+
+> ⚠️ **E3 NÃO está declarado concluído.** O artefacto está em produção e os interruptores
+> estão ligados, mas o smoke com sessão real **não foi feito**: a sessão de produção estava
+> expirada e não há credenciais da conta principal nesta sessão. Ver *"O que falta"*.
+
+### O que foi publicado
+
+| | |
+|---|---|
+| Frontend | `66682a4` |
+| `gh-pages` | **`3d668e1`** (anterior: `6e8c0ae`) |
+| Bundle | `assets/index-DVBYao2b.js` |
+| Publicado | 31/08/2026, 20:30:19 (−03:00) |
+| `VITE_AUTH_MODE` | `supabase` |
+| `VITE_PROTECTED_DATA_TRANSPORT` | **`true`** |
+| Verificação | o bundle **servido** é **byte a byte igual** ao `dist/` local (SHA-256 `fb454871…`) e traz `VITE_PROTECTED_DATA_TRANSPORT:"true"` |
+| BFF | `74a1e0b` — **não foi tocado** |
+
+### Passo 0 — o pré-deploy que passou a ser obrigatório
+
+Artefacto E3 servido em `localhost:5173` e medido em browser real **antes** de publicar:
+
+| Execução | legacy | protected |
+|---|---|---|
+| hard reload 1 | **0** | 4 |
+| hard reload 2 | **0** | 4 |
+| hard reload 3 | **0** | 4 |
+| sem sessão (contexto isolado) | **0** | **0** |
+
+Foi este passo que apanhou o R-39 na tentativa anterior. Correu limpo desta vez.
+
+### O que já está provado EM PRODUÇÃO
+
+| Verificação | Resultado |
+|---|---|
+| Interruptores no artefacto servido | `supabase` + `true` ✅ |
+| Reprodutibilidade | bundle servido idêntico ao `dist` local ✅ |
+| **Sem sessão: zero pedidos financeiros** | **legacy 0 · protected 0** ✅ — e é precisamente o caso que, antes do patch do R-39, disparava **4 leituras anónimas** dos números da Overcel |
+| Sem sessão · hard reload | legacy 0 · protected 0 ✅ |
+| Ecrã sem sessão | formulário de login, **zero menções à Overcel**, zero números ✅ |
+| **CORS · preflight origem oficial** | `204` · `Allow-Origin: https://igororlandi999.github.io` · `Allow-Headers: Content-Type, Authorization` · `Vary: Origin` ✅ |
+| **CORS · preflight origem estranha** | `204` **sem `Allow-Origin`** — o browser bloqueia. Falha fechada ✅ |
+
+### O que FALTA, e porquê
+
+A sessão de produção estava **expirada** — `POST /auth/v1/token?grant_type=refresh_token`
+devolveu `400`. A aplicação reagiu corretamente (ecrã de login, zero leituras), mas sem
+sessão não há como exercer o caminho dos dados.
+
+**Não se pediram nem se usaram credenciais da conta principal.** Fica por fazer:
+
+- [ ] Overcel com dados reais, pelo endpoint protegido, com zero legado;
+- [ ] Finer Teste: "sem dados ligados", zero números da Overcel;
+- [ ] Overcel → Finer Teste → Overcel, sem mistura;
+- [ ] refresh com sessão válida;
+- [ ] logout → login;
+- [ ] **R-33 revalidado em E3** — precisa de `~/.finer-smoke.json`, que não existe;
+- [ ] contagem final de legado/protegido nos fluxos com sessão.
+
+### Rollback, se for preciso
+
+`gh-pages 6e8c0ae` — o artefacto de E2.1, reproduzível **byte a byte** a partir de
+`bd615ee`. Repor é publicar esse `dist` outra vez; o BFF não muda, porque nunca mudou.
+
+### R-32 — visto em concreto, e continua aceite
+
+Ao ler o `localStorage` da origem de produção apareceram chaves de **outros projetos** que
+partilham `igororlandi999.github.io`: `canton_script_url`, `cf_products`, `cf_suppliers`,
+`cf_device_id`, `austinMissionBoard`, `decoratto:ui-prefs`, `canton_visits`, ao lado de
+`finer-one.empresa-preferida`.
+
+Não é um achado novo — é o R-32, agora com a prova à vista em vez de inferida. **Continua
+ACEITE TEMPORARIAMENTE** e **obrigatório resolver antes de E4 / primeiro cliente-piloto**.
