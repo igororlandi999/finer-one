@@ -65,7 +65,10 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  const cred = JSON.parse(fs.readFileSync(FICHEIRO, "utf8"));
+  /* `Set-Content -Encoding utf8` no Windows PowerShell 5.1 escreve um BOM, e `JSON.parse`
+   * rebenta com ele. Tirar o BOM aqui é mais barato do que pedir a alguém que reescreva
+   * um ficheiro que está correto em tudo menos num carácter invisível. */
+  const cred = JSON.parse(fs.readFileSync(FICHEIRO, "utf8").replace(/^﻿/, ""));
   const { url, anon } = lerEnvLocal();
   if (!url || !anon) { console.error("VITE_SUPABASE_URL / ANON_KEY em falta no .env.local"); process.exitCode = 2; return; }
 
@@ -80,7 +83,30 @@ async function main() {
     body: JSON.stringify({ email: cred.email, password: cred.password }),
   });
   if (!rTok.ok) {
-    console.error(`login falhou: ${rTok.status}. Confirma o email/palavra-passe e o "Auto Confirm User".`);
+    /* O código de erro distingue causas que se resolvem de maneiras diferentes, e não
+     * traz nada de sensível. Sem ele, "400" manda toda a gente verificar a palavra-passe
+     * — inclusive quando o problema é o email por confirmar. */
+    const b = await rTok.json().catch(() => ({}));
+    const code = b.error_code || b.error || "(sem código)";
+    console.error(`\nlogin falhou: ${rTok.status} · ${code}`);
+    if (code === "email_not_confirmed") {
+      console.error("  A conta existe mas o email não está confirmado.");
+      console.error("  Supabase → Authentication → Users → a conta → Confirm email.");
+    } else if (code === "invalid_credentials") {
+      console.error("  O par email/palavra-passe não corresponde a nenhuma conta.");
+      console.error("  O Supabase devolve este MESMO código para 'conta não existe' e para");
+      console.error("  'palavra-passe errada', de propósito — não se pode distinguir daqui.");
+      console.error("  Confirmar o email exato em Authentication → Users, e em caso de dúvida");
+      console.error("  redefinir a palavra-passe pelo painel e reescrever o ficheiro.");
+    }
+    /* Higiene dos campos, sem revelar valores: apanha o erro mais chato de todos, que é
+     * um espaço ou um \r a mais vindos de um copiar-colar ou de um ficheiro CRLF. */
+    const e = String(cred.email || ""), pw = String(cred.password || "");
+    console.error(`  campos: email ${e.length} chars (espaços nas pontas: ${e !== e.trim()})` +
+      ` · password ${pw.length} chars (espaços: ${pw !== pw.trim()}, CR/LF: ${/[\r\n]/.test(pw)})`);
+    console.error("\n  NÃO se repete o pedido automaticamente: cada tentativa gasta o rate");
+    console.error("  limit de autenticação do Supabase, e esgotá-lo põe fora quem tem as");
+    console.error("  credenciais certas (é a lição do R-34).");
     process.exitCode = 1;
     return;
   }
