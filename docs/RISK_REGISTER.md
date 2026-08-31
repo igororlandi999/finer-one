@@ -123,7 +123,7 @@ Documentos, Clientes/Fornecedores, Chat, Alertas, rótulos de demonstração,
 
 | ID | Risco | Sev. | Estado | Bloqueia | Mitigação |
 |---|---|---|---|---|---|
-| R-06 | **`redirect: "follow"` nos dois endpoints.** Se o upstream for comprometido, um `302` para `169.254.169.254` seria seguido pelo BFF. | P2 | **aceite** | — | É **obrigatório**: o Apps Script responde `302` de `script.google.com` para `script.googleusercontent.com`, e `redirect: "error"` partiria produção. Mitigado por o destino inicial vir só de `process.env` (nenhum input do cliente lhe toca — testado) e por o corpo ter de passar `corpoEhJsonDoContrato`. **Fechar com uma lista de hosts permitidos após confirmar a cadeia real de redirects do GAS.** ⚠️ **30/08:** a medição foi tentada e **não foi possível** — ver B-03. Continua aceite. |
+| R-06 | **`redirect: "follow"` nos dois endpoints.** Se o upstream for comprometido, um `302` para `169.254.169.254` seria seguido pelo BFF. | P2 | **aceite** | — | É **obrigatório**: o Apps Script responde `302` de `script.google.com` para `script.googleusercontent.com`, e `redirect: "error"` partiria produção. Mitigado por o destino inicial vir só de `process.env` (nenhum input do cliente lhe toca — testado) e por o corpo ter de passar `corpoEhJsonDoContrato`. **Fechar com uma lista de hosts permitidos após confirmar a cadeia real de redirects do GAS.** ⚠️ **30/08:** a medição foi tentada e **não foi possível** Ver B-03. Continua aceite. ⚠️ **31/08: o comportamento passou de suposto a MEDIDO** — `test/upstream-redirects.test.mjs` prova, com o `fetch` real contra servidores locais, que um `302` para outro host **É seguido** e o corpo de lá é servido como o documento financeiro. Continua P2 aceite; ver a sessão de 31/08 e `B03_GAS_REDIRECT_RUNBOOK.md`. |
 | R-07 | **`{"error":true}` do Apps Script chega ao BFF com HTTP 200 e sai como 200.** `corpoEhJsonDoContrato` só prova "é um objeto". | P2 | **aceite por escrito** — 30/08/2026 | **já não bloqueia E3** | A aceitação está justificada por extenso na secção *"R-07 — aceitação por escrito"*, mais abaixo. Resumo: a defesa não é de uma camada só (são quatro consumidores, todos verificados), o Apps Script **não consegue** emitir outro estado, e o endurecimento — que continua a ser a coisa certa a fazer — obrigaria a re-promover o BFF na véspera de E3. **Patch redigido e por autorizar; a fazer depois de E3 estabilizar.** |
 | R-08 | **`{ok:false, error:{...}}` passaria a guarda do frontend**, porque `res.error === true` é falso quando `error` é um objeto. | P3 | aberto | E3 | Hoje **não é alcançável**: essa forma é produzida por `erroAjuste_`, que só serve o `doPost`, e o BFF só faz `GET`. Fica registado porque a distância entre "não alcançável" e "alcançável" é uma rota nova. |
 | R-09 | **`cobertura.confirmada` não é reposta na troca de empresa.** | P3 | aberto | E4 | Sem impacto visível: o campo é escrito e nunca lido. Ver `CACHE_E_ESTADO_INVENTARIO.md` §C1. |
@@ -257,11 +257,11 @@ por decisão: a sessão era de consolidação, não de correção.
 | R-31 | **A leitura anónima legada continua a partir em E2, em dois momentos em que não seria preciso.** (1) Quatro pedidos a `/api/pedidos/vendas` saem **antes de qualquer autenticação**, ainda no ecrã de login; (2) outros quatro saem ao trocar para a **Finer Teste**, uma empresa sem integração configurada. Nos dois casos os dados reais da Overcel atravessam o fio. | P3 | **aceite para E2** | fecha em **E3** | **O resultado é corretamente descartado** — o guarda de escopo (`9531cc8`) recusa carimbá-lo e o `AppShell` não monta as páginas; foi isso que o browser confirmou. Não é regressão: é a natureza do endpoint legado, que é anónimo por construção (R-14) e não sabe o que é uma empresa. **É precisamente o que E3 fecha:** com o transporte protegido, faltando empresa ou token o transporte é `NENHUM` e não o anónimo. Não se corrige antes disso — seria acrescentar uma guarda a um caminho que vai desaparecer. |
 | R-32 | **O token de sessão do Supabase vive numa origem partilhada com outros projetos.** `sb-bysqekhcyrvtiejcupoa-auth-token` (1942 bytes, com `access_token` **e** `refresh_token`) é guardado no `localStorage` de `https://igororlandi999.github.io`. Essa origem tem 14 chaves, e **12 são de outros projetos publicados na mesma conta de GitHub Pages** (`ml_orders_cache_v1` com 1,6 MB, `austinMissionBoard`, `cf_products`, `canton_*`, `decoratto:ui-prefs`). O GitHub Pages serve **todos** os repositórios de uma conta na mesma origem, portanto qualquer JavaScript em qualquer dessas páginas consegue ler o token da Finer One. | **P2** | **aberto — provado, com veredito** | E4 · **CONDICIONAL para E3** | **Provado em código a 30/08 — ver a secção *"R-32 — a prova"*.** **O mecanismo da aplicação está correto** e foi verificado: o logout remove o token integralmente, sem resíduo. O problema é o **alojamento**, não o código. **E2 foi o que introduziu isto** — antes não existia token nenhum nessa origem, e é por isso que aparece agora e não antes. Agrava-se em E3, que dá a esse mesmo token poder de leitura financeira no BFF. Saídas possíveis, nenhuma para hoje: domínio próprio para a Finer One (separa a origem e resolve na raiz); ou sessão em memória em vez de `localStorage` (custa a persistência entre separadores e o refresh); ou não publicar outros projetos nesta conta. **Veredito de 30/08: NÃO bloqueia E3 por si só — bloqueia E4.** E3 não muda onde o token vive; muda o que ele alcança. A condição para E3 é registar a aceitação e não deixar a decisão de domínio próprio sem dono. **Decidir antes de E4**, que é quando deixa de haver só um utilizador. |
 | R-33 | **Isolamento FORTE entre duas empresas não é demonstrável com a configuração de contas actual.** A conta usada na validação (`Proprietário` na Overcel, `Consulta` na Finer Teste) é membro **das duas** empresas. O que se provou foi o R-18 — que os dados de A não aparecem sob o nome de B para um utilizador multiempresa. **Não** se provou o que é uma pergunta diferente e mais forte: que um utilizador que pertença **só** a B não consegue alcançar A. | **P2** | **bloqueado** | **E3** (condição 5) · E4 | Não é uma falha conhecida — é uma **verificação que não foi possível fazer**, e não fazer uma verificação não é passá-la. Exige uma conta que pertença a **uma só** empresa. As políticas de RLS foram verificadas contra a base de dados a 29/08 (B-07), o que é evidência do lado do servidor; falta a evidência do lado do produto montado. **30/08: a estratégia está desenhada** — conta de smoke dedicada a **uma só** empresa, aditiva, sem tocar em nenhuma membership existente. Sequência, rollback e teste de aceitação na secção *"R-33 — a saída menos invasiva"*. **Continua a bloquear E3 até ser executada.** |
-| R-34 | **Comportamento inconsistente do autofill no primeiro login.** Um único clique em "Entrar" produziu **quatro** `POST` a `/auth/v1/token?grant_type=password` — três `400` e depois um `200` — e o `200` ocorreu **sem novo clique**. Entre a falha e o sucesso, o campo de email mudou sozinho de uma conta guardada para outra. | P3 | **mitigado** — a metade nossa está fechada; a causa continua por determinar | **não bloqueia E3** | ⚠️ **A hipótese que aqui estava é FALSA e foi retirada.** Dizia que o formulário "não tem `<label for>` nem `id`/`name`". Tem, e já tinha: `a8bfca0:src/pages/Login.jsx` traz `htmlFor`, `id`, `name`, `type` e `autoComplete` nos dois campos, e o bundle **efetivamente servido** (`index-DVG67Kg3.js`, o de `gh-pages 22b0526`) contém `id:"current-password",name:"password",autoComplete:"current-password"`. Os avisos de consola observados vinham de outro formulário da página, não deste. **O que se provou a 30/08:** o formulário aceitava submits concorrentes — dois eventos no mesmo tick produziam **dois** `POST /auth/v1/token`. `disabled={signingIn}` não o impedia, porque é estado do React (há uma janela antes do commit) e porque um submit programático — o que um gestor de palavras-passe dispara — nem passa pelo botão. Fechado com uma guarda síncrona por `ref` e três testes (`src/pages/Login.submitUnico.test.jsx`). **O que continua por determinar:** a troca automática de email entre tentativas não nasce na aplicação, e por isso o patch **não** é apresentado como a causa dos quatro pedidos. Determiná-lo exigiria abrir corpos com credenciais — que se continua a não fazer. |
+| R-34 | **Comportamento inconsistente do autofill no primeiro login.** Um único clique em "Entrar" produziu **quatro** `POST` a `/auth/v1/token?grant_type=password` — três `400` e depois um `200` — e o `200` ocorreu **sem novo clique**. Entre a falha e o sucesso, o campo de email mudou sozinho de uma conta guardada para outra. | P3 | **mitigado** — a metade nossa está fechada; a causa continua por determinar | **não bloqueia E3** | ⚠️ **A hipótese que aqui estava é FALSA e foi retirada.** Dizia que o formulário "não tem `<label for>` nem `id`/`name`". Tem, e já tinha: `a8bfca0:src/pages/Login.jsx` traz `htmlFor`, `id`, `name`, `type` e `autoComplete` nos dois campos, e o bundle **efetivamente servido** (`index-DVG67Kg3.js`, o de `gh-pages 22b0526`) contém `id:"current-password",name:"password",autoComplete:"current-password"`. Os avisos de consola observados vinham de outro formulário da página, não deste. **O que se provou a 30/08:** o formulário aceitava submits concorrentes — dois eventos no mesmo tick produziam **dois** `POST /auth/v1/token`. `disabled={signingIn}` não o impedia, porque é estado do React (há uma janela antes do commit) e porque um submit programático — o que um gestor de palavras-passe dispara — nem passa pelo botão. Fechado com uma guarda síncrona por `ref` e três testes (`src/pages/Login.submitUnico.test.jsx`). **O que continua por determinar:** a troca automática de email entre tentativas não nasce na aplicação, e por isso o patch **não** é apresentado como a causa dos quatro pedidos. Determiná-lo exigiria abrir corpos com credenciais — que se continua a não fazer. **31/08: a metade SEQUENCIAL também fechou.** Provou-se que N pedidos === N eventos `submit` (o SDK não repete: `signInWithPassword` emite um só `_request`, e o único `retryable()` do SDK está no caminho do `grant_type=refresh_token`), e que nenhum caminho da aplicação gera um submit a mais. `Login.submitSequencial.test.jsx` (9 testes) defende-o, e uma mutação em `Login.jsx` mata 4 deles — enquanto o ficheiro antigo fica verde, que era exatamente a lacuna. Ver a sessão de 31/08. |
 | R-35 | **O relógio da máquina de desenvolvimento está atrasado.** Medido a 30/08/2026 contra o cabeçalho `Date` do GitHub: **−48 s**. | P3 | **aceite** | — | Sem impacto observado. Fica registado porque desloca carimbos temporais locais (mtimes, horas de commit) face aos do servidor, e porque **48 s é ruído suficiente para confundir uma reconstrução forense** — foi por comparar mtimes com horas de commit que se reconstruiu a queda de energia de 30/08. Não afeta a validade de tokens: o Supabase valida do lado do servidor. |
 | R-36 | **O SQL do `BFF_POST_PRODUCTION_SMOKE.md` refere colunas do `audit_log` que já não correspondem ao esquema.** | P3 | **aberto** | — | Não corrigido nesta sessão por decisão explícita — a sessão não abria trabalho novo e o ficheiro pertence ao fluxo do BFF, que estava congelado. **Consequência prática:** quem correr o smoke tal como está escrito recebe um erro de SQL, não um resultado errado — falha ruidosamente, que é o modo de falhar aceitável. Corrigir na próxima sessão que toque no BFF. |
 | R-37 | **A RLS de escrita não foi testada em Production.** | P3 | **aceite (decisão deliberada)** | E5 | Não é um esquecimento. As escritas estão desligadas (`COVERAGE_WRITES_ENABLED` off, `coverageWriteClient.js` sem importador fora do próprio teste), portanto não há caminho pelo produto que exercite a RLS de escrita. Testá-la exigiria ligar a escrita em Production para a testar — que é precisamente o que não se quer fazer. **Fica para quando as escritas forem ligadas**, e faz parte dessa decisão, não desta. |
-| R-38 | **`ALLOWED_ORIGINS` de Production inclui `http://localhost:5173`.** Lido a 30/08: `https://igororlandi999.github.io,http://localhost:5173`. Uma página servida em `localhost:5173` na máquina de alguém recebe cabeçalho de CORS do BFF — incluindo do endpoint **legado anónimo**, que serve os números reais da Overcel. | P3 | **aceite** | — | Não acrescenta superfície ao que já existe: o endpoint legado é anónimo por construção (R-14) e responde a qualquer `curl` sem Origin nenhuma — o CORS só restringe browsers. E chegar a `localhost:5173` da vítima exige já estar a correr código na máquina dela. Fica registado por duas razões: é uma origem de **desenvolvimento** numa variável de **produção**, e **E3 é o momento certo para a remover** — depois de E3 o legado deixa de servir a aplicação, e a lista devia passar a ter uma entrada só. |
+| R-38 | **`ALLOWED_ORIGINS` de Production inclui `http://localhost:5173`.** Lido a 30/08: `https://igororlandi999.github.io,http://localhost:5173`. Uma página servida em `localhost:5173` na máquina de alguém recebe cabeçalho de CORS do BFF — incluindo do endpoint **legado anónimo**, que serve os números reais da Overcel. | P3 | **aceite** | — | Não acrescenta superfície ao que já existe: o endpoint legado é anónimo por construção (R-14) e responde a qualquer `curl` sem Origin nenhuma — o CORS só restringe browsers. E chegar a `localhost:5173` da vítima exige já estar a correr código na máquina dela. Fica registado por duas razões: é uma origem de **desenvolvimento** numa variável de **produção**, e **E3 é o momento certo para a remover** — depois de E3 o legado deixa de servir a aplicação, e a lista devia passar a ter uma entrada só. **31/08: a proposta concreta está escrita** — valor por ambiente, mudança mínima, impacto nos testes locais, rollback e verificação pelo fio. Ver a sessão de 31/08. |
 
 ---
 
@@ -274,7 +274,7 @@ não fazer uma verificação não é o mesmo que passá-la.
 |---|---|---|
 | B-01 | Smoke test do Preview **com token válido**: `200` com membership, `403` sem, e o isolamento entre duas empresas | E1 | **verificado** 29/08 com conta de smoke dedicada |
 | B-02 | Que a cadeia `Apps Script 401 → BFF 502 → sem logout` se comporta assim **em rede real**, e não só nos duplos | E1 | **verificado** 29/08 — upstream 401 real → BFF 502 |
-| B-03 | A cadeia real de redirects do Apps Script (quantos saltos, para que hosts) — fecha R-06 | E1 | **continua ABERTO** — tentado a 30/08 e **impossível com o acesso desta sessão**. Ver a nota abaixo. |
+| B-03 | A cadeia real de redirects do Apps Script (quantos saltos, para que hosts) — fecha R-06 | E1 | **continua ABERTO** — tentado a 30/08 e **impossível com o acesso desta sessão**. Ver a nota abaixo. **31/08: tudo o que NÃO exige a `GAS_URL` está feito** — sonda escrita e verificada ponta a ponta (`scripts/gas-redirect-probe.mjs`) e a lógica de redirects medida contra servidor local. Falta **só o valor**. Ver `B03_GAS_REDIRECT_RUNBOOK.md`. |
 | B-04 | Equivalência entre o Preview e a produção para os quatro recursos do caminho legado | E1 | **fechado por OBSOLESCÊNCIA** — 30/08. Ver a nota abaixo. |
 | B-05 | Que `ALLOWED_ORIGINS` está configurada no Vercel **antes** de publicar (⚠️ o legado passou de aberto a fechado por omissão) | E1 | **verificado** 29/08 |
 | B-06 | Estado real das variáveis de ambiente de produção e da Deployment Protection | E1 | **verificado** 29/08 |
@@ -582,3 +582,194 @@ nenhum utilizador existente.
 `company_id` da Overcel · `company_id` da Finer Teste · credenciais da conta nova ·
 `access_token` dela (de `POST /auth/v1/token?grant_type=password`, ou lido da sessão no
 browser). **Nenhum token é para imprimir nem guardar.**
+
+---
+
+## Sessão autónoma de preparação para E3 — 31/08/2026
+
+Nada foi ligado, publicado, promovido nem criado. **E3 continua NÃO INICIADO** e
+`VITE_PROTECTED_DATA_TRANSPORT` continua vazio, no repositório e no artefacto servido.
+O que se segue é o que a sessão **provou**, e onde a prova está.
+
+### E2.1 — a publicação, confirmada pelo fio
+
+| | |
+|---|---|
+| Frontend `HEAD` = `origin/main` | `bd615ee` — 0 à frente / 0 atrás, árvore limpa |
+| `gh-pages` | `6e8c0ae`, de 30/08 03:57:40 |
+| Site | `https://igororlandi999.github.io/finer-one/` · `200` · `assets/index-CllETh7I.js` |
+| **Reprodutibilidade** | o rebuild local de `bd615ee` reproduz os **sete** ficheiros publicados **byte a byte** (SHA-256 de cada um, incluindo o `index.html`) |
+| Interruptores **no bundle servido** | `VITE_AUTH_MODE:"supabase"` · `VITE_PROTECTED_DATA_TRANSPORT:""` — lidos do artefacto, não do `.env` |
+| Segredos no bundle | nenhum. Só a chave `sb_publishable_*`, pública por desenho |
+| BFF | `74a1e0b`, árvore limpa, 0/0. **Não se lhe tocou** |
+| `.mcp.json` | modificado localmente, **fora do stage** |
+
+### R-34 — a metade sequencial, fechada do nosso lado
+
+A sessão anterior fechou os submits **concorrentes**. Faltava a pergunta que a assinatura
+observada exige — três `400` e depois um `200` em eventos **separados no tempo**: *existe
+algum caminho da aplicação capaz de gerar um submit a mais?*
+
+**Auditado:** `Login.jsx`, o adaptador Supabase, `AuthContext`, o formulário, os handlers,
+o `StrictMode`, os efeitos, os listeners globais, os atributos de gestor de palavras-passe
+e a propagação de eventos.
+
+**O que se apurou:**
+
+| Facto | Onde |
+|---|---|
+| `submeter` é o **único** handler de submit da aplicação. Há **um só `<form>`** em todo o `src/` | varrimento |
+| A aplicação **nunca** chama `requestSubmit()`, `form.submit()` nem `.click()` num botão de submit | varrimento — o único `.click()` é o do download de CSV |
+| Nenhum efeito, nenhum re-render e nenhuma notificação de `onAuthStateChange` chama `signIn` | `AuthContext.jsx:131` é o único chamador |
+| **`signInWithPassword` emite UM pedido e mais nenhum** — não há retry nem backoff em `_request`/`_handleRequest` | `@supabase/auth-js@2.112.4`, `GoTrueClient.js:927,939`; `lib/fetch.js:99,119` |
+| **O único `retryable()` do SDK está no caminho do `grant_type=refresh_token`** — outro `grant_type`. A renovação automática **não pode** aparecer como `grant_type=password` | `GoTrueClient.js:4012,4017` |
+| `form.submit()` **não emite evento de submit** (é a norma) — logo não chama `submeter`, logo não faz `POST`. O que faria era uma **navegação** do formulário | medido |
+
+**Conclusão, e só até onde ela vai:** N pedidos `POST /auth/v1/token?grant_type=password`
+=== N chamadas a `signInWithPassword` === N chamadas a `adapter.signIn` === N eventos
+`submit`. **Os quatro pedidos observados foram quatro submissões, e nenhuma nasceu do
+código desta aplicação.** Isto **não** identifica quem as gerou — não absolve nem acusa o
+gestor de palavras-passe, porque nada nesta sessão observou um. Fixa a **fronteira**: de
+que lado dela a causa não está.
+
+**A defesa:** `src/pages/Login.submitSequencial.test.jsx`, 9 testes, com o invariante
+`nº de pedidos === nº de eventos submit` medido nos **dois** lados. Cobre os cenários B
+(clique), D (`requestSubmit`), E (dois eventos espaçados), G (re-render com o pedido em
+voo), H (erro → nova tentativa, três vezes), o `StrictMode`, a mutação do campo de email
+entre tentativas, e `form.submit()`.
+
+**Verificado que os testes têm força:** uma mutação em `Login.jsx` — um `useEffect` que
+resubmete ao aparecer o erro — **mata 4 dos 9**. O ficheiro antigo,
+`Login.submitUnico.test.jsx`, **fica verde com a mesma mutação**: era exatamente a lacuna.
+Mutação restaurada de imediato; `git diff` de `Login.jsx` vazio.
+
+**O que continua por determinar, e continua a não se fingir que não:** a troca automática
+do campo de email entre tentativas. Não nasce na aplicação, e separar browser de gestor de
+palavras-passe de pessoa exigia um browser real com gestor instalado. **A automação de
+browser não respondeu nesta sessão** (nem a extensão, nem o DevTools MCP), pelo que os
+cenários C (`Enter`) e F (autofill) ficam por cobrir. O `happy-dom` **não implementa
+submissão implícita por `Enter`** — medido, não suposto —, mas num browser o `Enter` emite
+**um** evento `submit`, que é o mesmo caminho de B e D.
+
+**R-34 continua P3 e continua a não bloquear E3.**
+
+### B-03 / R-06 — o que se mediu sem a `GAS_URL`
+
+Runbook completo: `B03_GAS_REDIRECT_RUNBOOK.md`.
+
+**Não se tentou obter a `GAS_URL` por meios indiretos.** Continua *Sensitive* no Vercel.
+
+Duas coisas passaram de inferência a facto:
+
+1. **As opções que o BFF passa ao upstream**, verificadas no fio: `GET`,
+   `redirect: "follow"`, `Accept: application/json` e **mais nada** — em particular
+   **o `Authorization` de quem pede NÃO é propagado** para o Apps Script;
+2. **O que `redirect: "follow"` faz mesmo.** Isto **nunca tinha sido exercido por teste
+   nenhum**: todos os outros testes do upstream injetam `fetchImpl`, e um duplo ignora a
+   opção `redirect` porque não é um cliente HTTP. A opção que decide o comportamento mais
+   sensível do proxy estava documentada e **não estava medida**.
+
+`finer-one-proxy/test/upstream-redirects.test.mjs` fecha isso com o `fetch` real do Node
+contra servidores locais. **Cinco testes, todos verdes.** O que mostram:
+
+- uma cadeia dentro do mesmo host é seguida até ao fim — é a forma da cadeia real do GAS;
+- **um `302` para um host DIFERENTE é seguido, o host é mesmo contactado, e o corpo que
+  vem de lá é servido como o documento financeiro** desde que tenha a forma do contrato.
+  **É o R-06, medido em vez de suposto;**
+- uma cadeia infinita não pendura o proxy: vira `502 UPSTREAM`;
+- um redirect que acaba em HTML — o Apps Script sem autorização — é `502
+  UPSTREAM_INVALIDO`, nunca `200`;
+- o endereço não aparece nos registos.
+
+**O tamanho real do R-06, dito com honestidade:** para redirecionar o upstream é preciso
+já controlar o Apps Script — e quem controla o Apps Script já controla os dados. O que
+isto mede não é a probabilidade, é a **amplitude**. Continua **P2 aceite**.
+
+**Falta um valor e mais nada.** `finer-one-proxy/scripts/gas-redirect-probe.mjs` está
+escrito e **verificado ponta a ponta** contra `script.google.com` com um id inventado:
+mede a cadeia e não imprime a `GAS_URL`, nem querystrings, nem cabeçalhos, nem o corpo.
+
+### R-38 — proposta concreta para tirar o `localhost` da Production
+
+**Não executada.** Production não foi tocada.
+
+**Porque é que o `localhost` lá está:** foi configurado quando o desenvolvimento local
+precisava de falar com o BFF de Production — não há ambiente de Preview alcançável (o
+Protection Bypass saiu, R-B), portanto `localhost:5173` contra Production era a única
+forma de exercer o caminho autenticado a partir do browser.
+
+**Se continua a ser preciso depois de E3: não.** Depois de E3 o legado deixa de servir a
+aplicação e a lista devia passar a ter **uma entrada só**. O desenvolvimento local que
+precise do BFF pode usar `vercel dev`, que corre o BFF na própria máquina com
+`ALLOWED_ORIGINS` local — sem depender da lista de Production.
+
+**Como separar dev/preview/prod:** `ALLOWED_ORIGINS` é uma variável por ambiente no
+Vercel. A separação já existe na plataforma e não está a ser usada:
+
+| Ambiente | Valor proposto |
+|---|---|
+| **Production** | `https://igororlandi999.github.io` — uma entrada, mais nada |
+| **Preview** | `https://igororlandi999.github.io,http://localhost:5173` |
+| **Development** (`vercel dev`) | `http://localhost:5173` |
+
+**A mudança mínima:** editar `ALLOWED_ORIGINS` **apenas no âmbito Production**, tirando
+`,http://localhost:5173`. **Nenhuma linha de código muda** — `lib/cors.js` lê a variável a
+cada pedido. **Não exige redeploy**, mas exige uma **nova invocação** para apanhar o valor.
+
+**Impacto nos testes locais:** um `npm run dev` em `localhost:5173` deixa de conseguir ler
+respostas do BFF de Production **no browser**. Não afeta `curl` nem os testes automatizados
+(o CORS é uma regra que só o browser aplica), e não afeta a aplicação publicada. É
+exatamente a fricção pretendida.
+
+**Quando:** **durante o rollout de E3, depois de E3 estar validado** — não antes. Antes de
+E3 o legado ainda serve a aplicação, e mexer na lista de origens no mesmo intervalo
+tornaria impossível dizer, se algo partisse, qual das duas mudanças foi.
+
+**Rollback:** repor o valor anterior — `https://igororlandi999.github.io,http://localhost:5173`
+— e forçar uma invocação. Segundos, e sem deploy.
+
+**Verificação, antes e depois:**
+
+```bash
+curl -i -X OPTIONS "https://finer-one-proxy.vercel.app/api/pedidos/vendas" \
+  -H "Origin: http://localhost:5173" \
+  -H "Access-Control-Request-Method: GET"
+# antes:  204 com Access-Control-Allow-Origin: http://localhost:5173
+# depois: sem cabecalho Allow-Origin  <- e este o objetivo
+```
+
+R-38 continua **P3 aceite**, agora com a mudança desenhada e datada.
+
+### Revisão de segurança pré-E3 — o que muda de risco ao ligar o transporte protegido
+
+Limitada, de propósito, aos caminhos que **mudam** com E3: token, `companyId`, membership,
+`/financial-data`, CORS, `Authorization`, logout, troca de empresa, cache, armazenamento do
+browser, registos, `audit_log` e os erros `401`/`403`.
+
+**Não foi encontrado nenhum risco P1 ou P2 por registar que seja provocado por ligar o
+transporte protegido.** O que foi verificado, e onde:
+
+| Caminho | Estado |
+|---|---|
+| **Preflight de CORS** — E3 acrescenta o cabeçalho `Authorization`, o que torna o pedido *não-simples* e passa a **exigir um `OPTIONS` de preflight** que o caminho legado nunca precisou | **já resolvido.** `lib/cors.js:101` emite `Access-Control-Allow-Headers: Content-Type, Authorization`; `protect.js:219` responde `204` a `OPTIONS`; há testes (`test/cors.test.mjs:220`) |
+| Token em URL, query ou registo | **nunca.** `api.js` só o recebe por `headers`; `buildUrl` só monta `params`. Zero `console.*` em `src/services/` e `src/auth/` |
+| Token em cache no cliente | **não.** `getAccessToken` é pedido ao adaptador **no momento** de cada chamada |
+| `401` vs `403` | `401` chama `onUnauthorized` → logout; **`403` NÃO faz logout** — a sessão é boa, o que falha é a empresa. Expulsar aqui tiraria da aplicação quem ainda tem outras empresas válidas |
+| Identidade enviada pelo cliente | bloqueada nos dois lados: `assertPayloadSemIdentidade` no cliente (alarme) e no servidor (barreira) |
+| Dados cruzados na troca de empresa | **três camadas, todas vivas:** contador de geração (uma leitura obsoleta não aterra), `source` volta a `LOADING`, e `resolveCompanyDataScope`. Sob transporte protegido o dataset é carimbado com o `companyId` pedido (`blingDataService.js:1481`) |
+| Resíduo de gráficos | limpo no logout **e** na troca de empresa |
+| Cache da resposta protegida | `Cache-Control: private, no-store` no BFF |
+| `audit_log` | só o caminho da **recusa** e só com identidade; a escrita é **esperada** (não `void`), o `requestedCompanyId` é truncado, e não leva segredo nem valor financeiro |
+
+**Uma observação menor, que não é novidade nem bloqueia:** `signOut` não remove
+`finer-one:empresa-preferida` do `localStorage`. É um id de empresa, não um segredo, e
+`sessionContract.js` revalida-o contra as memberships (R-10). Fica como nota, não como
+risco novo.
+
+⚠️ **Uma armadilha de documentação, a única coisa nova que esta revisão encontrou.** O
+cabeçalho de `src/auth/companyDataScope.js` diz que o módulo *"desaparece"* quando a
+leitura passar a ser `/financial-data`. É **quase** verdade — as outras duas camadas
+sobrevivem — mas quem o apagar durante E3 remove uma defesa contra R-18/R-19 no mesmo dia
+em que muda o transporte, que é o pior dia possível para o fazer. **Não apagar
+`companyDataScope.js` no intervalo de E3.** Se for para remover, é depois de E3 estabilizar
+e com os testes de R-18 a correr antes e depois.

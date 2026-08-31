@@ -6,13 +6,18 @@
 >
 > | | |
 > |---|---|
-> | **E2** | **CONCLUÍDO.** Publicado a 30/08/2026, 02:56:56 (−03:00). |
-> | **SHA do frontend validado** | `a8bfca0` |
-> | **`origin/main`** | `a8bfca0` — **0 à frente / 0 atrás**. Os 27 commits estão no GitHub. |
-> | **`gh-pages`** | `22b0526` |
+> | **E2** | **CONCLUÍDO.** Publicado a 30/08/2026, 02:56:56 (−03:00), de `a8bfca0` para `gh-pages 22b0526`. |
+> | **E2.1** | **CONCLUÍDO.** Republicado a 30/08/2026, 03:57:40 (−03:00) — o patch do R-34 e a documentação de E3. |
+> | **SHA do frontend validado** | `bd615ee` |
+> | **`origin/main`** | `bd615ee` — **0 à frente / 0 atrás**, árvore limpa. |
+> | **`gh-pages`** | `6e8c0ae` |
 > | **Interruptores publicados** | `VITE_AUTH_MODE=supabase` · `VITE_PROTECTED_DATA_TRANSPORT` **vazio** |
 > | **E3** | **NÃO INICIADO.** |
 > | **BFF** | `74a1e0b` em Production, smoke autenticado concluído. |
+>
+> *Confirmado a 31/08/2026 pelo fio, não de memória: o site serve `6e8c0ae`, o rebuild
+> local de `bd615ee` reproduz os sete ficheiros publicados byte a byte, e os dois
+> interruptores foram lidos do bundle servido.*
 >
 > **R-18 está defendido em produção**, verificado no browser real — ver E2 abaixo.
 
@@ -132,6 +137,43 @@ fuso do `monthKeyOf`.
 | **Bundle servido** | `assets/index-DVG67Kg3.js` |
 | **Validado no browser real** | 30/08/2026 |
 | **Reprodutibilidade** | `npm run check:predeploy` reconstrói `dist/` **byte a byte igual** ao artefacto publicado |
+
+---
+
+### E2.1 — Republicação com o patch do R-34 · ✅ **CONCLUÍDO**
+
+**Não é uma etapa nova do rollout.** É E2 outra vez, com mais dois commits e **os mesmos
+interruptores**. Fica registada em separado porque o artefacto servido mudou, e um
+artefacto que muda sem registo é um artefacto que ninguém consegue reconstruir.
+
+| | |
+|---|---|
+| **Publicado** | 30/08/2026, 03:57:40 (−03:00) |
+| **A partir de** | `bd615ee` (= `a8bfca0` + `37f71d2` patch R-34 + `bd615ee` docs) |
+| **`gh-pages`** | `6e8c0ae` |
+| **Bundle servido** | `assets/index-CllETh7I.js` |
+| **Interruptores** | `VITE_AUTH_MODE=supabase` · `VITE_PROTECTED_DATA_TRANSPORT` **vazio** — **inalterados face a E2** |
+| **Testes** | **2340** testes, **97** ficheiros (E2 tinha 2337/96; o ficheiro novo é `Login.submitUnico.test.jsx`) |
+| **Reprodutibilidade** | verificada a **31/08** por SHA-256 dos **sete** ficheiros: `index.html`, o CSS e os cinco chunks. **Todos idênticos** |
+
+O que **não** mudou, e é o que importa neste passo:
+
+- [x] o transporte protegido continua **DESLIGADO** — `VITE_PROTECTED_DATA_TRANSPORT:""`
+      lido do bundle servido, não do `.env`;
+- [x] as leituras continuam pelo **legado**; zero chamadas a `/financial-data`;
+- [x] a regressão multiempresa de E2 continua a passar;
+- [x] a Finer Teste continua a mostrar ausência de dados, com zero números da Overcel;
+- [x] nenhum segredo no bundle — só a chave `sb_publishable_*`, pública por desenho.
+
+O que mudou:
+
+- [x] **R-34 mitigado** — guarda síncrona por `ref` contra submissões concorrentes
+      (`37f71d2`). A 31/08 fechou-se também a metade **sequencial**: ver
+      `RISK_REGISTER.md` §*Sessão autónoma de preparação para E3 — 31/08/2026*;
+- [x] documentação da preparação de E3 — R-B e B-04 fechados, R-07 e R-32 aceites.
+
+> **E3 continua NÃO INICIADO.** E2.1 não o aproxima nem o adia: muda o artefacto sem
+> mexer no interruptor que define a etapa.
 
 O que se confirmou — **todos passaram**, em browser real com utilizador multiempresa:
 
