@@ -1,3 +1,17 @@
+> # ✅ 31/08/2026 — R-32 FECHADO. A Finer One tem origem própria.
+>
+> `https://finer-one-app.vercel.app` — projeto Vercel **separado** do BFF. O
+> `localStorage` da origem nova tem **uma** chave (o token); o da antiga tinha **13**, com
+> 12 de outros projetos. Detalhe em `RISK_REGISTER.md` §*R-32 FECHADO*.
+>
+> **O GitHub Pages continua a servir E3** e a origem antiga continua autorizada no CORS —
+> as duas coexistem de propósito, e é isso que torna a migração reversível.
+>
+> **Antes de E4, por ordem:** cutover para a origem nova · remover `localhost` do CORS
+> (**R-38**) · lista de hosts permitidos no BFF (**R-06**) · endurecer o contrato do
+> upstream (**R-07**). O domínio `app.finerone.pt` é questão de **marca**, já não de
+> segurança.
+
 # Próxima sessão — o que exige desktop
 
 > # ✅ OS PASSOS 1 A 5 DESTE FICHEIRO FORAM EXECUTADOS

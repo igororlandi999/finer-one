@@ -1304,3 +1304,114 @@ duplicação, e sem se perder — que era o R-H, verificado agora numa sondagem 
 **Riscos que transitam para antes de E4:** **R-32** (origem própria — agora
 **OBRIGATÓRIO**, e em curso), **R-38** (`localhost` no CORS de Production), **R-06**
 (lista de hosts permitidos no BFF), **R-07** (endurecimento do contrato do upstream).
+
+---
+
+# ✅ R-32 FECHADO — 31/08/2026
+
+**A Finer One passou a ter origem própria.** O token do Supabase deixou de partilhar
+`localStorage` com projetos que nada têm a ver com ela.
+
+## A prova, e é a única que interessa
+
+Mesmo browser, mesmo perfil, mesmo instante:
+
+| Origem | Chaves em `localStorage` |
+|---|---|
+| `https://igororlandi999.github.io` | **13** — `sb-bysqekhcyrvtiejcupoa-auth-token` ao lado de `cf_products`, `cf_suppliers`, `cf_device_id`, `cf_script_url`, `canton_script_url`, `canton_visits`, `austinMissionBoard` (+2 cópias), `decoratto:ui-prefs`, `cf_device_name` |
+| `https://finer-one-app.vercel.app` | **1** — `sb-bysqekhcyrvtiejcupoa-auth-token`, e mais nada |
+
+Antes do login a origem nova tinha **zero** chaves. **Nada atravessou**: a sessão nasceu
+ali, por login natural. Não se copiou token nenhum entre origens — e não se podia, que é
+precisamente o ponto.
+
+## A arquitetura escolhida, e porquê
+
+**Projeto Vercel separado, exclusivo do frontend.** O BFF continua em
+`finer-one-proxy.vercel.app`, noutro projeto, intocado.
+
+A decisão que destrancou isto foi separar duas coisas que estavam confundidas: **o R-32
+exigia uma ORIGEM própria, não um DOMÍNIO próprio.** O plano anterior começava por
+"registar o domínio" e por isso não arrancava — `finerone.pt` nem sequer resolve. Um
+subdomínio `*.vercel.app` é uma origem distinta tanto quanto um domínio comprado é, e
+custou zero, sem DNS e sem provider novo.
+
+`app.finerone.pt` continua a ser o destino final desejável — por **marca**, não por
+segurança — e entra como *custom domain* deste mesmo projeto quando existir, **sem repetir
+a migração**.
+
+## O que mudou no repositório
+
+Um patch, e é tudo (`916e3b4`):
+
+| | |
+|---|---|
+| `vite.base.mjs` | **novo** — `resolveBase()`, fonte única do `base` |
+| `vite.config.js` | `base: resolveBase(process.env)` |
+| `scripts/predeploy-check.mjs` | deixa de ter `/finer-one/` à mão; importa o mesmo módulo |
+| `src/config/viteBase.test.js` | **novo** — 21 testes |
+
+Sem `VITE_BASE`, o build reproduz o artefacto do GitHub Pages **byte a byte**. O patch é
+inerte para a origem antiga — e é isso que permite as duas coexistirem.
+
+## Infraestrutura
+
+| | |
+|---|---|
+| Projeto Vercel | `finer-one-app` · deployment `dpl_GnYtnw2eqU4u3fyctL3Nhz3Up3gw` · SHA `901209b` |
+| Variáveis | as seis, âmbito Production, **não-Sensitive** (auditáveis) |
+| `ALLOWED_ORIGINS` | `https://igororlandi999.github.io,http://localhost:5173,https://finer-one-app.vercel.app` |
+| BFF | redeploy do deployment canónico existente para reler a variável. **Identidade Git histórica não comprovável** — o deployment não tem metadados de Git, por ter sido publicado por CLI (R-A) |
+| Supabase | **nenhuma alteração** — o fluxo é só palavra-passe, sem `redirectTo` |
+
+## Validação na origem nova
+
+| | |
+|---|---|
+| Overcel | dados reais, 21 valores em `R$`, 0 em `€` |
+| Finer Teste | 0 em `R$`, 5 em `€`, **zero** assinatura numérica, nomes ou menções da Overcel |
+| A → B → A | Overcel restaurada por inteiro |
+| refresh | sessão preservada, 4 protegidas |
+| **protected / legacy** | **12 / 0** |
+| cache | `private, no-store` · `application/json; charset=utf-8` |
+| CORS | origem nova permitida · antiga permitida · `localhost` permitido · estranha **recusada** |
+| R-33 | `finer-teste` **200** · `overcel` **403 FORBIDDEN** · membership única |
+| consola | sem erro crítico |
+
+### O fail-closed, observado antes do CORS
+
+Entre publicar o frontend e autorizar a origem no BFF houve uma janela em que a
+autenticação funcionava e as leituras eram **bloqueadas por CORS**. O que se viu nessa
+janela vale registar:
+
+```
+POST /auth/v1/token  -> 200        autenticação funciona
+GET  .../financial-data -> ERR_FAILED  ×4   bloqueado por CORS
+chamadas ao legado: 0        valores no ecrã: 0        estado: indisponível
+```
+
+**CORS bloqueado não provocou fallback para o legado.** É o R-39 a segurar numa falha de
+rede real, e não num teste.
+
+## O que NÃO mudou, de propósito
+
+- **GitHub Pages continua a servir E3** em `gh-pages 3d668e1`. Não foi desligado;
+- **a origem antiga continua no `ALLOWED_ORIGINS`.** As duas coexistem — é essa janela que
+  torna a migração reversível;
+- **`localhost:5173` continua na lista** — é o **R-38**, e continua separado.
+
+## Rollback
+
+Nada a reverter: a origem antiga nunca deixou de funcionar. Se a nova tiver de sair, basta
+removê-la do `ALLOWED_ORIGINS`. O deployment anterior do BFF
+(`dpl_HFeYpXmESePdfZk32ZKXB3ttiq76`) continua a existir e é o alvo de rollback do redeploy.
+
+## O que falta para o R-32 ficar completo em espírito, e não só em risco
+
+O risco está fechado. Fica por fazer, **e não é urgente**:
+
+1. **decidir e registar `app.finerone.pt`** — verificação de disponibilidade no
+   **registrador/WHOIS/RDAP**, nunca por `nslookup`. `NXDOMAIN` prova ausência de
+   resolução, não disponibilidade;
+2. **cutover** do GitHub Pages para a origem nova, quando houver confiança;
+3. **só depois**: remover a origem antiga do CORS e despublicar o GitHub Pages.
