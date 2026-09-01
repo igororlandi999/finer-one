@@ -455,3 +455,108 @@ Remove-Item $HOME\.finer-smoke.json
 
 O ficheiro vive **fora** do repositório de propósito, mas não tem razão para continuar a
 existir entre testes.
+
+---
+
+# ✅ R-06 FECHADO — 31/08/2026, 22:20 (−03:00)
+
+O BFF deixou de seguir redirects cegamente. **Em Production.**
+
+## Antes e depois
+
+| | |
+|---|---|
+| **antes** | `fetch(url, { redirect: "follow" })` nos dois endpoints. O `follow` do Node segue para onde o `Location` mandar, sem olhar para o host |
+| **depois** | `redirect: "manual"`, saltos dados à mão, cada destino validado **antes** de ser contactado (`lib/upstreamRedirect.js`) |
+
+**O tamanho real do risco, sem o inflacionar:** para redirecionar o upstream é preciso já
+controlar o Apps Script — e quem o controla já controla os dados. Isto não fechou uma
+porta aberta; **limitou a amplitude** se ela for arrombada. Passou de *"qualquer host da
+internet"* para *"o que o Google serve"*.
+
+## A política
+
+| | |
+|---|---|
+| **Hosts permitidos** | `script.google.com` · `script.googleusercontent.com` |
+| De onde vem a lista | **a medição da sonda do B-03** com a `GAS_URL` real — um salto, dois hosts — e não uma suposição sobre como o Apps Script funciona |
+| Mesmo host do pedido inicial | também passa: um redirect interno não amplia nada, porque quem controla esse host já controlava a resposta |
+| **Limite de redirects** | **5** (a cadeia real tem **1**) |
+| **Protocolo** | não pode descer. `https → http` é recusado **mesmo para um host da lista** |
+| **`Authorization`** | **nunca** propagado ao upstream, em nenhum salto |
+| Comparação de hosts | **igualdade exata**, nunca por sufixo — um `endsWith("google.com")` deixaria passar `atacante-google.com` |
+
+## Semântica de erro (e o que NÃO é)
+
+A recusa cai no `catch` que já existia e vira **`502`**. O registo leva **só o hostname** —
+nunca a `Location` inteira, que carrega a query string do upstream.
+
+**Isto não é o R-07.** O tratamento de `{"error":true}` com `200` → `502` **não foi
+tocado** e continua aceite e pendente.
+
+## O caminho: Preview → smoke → Production
+
+| | |
+|---|---|
+| **Preview** | `finer-one-proxy-oe1qj2a6s` · HEAD `7ee20e5` · 22:16 |
+| Alcançabilidade | o Preview está atrás de *Deployment Protection* (`302`) desde que o bypass saiu no R-B. **Não se reabriu.** Usou-se `vercel curl`, que faz o bypass pela autenticação da própria CLI, sem tocar em definição nenhuma |
+| **Production** | `dpl_EYAYpYLtspxxHAkN9dt3TsWDSn1r` (`k7d5onnjn`) · 22:20:21 |
+| Deployment anterior | `finer-one-proxy-4bbi3pf7a` — **é o rollback** |
+| Rollback mais antigo | `dpl_HFeYpXmESePdfZk32ZKXB3ttiq76` (`81cthzdak`), o canónico de 29/08 |
+
+## A prova de que não houve regressão
+
+O endpoint legado exerce a cadeia **real** do Apps Script a cada pedido. Comparado nos
+três estados:
+
+```
+Production ANTERIOR (follow cego)  ->  595493 bytes  ·  sha256 e9c39bd640a1ce7e9970…
+Preview    (política)              ->  595493 bytes  ·  sha256 e9c39bd640a1ce7e9970…
+Production NOVA   (política)       ->  595493 bytes  ·  sha256 e9c39bd640a1ce7e9970…
+```
+
+**Byte a byte idêntico.** O payload financeiro não mudou — mudou o caminho por onde se
+recusa ir.
+
+## As provas negativas, ao nível do fio
+
+Com o `fetch` real e servidores locais:
+
+| | |
+|---|---|
+| redirect para host de terceiros | **recusado** — e o host **nunca foi contactado**. A mensagem **não expõe** a `Location` |
+| `https → http` em host permitido | **recusado** |
+| cadeia sem fim | parou ao **6.º** pedido (limite 5) |
+
+## Smoke de Production
+
+| | |
+|---|---|
+| legado (cadeia real) | `200`, 595493 bytes |
+| protegido sem token | `401` |
+| `OPTIONS` | `204` · `HEAD` `405` |
+| CORS | `finer-one-app` ✅ · `github.io` ✅ · `localhost` **recusado** ✅ · estranha **recusada** ✅ |
+| cache (protegido, autenticado) | **`private, no-store`** |
+| Frontend `finer-one-app.vercel.app` | sessão válida · Overcel com dados reais (21 valores em `R$`) · **protected 5 · legacy 0** · sem erro crítico |
+
+## Testes
+
+**269 no total.** 29 novos de política (`test/upstreamRedirect.test.mjs`) mais os 5 no fio
+(`test/upstream-redirects.test.mjs`), onde o teste de caracterização `SEGUE PARA OUTRO
+HOST` foi **convertido em regressão** — exatamente como o seu próprio cabeçalho previa.
+
+**Três mutações, três mortas:** permitir qualquer hostname mata 10; acrescentar um host
+atacante à lista mata 3; voltar ao `follow` cego mata 2.
+
+### Uma nota sobre o harness, porque a razão interessa
+
+O duplo dos testes no fio ignorava o URL e devolvia sempre o mesmo destino. Isso bastava
+enquanto o `follow` era interno ao Node — o duplo era chamado **uma** vez. Com o R-06 é o
+nosso código que dá cada salto, e um duplo que ignora o URL faz a cadeia andar em círculo.
+O servidor local passou a **fingir-se dos hosts do Google**, preservando caminho e query:
+as `Location` relativas resolvem-se no espaço de nomes onde se resolvem a sério.
+
+## Rollback
+
+`npx vercel promote finer-one-proxy-4bbi3pf7a…` — ou redeploy desse deployment. Continua a
+existir e traz o código anterior. **Não foi necessário.**
