@@ -1,3 +1,18 @@
+> # ✅ 31/08/2026 — CUTOVER FEITO. A origem oficial é `https://finer-one-app.vercel.app`.
+>
+> `ALLOWED_ORIGINS` = **só** a origem nova. O `github.io` continua a servir o estático mas
+> **falha fechado**: as chamadas ao BFF são bloqueadas por CORS, zero legado, zero dados.
+>
+> ⚠️ **Uma decisão em aberto, e não é cosmética.** O CORS só protege o **browser**. Um
+> token roubado do `localStorage` partilhado de `github.io` funciona contra o BFF por
+> `curl`. Enquanto a app antiga puder **iniciar sessão**, continua a fabricar tokens numa
+> origem partilhada. Medido a 31/08: há lá uma sessão viva, ao lado de 12 chaves de outros
+> projetos. **Manter o site antigo funcional não é neutro** — é o que deixa o R-32 vivo
+> pela porta de trás. Ver `RISK_REGISTER.md` §*CUTOVER*.
+>
+> **Falta decidir:** manter (A), substituir por uma página que aponta para a origem nova
+> (B), ou despublicar (C). Nada foi despublicado.
+
 > # ✅ 31/08/2026 — R-38 FECHADO. `localhost` saiu do CORS de Production.
 >
 > `ALLOWED_ORIGINS` = `https://igororlandi999.github.io,https://finer-one-app.vercel.app`.

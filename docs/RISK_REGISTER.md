@@ -1732,3 +1732,102 @@ status mata 9; devolver a mensagem do upstream mata o teste de não-vazamento.
 
 Promover ou redeployar `finer-one-proxy-k7d5onnjn`. Continua a existir. **Não foi
 necessário.**
+
+---
+
+# ✅ CUTOVER — 31/08/2026, 22:39 (−03:00)
+
+**A origem oficial da Finer One passou a ser `https://finer-one-app.vercel.app`.**
+
+## O que mudou
+
+```
+ALLOWED_ORIGINS
+  antes:   https://igororlandi999.github.io,https://finer-one-app.vercel.app
+  depois:  https://finer-one-app.vercel.app
+  diff:    remover "https://igororlandi999.github.io,"
+```
+
+Lido do valor real antes e depois. Nenhuma outra variável tocada; continua **não-Sensitive**
+e auditável.
+
+| | |
+|---|---|
+| Deployment anterior | `dpl_4D1KbT3NEGodWWb6fx8xGpSe1UqK` (`p94sdahu1`) |
+| Deployment novo | `dpl_EiYuqDnGbFZcVwbNqBAyNFurvBVQ` (`3ekip0i10`) · 22:39:08 |
+| Método | **redeploy do deployment existente** — só env, sem código novo |
+| Rollback | `dpl_EYAYpYLtspxxHAkN9dt3TsWDSn1r` (`k7d5onnjn`), pré-R-07 |
+
+## A prova do cutover
+
+| Origem | Endpoint protegido | Endpoint legado |
+|---|---|---|
+| `https://finer-one-app.vercel.app` | **permitida** | **permitida** |
+| `https://igororlandi999.github.io` | **SEM `Allow-Origin`** | **SEM `Allow-Origin`** |
+| origem estranha | SEM `Allow-Origin` | — |
+
+**Nada além do CORS mudou:** protegido sem token `401`, `OPTIONS` `204`, `HEAD` `405`,
+legado `200` com **595493 bytes** e `sha256 e9c39bd640a1ce7e9970…` — o mesmo payload de
+sempre.
+
+## Smoke final na origem oficial
+
+| | |
+|---|---|
+| sessão | válida |
+| Overcel | dados reais, 21 valores em `R$`, assinatura e nomes presentes |
+| Finer Teste | 0 em `R$`, 5 em `€`, **zero** assinatura, nomes ou menções da Overcel |
+| A → B → A | Overcel restaurada por inteiro |
+| refresh | sessão preservada |
+| **protected / legacy** | **15 / 0** |
+| cache | `private, no-store` |
+| consola | sem erro crítico (só os avisos de formulário do R-34 e o `404` do favicon) |
+
+## A origem antiga, depois do cutover
+
+| | |
+|---|---|
+| HTTP | `200` — o estático continua a ser servido |
+| chamadas ao BFF | **4 × `ERR_FAILED`**, bloqueadas por CORS |
+| chamadas ao legado | **0** — sem fallback |
+| dados financeiros no ecrã | **nenhum**; zero valores monetários, zero assinatura da Overcel |
+| estado | **indisponível** — falha fechado |
+
+**A origem antiga deixou de funcionar como Production.**
+
+---
+
+# ⚠️ MAS O R-32 NÃO FECHA SÓ COM CORS — E ISTO É NOVO
+
+Medido na origem antiga **depois** do cutover:
+
+```
+sessão Finer One ainda viva nessa origem:  SIM   (expira 2026-09-01T01:57:41Z)
+total de chaves no localStorage:           14
+de outros projetos:                        canton_script_url · cf_products · cf_suppliers
+                                           cf_device_id · cf_script_url · cf_device_name
+                                           austinMissionBoard (+3 cópias) · decoratto:ui-prefs
+                                           canton_visits
+```
+
+**O CORS só protege o browser.** Um token roubado do `localStorage` partilhado de
+`igororlandi999.github.io` — por um script de qualquer projeto vizinho da mesma origem —
+**funciona contra o BFF a partir de `curl`**, onde não há CORS nenhum a aplicar. O BFF
+autoriza por JWT, e o JWT continua válido.
+
+Ou seja: enquanto a aplicação antiga continuar a **conseguir iniciar sessão**, continua a
+**fabricar tokens numa origem partilhada** — e o cutover de CORS não fecha esse caminho,
+apenas o fecha para o browser.
+
+**Consequência para a decisão do GitHub Pages:** manter o site antigo funcional (opção A)
+**não é neutro**. É a opção que deixa o R-32 vivo pela porta de trás. As opções B (página
+que aponta para a origem nova) e C (despublicar) fecham-no, porque removem a capacidade de
+criar sessões naquela origem.
+
+**Esta decisão fica em aberto e é do Igor.** Nada foi despublicado.
+
+## Rollback do cutover
+
+Repor `https://igororlandi999.github.io,` no `ALLOWED_ORIGINS` e redeployar o deployment
+existente. Segundos, e sem tocar em código. O GitHub Pages nunca foi despublicado, portanto
+não há nada a repor do lado dele.
