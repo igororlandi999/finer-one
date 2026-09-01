@@ -306,6 +306,21 @@ export function normalizeReceivable(raw) {
       id: raw.formaPagamento && raw.formaPagamento.id != null ? raw.formaPagamento.id : null,
       nome: raw.formaPagamento && raw.formaPagamento.nome ? raw.formaPagamento.nome : null,
     },
+    /* ORIGEM DO TÍTULO (metadata documental). O Apps Script já a persiste no snapshot
+     * e ela era descartada exatamente aqui — uma camada antes de a camada documental
+     * poder usá-la. Só os campos de que a camada documental precisa; `dataEmissao` e
+     * `valor` de origem ficam DELIBERADAMENTE de fora, porque o título já os tem e
+     * duplicá-los criaria duas fontes para o mesmo número.
+     *
+     * `tipoOrigem` é o discriminador: 'venda' => `id` é um PEDIDO; 'notafiscal' => `id`
+     * é uma NOTA FISCAL. Nenhum motor financeiro lê isto. Ver documentNormalizer. */
+    origem: raw.origem ? {
+      id: (raw.origem.id != null) ? raw.origem.id : null,
+      tipoOrigem: (raw.origem.tipoOrigem != null) ? raw.origem.tipoOrigem : null,
+      numero: (raw.origem.numero != null) ? raw.origem.numero : null,
+      situacao: (raw.origem.situacao != null) ? raw.origem.situacao : null,
+      url: (raw.origem.url != null) ? raw.origem.url : null,
+    } : null,
   };
 }
 
