@@ -562,3 +562,75 @@ Nenhuma bloqueia a operação, e as duas são de minutos:
 ### Rollback
 
 `gh-pages 6e8c0ae`, reproduzível byte a byte a partir de `bd615ee`. **Não foi necessário.**
+
+---
+
+## ✅ R-33 REVALIDADO EM E3 — 31/08/2026 · e E3 fecha
+
+Última verificação residual de E3. **Fechada com valores reais.**
+
+### Rede — `node scripts/r33-smoke.mjs` contra Production com E3 ligado
+
+```
+user_id:      a1a84e5d-99cf-4612-a187-93c676492c42
+memberships:  [{"company_id":"finer-teste","role":"viewer"}]
+
+PRE-CONDICAO   finer-teste true · overcel false · total 1        OK
+TESTE 1        GET finer-teste/financial-data  -> 200            OK
+               debug.fonte: integracao-nao-configurada · 58 bytes
+TESTE 2        GET overcel/financial-data      -> 403 FORBIDDEN  OK
+               corpo: {"error":true,"code":"FORBIDDEN",
+                       "message":"Sem acesso a este recurso."}
+```
+
+### `audit_log` — corrido no SQL Editor pelo Igor
+
+| Verificação | Valor |
+|---|---|
+| `total_linhas` | **2** (uma de manhã, uma em E3) |
+| `delta_foi_1` | `true` — **uma recusa, uma linha** |
+| `company_id_null` | `true` |
+| `action_ok` | `true` — `access.denied` |
+| `month_key_null` | `true` |
+| `requested_overcel` | `true` |
+| `decision_ok` | `true` — `forbidden` |
+| `reason_ok` | `true` — `sem_membership`, e não `membership_insuficiente` |
+| `capability_ok` | `true` — `read_financial_data` |
+| `chaves_metadata` | `["capability","decision","reason","requestedCompanyId"]` — **quatro, e mais nenhuma** |
+
+**Higiene, nas duas linhas (`id 34` e `id 35`):** `parece_credencial` `false` ·
+`parece_url` `false` · `parece_financeiro` `false`. Sem token, sem palavra-passe, sem
+`GAS_URL`, sem um único número da Overcel.
+
+### O que isto acrescenta ao que já se sabia
+
+O `403` já tinha sido provado de manhã, **antes** de E3. Repeti-lo **depois** de o
+transporte protegido estar ligado responde à única pergunta que faltava: *ligar E3 mudou
+alguma coisa na autorização?* **Não mudou** — E3 alterou o cliente, e a barreira continua
+onde sempre esteve, no BFF.
+
+E o `delta_foi_1` fecha a outra metade: **uma recusa produziu exatamente uma linha.** Sem
+duplicação, e sem se perder — que era o R-H, verificado agora numa sondagem isolada.
+
+---
+
+# E3 = FECHADO DEFINITIVAMENTE — 31/08/2026
+
+| | |
+|---|---|
+| Frontend | `66682a4` · `gh-pages 3d668e1` · bundle `index-DVBYao2b.js` |
+| Interruptores | `VITE_AUTH_MODE=supabase` · `VITE_PROTECTED_DATA_TRANSPORT=true` |
+| BFF | `74a1e0b` — não foi tocado em nenhum momento |
+| **Zero legado** | **32 leituras protegidas · 0 ao legado**, em todos os fluxos medidos |
+| Isolamento | Finer Teste sem um único valor, nome ou menção da Overcel |
+| `logout` → `login` | sessão nova, Overcel normal, sem mistura |
+| R-33 em E3 | `200` / `403` / `audit_log` — **as três metades** |
+| CORS | origem oficial permitida; origem estranha **sem `Allow-Origin`** |
+| Cache | `private, no-store` confirmado à mão com *Disable cache* |
+| Rollback | `gh-pages 6e8c0ae` — **não foi necessário** |
+
+**R-39**, o P1 apanhado no pré-deploy, está fechado **e verificado no ar**.
+
+**Riscos que transitam para antes de E4:** **R-32** (origem própria — agora
+**OBRIGATÓRIO**, e em curso), **R-38** (`localhost` no CORS de Production), **R-06**
+(lista de hosts permitidos no BFF), **R-07** (endurecimento do contrato do upstream).

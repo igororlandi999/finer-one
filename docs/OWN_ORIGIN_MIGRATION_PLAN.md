@@ -15,11 +15,21 @@
 > nslookup app.finerone.pt      -> Non-existent domain
 > ```
 >
-> O domínio preferido **está por registar**. Todo o plano de 11 passos abaixo começa no
-> passo 1 com "registar o domínio", e é por isso que ele **não pode arrancar hoje**.
+> ⚠️ **E o que isto prova, exatamente — corrigido a 31/08.** `NXDOMAIN` prova **ausência de
+> resolução DNS** e **nada mais**. **NÃO** prova que o domínio está livre para compra: um
+> domínio pode estar registado e simplesmente não ter zona publicada, ou estar em período
+> de redenção, ou parqueado sem registos.
 >
-> *(`finerone.com` devolve `SERVFAIL`, que **não** é o mesmo que estar registado nem que
-> estar livre. Por DNS não se conclui nada sobre ele.)*
+> A versão anterior desta secção deu a entender que `finerone.pt` estava disponível. **Não
+> se sabe.** A disponibilidade verifica-se no **registrador**, ou por **WHOIS/RDAP** —
+> nunca por `nslookup`.
+>
+> O que se pode afirmar: **`app.finerone.pt` não resolve hoje**, portanto não há para onde
+> apontar nada, e o plano de 11 passos **não pode arrancar** sem essa verificação feita no
+> sítio certo.
+>
+> *(`finerone.com` devolve `SERVFAIL` — que não é sequer `NXDOMAIN`. Não se conclui nada
+> sobre ele, em nenhuma direção.)*
 >
 > ## 2. Há um caminho melhor, e não precisa de domínio nenhum
 >
@@ -46,7 +56,23 @@
 > | Marca | fraca (`*.vercel.app`) | **forte** | fraca |
 > | Quando pode arrancar | **hoje** | só depois de comprar o domínio | depois de criar a conta |
 >
-> ### Recomendação
+> ### ✅ DECIDIDO — 31/08/2026: opção A, com projeto **separado**
+>
+> O Igor escolheu a **opção A**, com uma precisão arquitetural que fica registada porque
+> importa: **o frontend NÃO vai para o projeto Vercel do BFF.** Cria-se um projeto Vercel
+> **exclusivo do frontend**, e `finer-one-proxy.vercel.app` fica **separado e intacto**.
+>
+> Arquitetura alvo temporária:
+>
+> | | |
+> |---|---|
+> | Frontend | projeto Vercel novo, com `*.vercel.app` **exclusivo da Finer One** |
+> | BFF | `finer-one-proxy.vercel.app` — **separado, e não se lhe toca** |
+>
+> Mais tarde, `app.finerone.pt` entra como *custom domain* **do mesmo projeto frontend**,
+> sem refazer a migração.
+>
+> ### Recomendação original (mantida)
 >
 > **A primeiro, B a seguir.** O Vercel fecha o R-32 **hoje**, sem compras e sem DNS; e
 > quando `app.finerone.pt` existir, aponta-se para o mesmo projeto Vercel com uma
