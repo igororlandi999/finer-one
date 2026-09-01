@@ -57,3 +57,10 @@ diagnostico/opexJunho.mjs
 # este repositorio e publico.
 # ─────────────────────────────────────────────────────────────────────────────────────
 .vercel
+
+# A CLI do Vercel acrescentou `.env*` ao ligar o projeto. Fica, porque e mais largo do
+# que as regras la de cima e apanha um `.env.production` distraido. Mas com UMA excecao:
+# o `.env.example` e versionado DE PROPOSITO — e a documentacao das variaveis, e e onde
+# esta escrito o que e publico e o que e segredo. Sem a negacao, a regra escondia-o.
+.env*
+!.env.example
