@@ -3,7 +3,7 @@
 // Também protege a remoção dos campos mortos (alertas.metrics, diagnostics).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { buildSalesDataset, normalizeOrder } from "./blingDataService.js";
+import { buildSalesDataset, normalizeOrder, normalizeReceivable } from "./blingDataService.js";
 import { buildMonthlyDre } from "../utils/dreEngine.js";
 
 const HOJE = new Date(2026, 6, 15, 12, 0, 0);
@@ -565,6 +565,34 @@ describe("buildSalesDataset — catálogo documental (sales.documents)", () => {
     const o = normalizeOrder({ id: 1, numero: 2, data: "2026-06-01", total: 10, itens: [] });
     expect(o.notaFiscalId).toBeNull();
     expect(o.dataSaida).toBeNull();
+  });
+
+  /* A `origem` era persistida pelo Apps Script e descartada aqui — uma camada antes
+   * de a camada documental a poder usar. Ver documentNormalizer (FONTE D). */
+  it("normalizeReceivable propaga origem com os cinco campos documentais", () => {
+    const r = normalizeReceivable({
+      id: 5, situacao: 1, valor: 4250, vencimento: "2026-07-15",
+      origem: { id: 26576410855, tipoOrigem: "notafiscal", numero: "4471", situacao: 7,
+                url: "https://x/y.pdf", dataEmissao: "2026-06-15", valor: 4250 },
+    });
+    expect(r.origem).toEqual({
+      id: 26576410855, tipoOrigem: "notafiscal", numero: "4471", situacao: 7, url: "https://x/y.pdf",
+    });
+  });
+
+  it("normalizeReceivable preserva tipoOrigem 'venda' sem o promover a nota fiscal", () => {
+    const r = normalizeReceivable({
+      id: 6, situacao: 1, valor: 100, vencimento: "2026-07-15",
+      origem: { id: 26576405725, tipoOrigem: "venda", numero: "1318", situacao: 1 },
+    });
+    expect(r.origem.tipoOrigem).toBe("venda");
+    expect(r.origem.url).toBeNull();
+    expect(r.notaFiscalId).toBeUndefined();
+  });
+
+  it("recebivel sem origem fica com origem null, nunca inventada", () => {
+    const r = normalizeReceivable({ id: 7, situacao: 1, valor: 100, vencimento: "2026-07-15" });
+    expect(r.origem).toBeNull();
   });
 });
 

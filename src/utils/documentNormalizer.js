@@ -86,21 +86,54 @@ function contactOf(entity) {
   return { id: c.id != null ? c.id : null, name: c.nome || null };
 }
 
+/**
+ * ID DE NOTA FISCAL DO BLING → inteiro positivo, ou null.
+ *
+ * ─── PORQUE ISTO EXISTE (correção de integridade) ───────────────────────────────────
+ * O gate anterior era `if (o.notaFiscalId == null) continue`. Contra a conta real da
+ * Overcel isso deixava passar **245 documentos fiscais inexistentes**: o Bling usa
+ * `notaFiscalId: 0` como SENTINELA de "pedido sem nota fiscal", e `0 == null` é falso.
+ * Medido em 2026-09-01 sobre 1200 pedidos: 985 com `notaFiscalId` não-nulo, mas apenas
+ * 729 ids reais (11 dígitos) — os restantes 256 pedidos partilhavam o valor `0`.
+ *
+ * É o mesmo padrão que o projeto já conhece de `categoriaId: 0` ("sem categoria").
+ * Zero não é um id: é a ausência escrita com um número.
+ *
+ * ─── PORQUE O TIPO É VERIFICADO ANTES DA COERÇÃO ────────────────────────────────────
+ * `Number(true)` é 1 e `Number(["7"])` é 7. Sem o teste de tipo, um booleano ou um
+ * array de um elemento passariam a id de nota fiscal válido. Só número ou string.
+ */
+export function toNotaFiscalId(value) {
+  let n;
+  if (typeof value === "number") n = value;
+  else if (typeof value === "string") {
+    const t = value.trim();
+    if (t === "") return null;
+    n = Number(t);
+  } else return null;
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 /* ====================================================================================
  * FONTE A — PEDIDOS DE VENDA.
  *
- * Só entram pedidos com `notaFiscalId`. O detalhe do Bling devolve `notaFiscal`
- * apenas com `id`: não há número, série, chave de acesso, PDF, XML nem link DANFE.
- * Por isso `number` fica null e o rótulo é neutro ("Nota fiscal do pedido 1318") —
- * usar o número do pedido como número fiscal seria informação falsa.
- * Pedidos cancelados não geram documento.
+ * Só entram pedidos com `notaFiscalId` VÁLIDO (ver toNotaFiscalId: inteiro positivo).
+ * O detalhe do Bling devolve `notaFiscal` apenas com `id`: não há número, série, chave
+ * de acesso, PDF, XML nem link DANFE. Por isso `number` fica null e o rótulo é neutro
+ * ("Nota fiscal do pedido 1318") — usar o número do pedido como número fiscal seria
+ * informação falsa. Pedidos cancelados não geram documento.
+ *
+ * O id documental é `doc-nfe-{idNotaFiscal}` e NÃO `doc-order-{id}`: a identidade de
+ * uma nota fiscal é a nota, não o pedido que a originou. É isso que permite que a
+ * mesma nota vista pelo pedido e vista pelo recebível seja UM documento (ver FONTE D).
  * ==================================================================================== */
 export function documentsFromOrders(orders, { currency } = {}) {
   const out = [];
   for (const o of billable(orders || [])) {
-    if (o.notaFiscalId == null) continue; // sem nota emitida => sem documento
+    const nfId = toNotaFiscalId(o.notaFiscalId);
+    if (nfId == null) continue; // sem nota emitida (ou sentinela 0) => sem documento
     out.push(makeDocument({
-      id: `doc-order-${o.id}`,
+      id: `doc-nfe-${nfId}`,
       type: DOCUMENT_TYPES.FISCAL_NOTE,
       label: o.numero != null ? `Nota fiscal do pedido ${o.numero}` : "Nota fiscal de pedido",
       number: null, // o Bling não devolve o número da nota no detalhe do pedido
@@ -111,7 +144,7 @@ export function documentsFromOrders(orders, { currency } = {}) {
         ? { id: o.client.id != null ? o.client.id : null, name: o.client.name || null }
         : null,
       relatedEntity: { type: "order", id: o.id },
-      metadata: { notaFiscalId: o.notaFiscalId, orderNumber: o.numero != null ? o.numero : null },
+      metadata: { notaFiscalId: nfId, orderNumber: o.numero != null ? o.numero : null },
     }));
   }
   return out;
@@ -175,6 +208,57 @@ export function documentsFromReceivables(receivables, { currency } = {}) {
   return out;
 }
 
+/* ====================================================================================
+ * FONTE D — NOTAS FISCAIS VISTAS PELO RECEBÍVEL.
+ *
+ * `/contas/receber/{id}` devolve `origem`, e `origem.id` NÃO é sempre uma nota fiscal.
+ * Medido em 2026-09-01 sobre as 1513 contas a receber reais da Overcel:
+ *
+ *   tipoOrigem      n     origem.id cruzado com…
+ *   'venda'       1456    pedido.id: 1153/1454   |  notaFiscalId: 0/1454
+ *   'notafiscal'    54    pedido.id:    0/53     |  notaFiscalId: 12/53
+ *   ''               3    sem número, situacao 0
+ *
+ * Ou seja: com `tipoOrigem: 'venda'` o `origem.id` é um ID DE PEDIDO, e tratá-lo como
+ * nota fiscal estaria errado nas 1454 linhas. `tipoOrigem` é o discriminador e tem de
+ * ser lido ANTES de qualquer outro campo de `origem`.
+ *
+ * ARMADILHA DOCUMENTADA: `origem.situacao` é um enum AMBÍGUO — o mesmo inteiro tem
+ * tabelas diferentes consoante o tipo. `1` é "Pendente" numa nota e "Atendido" numa
+ * venda. Por isso `situacao` viaja em metadata como valor cru, sem ser interpretado
+ * aqui: interpretá-lo sem o tipo produziria rótulos silenciosamente errados.
+ *
+ * Esta fonte NÃO substitui `documentsFromReceivables`: o título (fatura de cliente) e
+ * a nota fiscal que lhe deu origem são documentos distintos.
+ * ==================================================================================== */
+export function documentsFromReceivableFiscalNotes(receivables, { currency } = {}) {
+  const out = [];
+  for (const r of billableReceivables(receivables || [])) {
+    const o = r && r.origem;
+    if (!o || o.tipoOrigem !== "notafiscal") continue; // 'venda' => é pedido, não nota
+    const nfId = toNotaFiscalId(o.id);
+    if (nfId == null) continue;
+    out.push(makeDocument({
+      id: `doc-nfe-${nfId}`,
+      type: DOCUMENT_TYPES.FISCAL_NOTE,
+      label: o.numero != null && o.numero !== "" ? `Nota fiscal ${o.numero}` : "Nota fiscal",
+      number: o.numero, // aqui, ao contrário do pedido, o número da nota EXISTE
+      date: toCivilDate(receivableDate(r)),
+      amount: r.valor,
+      currency,
+      counterparty: contactOf(r),
+      relatedEntity: { type: "receivable", id: r.id },
+      metadata: {
+        notaFiscalId: nfId,
+        tipoOrigem: o.tipoOrigem,
+        origemSituacao: o.situacao != null ? o.situacao : null,
+      },
+      file: o.url ? { url: o.url } : null,
+    }));
+  }
+  return out;
+}
+
 /**
  * Catálogo consolidado.
  *
@@ -195,10 +279,15 @@ export function buildDocumentCatalog({ orders, payables, receivables, currency }
     ...documentsFromOrders(orders, { currency }),
     ...documentsFromPayables(payables, { currency }),
     ...documentsFromReceivables(receivables, { currency }),
+    ...documentsFromReceivableFiscalNotes(receivables, { currency }),
   ];
 
   const porId = new Map();
-  for (const d of bruto) if (!porId.has(d.id)) porId.set(d.id, d);
+  for (const d of bruto) {
+    const anterior = porId.get(d.id);
+    if (!anterior) porId.set(d.id, d);
+    else completarDocumento_(anterior, d);
+  }
 
   // Ordenação determinística: data desc (sem data no fim), depois id desc.
   const list = [...porId.values()].sort((a, b) => {
@@ -214,6 +303,32 @@ export function buildDocumentCatalog({ orders, payables, receivables, currency }
     list,
     stats: buildDocumentStats(list),
   };
+}
+
+/**
+ * COLISÃO DE ID DOCUMENTAL → a primeira ocorrência VENCE, e só os campos que ela tem
+ * a null são completados pela segunda. Muta `base` no sítio.
+ *
+ * Porquê completar em vez de descartar: com a chave fiscal canónica `doc-nfe-{id}`, a
+ * MESMA nota chega por dois caminhos — pelo pedido (que não conhece o número da nota,
+ * `number: null`) e pelo recebível (que o conhece). Descartar o segundo deitaria fora
+ * um facto que temos. Completar não inventa nada: os dois documentos são a mesma nota.
+ *
+ * O que NUNCA acontece: sobrepor um valor já preenchido. Quem chegou primeiro manda —
+ * é a regra que já existia e que os testes fixam.
+ */
+function completarDocumento_(base, extra) {
+  for (const campo of ["number", "date", "amount", "currency", "counterparty", "fileName"]) {
+    if (base[campo] == null && extra[campo] != null) base[campo] = extra[campo];
+  }
+  if (!base.file.url && extra.file && extra.file.url) {
+    base.file = { ...extra.file };
+    base.status = documentStatus(base.file);
+  }
+  for (const [k, v] of Object.entries(extra.metadata || {})) {
+    if (base.metadata[k] == null && v != null) base.metadata[k] = v;
+  }
+  return base;
 }
 
 /** Métricas suportadas pela fonte. Nada de "processados": não existe pipeline. */

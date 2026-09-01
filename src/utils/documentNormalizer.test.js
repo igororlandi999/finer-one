@@ -8,6 +8,8 @@ import {
   documentsFromOrders,
   documentsFromPayables,
   documentsFromReceivables,
+  documentsFromReceivableFiscalNotes,
+  toNotaFiscalId,
   documentsByCategory,
   filterDocuments,
   searchDocuments,
@@ -32,6 +34,86 @@ const receivable = (id, over = {}) => ({
   id, situacao: 1, valor: 4250, dataEmissao: "2026-06-15", vencimento: "2026-07-15",
   numeroDocumento: "FT 2026/130", historico: null, categoriaNome: "Vendas",
   contato: { id: 9, nome: "Cliente Gama" }, ...over,
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════
+ * REGRESSÃO DE INTEGRIDADE — `notaFiscalId: 0` é a sentinela do Bling para "sem nota".
+ * Contra a conta real: 256 pedidos partilhavam o valor 0 e produziam 245 documentos
+ * fiscais de notas que não existem. O gate antigo (`== null`) deixava-os passar.
+ * ══════════════════════════════════════════════════════════════════════════════════ */
+describe("toNotaFiscalId — só inteiro positivo é id de nota fiscal", () => {
+  it("aceita inteiro positivo, incluindo o id real de 11 dígitos do Bling", () => {
+    expect(toNotaFiscalId(26576410855)).toBe(26576410855);
+    expect(toNotaFiscalId(1)).toBe(1);
+  });
+
+  it("aceita string numérica positiva (o snapshot viaja em JSON)", () => {
+    expect(toNotaFiscalId("26576410855")).toBe(26576410855);
+    expect(toNotaFiscalId(" 42 ")).toBe(42);
+  });
+
+  it("REJEITA a sentinela 0, em número e em string", () => {
+    expect(toNotaFiscalId(0)).toBeNull();
+    expect(toNotaFiscalId("0")).toBeNull();
+  });
+
+  it("rejeita null e undefined", () => {
+    expect(toNotaFiscalId(null)).toBeNull();
+    expect(toNotaFiscalId(undefined)).toBeNull();
+  });
+
+  it("rejeita negativos", () => {
+    expect(toNotaFiscalId(-1)).toBeNull();
+    expect(toNotaFiscalId("-26576410855")).toBeNull();
+  });
+
+  it("rejeita NaN, Infinity, não-inteiros e strings inválidas", () => {
+    expect(toNotaFiscalId(NaN)).toBeNull();
+    expect(toNotaFiscalId(Infinity)).toBeNull();
+    expect(toNotaFiscalId(1.5)).toBeNull();
+    expect(toNotaFiscalId("abc")).toBeNull();
+    expect(toNotaFiscalId("")).toBeNull();
+    expect(toNotaFiscalId("  ")).toBeNull();
+  });
+
+  it("rejeita tipos que o Number() coagiria a um id plausível", () => {
+    expect(toNotaFiscalId(true)).toBeNull();   // Number(true) === 1
+    expect(toNotaFiscalId(["7"])).toBeNull();  // Number(["7"]) === 7
+    expect(toNotaFiscalId({})).toBeNull();
+    expect(toNotaFiscalId([])).toBeNull();
+  });
+});
+
+describe("documentsFromOrders — a sentinela nunca gera documento", () => {
+  const semDocumento = (nf) => documentsFromOrders([order(1, { notaFiscalId: nf })], {});
+
+  it("notaFiscalId === 0 não gera documento (245 falsos na conta real)", () => {
+    expect(semDocumento(0)).toEqual([]);
+    expect(semDocumento("0")).toEqual([]);
+  });
+
+  it("null, undefined, negativo, NaN e string inválida também não geram", () => {
+    for (const v of [null, undefined, -1, NaN, "abc", "", 1.5, true, {}]) {
+      expect(semDocumento(v)).toEqual([]);
+    }
+  });
+
+  it("id positivo continua a gerar exatamente um documento", () => {
+    const docs = semDocumento(26576410855);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].metadata.notaFiscalId).toBe(26576410855);
+  });
+
+  it("a mistura real (uns com nota, outros com a sentinela) só conta os verdadeiros", () => {
+    const docs = documentsFromOrders([
+      order(1, { notaFiscalId: 111 }),
+      order(2, { notaFiscalId: 0 }),
+      order(3, { notaFiscalId: 0 }),
+      order(4, { notaFiscalId: 222 }),
+    ], {});
+    expect(docs).toHaveLength(2);
+    expect(docs.map((d) => d.metadata.notaFiscalId).sort()).toEqual([111, 222]);
+  });
 });
 
 describe("documentsFromOrders — nota fiscal do pedido", () => {
@@ -123,7 +205,7 @@ describe("buildDocumentCatalog", () => {
     const cat = buildDocumentCatalog({ orders, payables, receivables });
     expect(cat.list).toHaveLength(3);
     expect(cat.list.map((d) => d.id).sort()).toEqual([
-      "doc-order-10", "doc-payable-10", "doc-receivable-10",
+      "doc-nfe-111", "doc-payable-10", "doc-receivable-10",
     ]);
   });
 
@@ -177,6 +259,111 @@ describe("buildDocumentCatalog", () => {
       "Faturas de Clientes", "Faturas de Fornecedores", "Notas Fiscais",
     ]);
     expect(donut.every((c) => c.value === 1)).toBe(true);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════
+ * ORIGEM DOS RECEBÍVEIS — `origem.id` só é nota fiscal quando `tipoOrigem` o diz.
+ * Contra a conta real: com 'venda', 0/1454 dos ids casavam com um id de nota e
+ * 1153/1454 casavam com um id de PEDIDO. A distinção não é opcional.
+ * ══════════════════════════════════════════════════════════════════════════════════ */
+describe("documentsFromReceivableFiscalNotes — tipoOrigem é o discriminador", () => {
+  const comOrigem = (o) => documentsFromReceivableFiscalNotes([receivable(30, { origem: o })], {});
+
+  it("tipoOrigem 'notafiscal' com id positivo gera a nota, com o número real", () => {
+    const [doc] = comOrigem({ id: 26576410855, tipoOrigem: "notafiscal", numero: "4471", situacao: 7, url: null });
+    expect(doc).toBeDefined();
+    expect(doc.type).toBe(DOCUMENT_TYPES.FISCAL_NOTE);
+    expect(doc.id).toBe("doc-nfe-26576410855");
+    expect(doc.number).toBe("4471");
+    expect(doc.metadata.notaFiscalId).toBe(26576410855);
+    expect(doc.relatedEntity).toEqual({ type: "receivable", id: 30 });
+  });
+
+  it("tipoOrigem 'venda' NUNCA gera nota fiscal — origem.id ali é um pedido", () => {
+    expect(comOrigem({ id: 26576405725, tipoOrigem: "venda", numero: "1318", situacao: 1 })).toEqual([]);
+  });
+
+  it("tipoOrigem vazio, ausente ou desconhecido não gera nota fiscal", () => {
+    expect(comOrigem({ id: 999, tipoOrigem: "", numero: null, situacao: 0 })).toEqual([]);
+    expect(comOrigem({ id: 999, tipoOrigem: null, numero: "x", situacao: 1 })).toEqual([]);
+    expect(comOrigem({ id: 999, tipoOrigem: "pedidocompra", numero: "x", situacao: 1 })).toEqual([]);
+    expect(documentsFromReceivableFiscalNotes([receivable(30)], {})).toEqual([]);
+  });
+
+  it("a sentinela e os ids inválidos também não passam com tipoOrigem correto", () => {
+    for (const id of [0, "0", null, -5, NaN, "abc"]) {
+      expect(comOrigem({ id, tipoOrigem: "notafiscal", numero: "4471", situacao: 7 })).toEqual([]);
+    }
+  });
+
+  it("origem.situacao viaja crua, sem ser interpretada (o enum é ambíguo)", () => {
+    const [doc] = comOrigem({ id: 111, tipoOrigem: "notafiscal", numero: "4471", situacao: 7 });
+    expect(doc.metadata.origemSituacao).toBe(7);
+    expect(doc.metadata.tipoOrigem).toBe("notafiscal");
+  });
+
+  it("origem.url, quando existir, torna o documento descarregável", () => {
+    const [sem] = comOrigem({ id: 111, tipoOrigem: "notafiscal", numero: "4471", situacao: 7, url: null });
+    expect(sem.status).toBe(DOCUMENT_STATUS.METADATA_ONLY);
+    const [com] = comOrigem({ id: 111, tipoOrigem: "notafiscal", numero: "4471", situacao: 7, url: "https://x/y.pdf" });
+    expect(com.status).toBe(DOCUMENT_STATUS.AVAILABLE);
+    expect(canDownload(com)).toBe(true);
+  });
+
+  it("o título continua a gerar a sua fatura de cliente — são documentos distintos", () => {
+    const r = receivable(30, { origem: { id: 111, tipoOrigem: "notafiscal", numero: "4471", situacao: 7 } });
+    expect(documentsFromReceivables([r], {})).toHaveLength(1);
+    expect(documentsFromReceivables([r], {})[0].type).toBe(DOCUMENT_TYPES.CLIENT_INVOICE);
+  });
+});
+
+describe("deduplicação pela chave fiscal canónica", () => {
+  const pedidoComNota = order(10, { notaFiscalId: 111, numero: 1318, date: "2026-06-01" });
+  const recebivelDaMesmaNota = receivable(30, {
+    numeroDocumento: "FT 2026/130",
+    origem: { id: 111, tipoOrigem: "notafiscal", numero: "4471", situacao: 7 },
+  });
+
+  it("a mesma nota vista pelo pedido e pelo recebível é UM documento", () => {
+    const cat = buildDocumentCatalog({ orders: [pedidoComNota], receivables: [recebivelDaMesmaNota] });
+    const fiscais = cat.list.filter((d) => d.type === DOCUMENT_TYPES.FISCAL_NOTE);
+    expect(fiscais).toHaveLength(1);
+    expect(fiscais[0].id).toBe("doc-nfe-111");
+  });
+
+  it("a primeira ocorrência vence, mas o número da nota — que só o recebível tem — é recuperado", () => {
+    const cat = buildDocumentCatalog({ orders: [pedidoComNota], receivables: [recebivelDaMesmaNota] });
+    const nota = cat.list.find((d) => d.id === "doc-nfe-111");
+    expect(nota.relatedEntity).toEqual({ type: "order", id: 10 }); // o pedido chegou primeiro
+    expect(nota.date).toBe("2026-06-01");                          // e a sua data mantém-se
+    expect(nota.number).toBe("4471");                              // mas o null foi completado
+  });
+
+  it("completar nunca sobrepõe um valor já preenchido", () => {
+    const cat = buildDocumentCatalog({
+      orders: [pedidoComNota],
+      receivables: [receivable(31, { origem: { id: 111, tipoOrigem: "notafiscal", numero: "OUTRO", situacao: 7 } }),
+                    recebivelDaMesmaNota],
+    });
+    expect(cat.list.find((d) => d.id === "doc-nfe-111").number).toBe("OUTRO");
+  });
+
+  it("notas fiscais diferentes continuam a ser documentos diferentes", () => {
+    const cat = buildDocumentCatalog({
+      orders: [order(10, { notaFiscalId: 111 }), order(11, { notaFiscalId: 222 })],
+    });
+    expect(cat.list).toHaveLength(2);
+    expect(cat.list.map((d) => d.id).sort()).toEqual(["doc-nfe-111", "doc-nfe-222"]);
+  });
+
+  it("notas fiscais e títulos nunca colidem entre si", () => {
+    const cat = buildDocumentCatalog({
+      orders: [order(10, { notaFiscalId: 111 })],
+      payables: [payable(111)],
+      receivables: [receivable(111)],
+    });
+    expect(cat.list.map((d) => d.id).sort()).toEqual(["doc-nfe-111", "doc-payable-111", "doc-receivable-111"]);
   });
 });
 
