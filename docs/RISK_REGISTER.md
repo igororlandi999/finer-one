@@ -1831,3 +1831,156 @@ criar sessões naquela origem.
 Repor `https://igororlandi999.github.io,` no `ALLOWED_ORIGINS` e redeployar o deployment
 existente. Segundos, e sem tocar em código. O GitHub Pages nunca foi despublicado, portanto
 não há nada a repor do lado dele.
+
+---
+
+# ✅ OPÇÃO B EXECUTADA — 31/08/2026, 22:51 (−03:00)
+
+A origem antiga deixou de servir a aplicação. `https://igororlandi999.github.io/finer-one/`
+passou a ser uma **página estática de encaminhamento**.
+
+| | |
+|---|---|
+| `gh-pages` antes | `3d668e1` — a aplicação React |
+| `gh-pages` depois | **`04c6847`** — um único ficheiro, `index.html` |
+| Fonte versionada | `gh-pages-redirect/index.html`, commit `e45161c` |
+| Rollback | `gh-pages 3d668e1`, reproduzível a partir de `bd615ee` — republicar `dist/` |
+
+## Porque é que isto não era arrumação
+
+O CORS já não autorizava a origem antiga, **mas o CORS só governa o browser**. Um token
+roubado do `localStorage` partilhado de `github.io` funciona a partir de `curl`, onde não
+há CORS a aplicar. Enquanto a aplicação lá conseguisse **iniciar sessão**, continuava a
+**fabricar tokens numa prateleira** que qualquer script de um projeto vizinho consegue ler.
+
+Fecha-se por **remoção**, não por configuração. É o que esta página faz.
+
+## O que a página não carrega — verificado, não prometido
+
+Com os comentários HTML removidos, para a prova ser sobre o que a página **faz** e não
+sobre o que ela **diz**:
+
+```
+<script>                          0
+bundle / assets                   0
+supabase                          0
+BFF / /api/                       0
+localStorage / sessionStorage     0
+auth / token / login / password   0
+financial-data / pedidos-vendas   0
+fetch / XHR / import              0
+qualquer host que não o novo      0
+
+único URL no ficheiro:  https://finer-one-app.vercel.app/
+```
+
+**Nem um script.** O encaminhamento é um `meta refresh`, que o browser executa sem correr
+código — por isso a ausência é verificável a olho. Sem tipos de letra externos: um `<link>`
+para o Google Fonts seria um pedido a terceiros numa página cuja razão de ser é não fazer
+pedidos. Redirect automático de 4 s **mais** link manual visível.
+
+## Prova em produção
+
+O branch `gh-pages` tem **um** ficheiro — o bundle antigo desapareceu. Servido:
+`<title>Finer One mudou de endereço</title>`, zero referências a `assets/`. Aberto em
+contexto isolado, encaminhou para a origem nova, que montou a aplicação normalmente.
+
+**A origem antiga já não monta a aplicação, não oferece login e não pode criar sessões.**
+
+## A origem oficial, depois disto
+
+`https://finer-one-app.vercel.app` — sessão válida, Overcel com dados reais (21 valores em
+`R$`), **4 protegidas · 0 legado**, sem indisponibilidade.
+
+---
+
+# ⚠️ DOIS ACHADOS DESTA RONDA, E NENHUM ERA ESPERADO
+
+## 1. O `git push` disparou um deploy automático do frontend
+
+`vercel link` imprimiu *"Connecting GitHub repository… Connected"* e **reativou a
+integração Git** que estava deliberadamente desligada. O push de `e45161c` produziu
+`dpl_FYmGZphYc68zVtiapFrK8KfaEfio` (`lq75pba3j`) **em Production**, sem ninguém o pedir.
+
+O artefacto que ficou está **correto** — `VITE_AUTH_MODE:"supabase"`,
+`VITE_PROTECTED_DATA_TRANSPORT:"true"`, API certa, `base` na raiz, sem segredos, sem source
+maps — e a aplicação foi verificada a funcionar. **Não houve estrago.** Mas a disciplina
+que este projeto manteve o rollout inteiro — *publicar é uma decisão, não um efeito
+secundário* (R-A) — foi quebrada por uma ferramenta.
+
+**Por decidir:** voltar a desligar a integração Git no projeto `finer-one-app`, ou aceitar
+o auto-deploy e passar a tratá-lo como o mecanismo oficial. **Não é neutro:** com ele
+ligado, qualquer commit em `main` que toque no frontend publica.
+
+## 2. O artefacto servido não reproduz a partir do repositório
+
+O bundle em produção é `index-CeG_Zjzp.js`, **415 553 bytes**. O build local do **mesmo
+commit** (`e45161c`) com o **mesmo `VITE_BASE=/`** dá `index-aYqIssvv.js`, e os `sha256`
+**diferem**.
+
+O que foi verificado e **não** explica a diferença:
+
+| | |
+|---|---|
+| `src/`, `vite.config.js`, `index.html`, `package.json` entre `901209b` e `e45161c` | **sem alterações** |
+| `package-lock.json` | **versionado**, e o `node_modules` local bate certo com ele — **zero pacotes com deriva** |
+| Metadados de Git no deployment | **nenhuns** — não há commit de origem para comparar |
+
+**A causa é desconhecida e não se inventa uma.** O que se sabe: o artefacto tem os
+interruptores certos, o `base` certo, nenhum segredo, nenhum source map, e a aplicação
+funciona.
+
+**O que isto custa:** a propriedade *"o rebuild local reproduz o artefacto publicado byte a
+byte"* — usada como prova em E2.1, em E3 e no Passo 0 — **deixa de valer para a origem
+nova**. É uma perda real de capacidade de auditoria, e fica registada como tal em vez de
+ser arredondada.
+
+**A investigar quando houver janela:** comparar `npm ci` contra `npm install` no build do
+Vercel, e fixar a versão do Node do projeto.
+
+---
+
+# PRÉ-E4 — o que falta
+
+## Sessões já emitidas ⛔ EXIGE AÇÃO HUMANA
+
+**Substituir o GitHub Pages NÃO invalida tokens já emitidos.** Um `access_token` do
+Supabase é um JWT assinado: vale até expirar, independentemente de a origem que o criou
+ainda existir. E o `refresh_token` que ficou no `localStorage` da origem antiga continua a
+poder renová-lo.
+
+Foi medido a 31/08, **depois** do cutover de CORS e antes desta página: havia uma sessão
+Finer One viva em `igororlandi999.github.io`, com expiração `2026-09-01T01:57:41Z`, ao lado
+de 12 chaves de outros projetos.
+
+### O passo a passo, sem imprimir tokens
+
+1. **Supabase → Authentication → Users.** A lista mostra `Last sign in at` por utilizador.
+   Nenhum token é exibido;
+2. para cada conta que tenha entrado na aplicação **antes de 31/08/2026 22:51**, usar
+   **Sign out user** (ou *Revoke sessions*). Isso invalida os `refresh_token` do lado do
+   servidor;
+3. os `access_token` já emitidos **continuam válidos até expirarem** — pela configuração
+   observada, cerca de uma hora. É uma janela curta e conhecida, e não há forma de a
+   encurtar sem rodar o segredo de assinatura do projeto;
+4. confirmar depois, entrando de novo **na origem nova**, que a sessão volta a formar-se
+   normalmente.
+
+**Não se revogam contas sem autorização**, e nada foi revogado nesta sessão.
+
+### Quem precisa
+
+Duas contas conhecidas usaram a origem antiga: a **principal** e a de **smoke**
+(`a1a84e5d-99cf-4612-a187-93c676492c42`). A lista de utilizadores do painel é a fonte
+autoritativa.
+
+## Estado
+
+| | |
+|---|---|
+| Origem oficial | `https://finer-one-app.vercel.app` |
+| GitHub Pages | apenas página de migração |
+| Origem antiga | **incapaz de iniciar sessão nova** |
+| CORS | só a origem nova |
+| **R-32** | **fechado estruturalmente** — a origem nova é exclusiva, e a antiga já não produz sessões |
+| **Pré-E4** | pendente da **revogação das sessões já emitidas**, mais a decisão sobre o auto-deploy |

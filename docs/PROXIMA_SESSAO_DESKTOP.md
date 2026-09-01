@@ -1,3 +1,19 @@
+> # ✅ 31/08/2026 — CUTOVER COMPLETO. Origem oficial: `https://finer-one-app.vercel.app`
+>
+> O GitHub Pages passou a ser uma **página de encaminhamento sem um único script**
+> (`gh-pages 04c6847`). A origem antiga já não monta a aplicação nem permite iniciar sessão.
+>
+> ## Falta, antes de E4 — três coisas, todas tuas
+>
+> 1. **Revogar as sessões já emitidas** no Supabase. Substituir a página **não** invalida
+>    tokens: um JWT vale até expirar. Passo a passo em `RISK_REGISTER.md` §*OPÇÃO B*;
+> 2. **Decidir o auto-deploy do frontend.** O `vercel link` reativou a integração Git e o
+>    meu push publicou em Production sem ninguém pedir. O artefacto ficou correto, mas
+>    quebra a regra do R-A — publicar é uma decisão, não um efeito secundário;
+> 3. **Reprodutibilidade perdida na origem nova.** O bundle servido não reproduz a partir
+>    do repositório, e a causa é desconhecida. `src/` e o lockfile não mudaram. Investigar
+>    `npm ci` vs `npm install` no build do Vercel e fixar a versão do Node.
+
 > # ✅ 31/08/2026 — CUTOVER FEITO. A origem oficial é `https://finer-one-app.vercel.app`.
 >
 > `ALLOWED_ORIGINS` = **só** a origem nova. O `github.io` continua a servir o estático mas
