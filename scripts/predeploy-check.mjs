@@ -28,6 +28,9 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+/* A MESMA fonte que o `vite.config.js` usa para o `base`. Ver o comentário na verificação
+ * do caminho dos assets, mais abaixo. */
+import { prefixoDosAssets } from "../vite.base.mjs";
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -291,11 +294,19 @@ try {
     aviso("bundle — a confirmar", `${aOlhar.length} ocorrência(s):\n      ${aOlhar.join("\n      ")}`);
   }
 
-  /* `base` tem de ser `/finer-one/`: o GitHub Pages serve num subcaminho e, sem isto, os
-   * assets ficam com caminhos absolutos e dão 404 — a página abre em branco. */
+  /* Os assets têm de sair no caminho que o `base` prometeu. Servir num subcaminho com
+   * `base` de raiz — ou o contrário — dá 404 em tudo e a página abre em branco.
+   *
+   * O prefixo esperado NÃO se escreve aqui: importa-se de `vite.base.mjs`, o mesmo módulo
+   * que o `vite.config.js` usa. Enquanto o `base` era fixo, ter `/finer-one/` escrito à
+   * mão nos dois sítios era duplicação inofensiva; agora que depende do ambiente, seria
+   * uma verificação capaz de aprovar um artefacto partido. */
   const indexHtml = readFileSync(join(dist, "index.html"), "utf8");
-  if (/(src|href)="\/finer-one\//.test(indexHtml)) ok("caminho dos assets", "/finer-one/ — correto para o GitHub Pages");
-  else bloqueio("caminho dos assets", "o index.html não referencia /finer-one/: os assets dariam 404.");
+  const prefixo = prefixoDosAssets(process.env);
+  const alvo = new RegExp(`(src|href)="${prefixo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
+  const ondeServe = prefixo === "/assets/" ? "raiz (Vercel / domínio próprio)" : "GitHub Pages";
+  if (alvo.test(indexHtml)) ok("caminho dos assets", `${prefixo} — correto para ${ondeServe}`);
+  else bloqueio("caminho dos assets", `o index.html não referencia ${prefixo}: os assets dariam 404.`);
 } catch (e) {
   bloqueio("build", `falhou: ${String(e.message).split("\n")[0]}`);
 }
