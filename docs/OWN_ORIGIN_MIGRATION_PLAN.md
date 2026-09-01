@@ -1,5 +1,83 @@
 # R-32 — plano de migração para origem própria
 
+> # ⚠️ AUDITADO A 31/08/2026 — E O PLANO MUDA NUM PONTO DECISIVO
+>
+> Reauditado contra o código e a infraestrutura **reais**, depois de E3 estar em produção.
+> O levantamento técnico continua todo válido. **O alvo, não.**
+>
+> ## 1. `finerone.pt` NÃO EXISTE
+>
+> Medido, não suposto:
+>
+> ```
+> nslookup finerone.pt          -> Non-existent domain (NXDOMAIN)
+> nslookup finerone.pt 8.8.8.8  -> Non-existent domain (NXDOMAIN)
+> nslookup app.finerone.pt      -> Non-existent domain
+> ```
+>
+> O domínio preferido **está por registar**. Todo o plano de 11 passos abaixo começa no
+> passo 1 com "registar o domínio", e é por isso que ele **não pode arrancar hoje**.
+>
+> *(`finerone.com` devolve `SERVFAIL`, que **não** é o mesmo que estar registado nem que
+> estar livre. Por DNS não se conclui nada sobre ele.)*
+>
+> ## 2. Há um caminho melhor, e não precisa de domínio nenhum
+>
+> **O que o R-32 exige é uma ORIGEM PRÓPRIA — não um domínio bonito.** São coisas
+> diferentes, e confundi-las é o que fazia este plano depender de uma compra.
+>
+> O problema real é este: `localStorage` é particionado por **origem**, e
+> `igororlandi999.github.io` é partilhado com todos os outros repositórios da conta.
+> Confirmado em produção durante a validação de E3 — o `localStorage` da origem tem
+> `canton_script_url`, `cf_products`, `cf_suppliers`, `austinMissionBoard`,
+> `decoratto:ui-prefs` e `canton_visits` ao lado de `finer-one.empresa-preferida`.
+>
+> **Qualquer host que dê um subdomínio próprio resolve isso**, porque passa a ser outra
+> origem. E o Igor já tem um: o **Vercel**, onde o BFF vive.
+>
+> ### As três saídas, comparadas outra vez
+>
+> | | **A · projeto Vercel** `<projeto>.vercel.app` | **B · `app.finerone.pt`** no GitHub Pages | **C · nova conta/org GitHub** `<org>.github.io` |
+> |---|---|---|---|
+> | Fecha o R-32? | **Sim** — origem distinta, `localStorage` isolado | Sim | Sim |
+> | Custo | **zero** | domínio (~15–40 €/ano) | zero |
+> | DNS | **nenhum** | registar + configurar + esperar TLS | nenhum |
+> | Provider novo? | **não** — o BFF já lá está | não | conta nova |
+> | Marca | fraca (`*.vercel.app`) | **forte** | fraca |
+> | Quando pode arrancar | **hoje** | só depois de comprar o domínio | depois de criar a conta |
+>
+> ### Recomendação
+>
+> **A primeiro, B a seguir.** O Vercel fecha o R-32 **hoje**, sem compras e sem DNS; e
+> quando `app.finerone.pt` existir, aponta-se para o mesmo projeto Vercel com uma
+> alteração de configuração — sem repetir a migração.
+>
+> Isto inverte a ordem que este documento tinha: **a marca deixa de bloquear a segurança.**
+>
+> ## 3. O que o Vercel muda no repositório — e é o mesmo patch de sempre
+>
+> | | |
+> |---|---|
+> | `vite.config.js:8` | `base: "/finer-one/"` → `base: "/"` |
+> | `scripts/predeploy-check.mjs:297` | a asserção de `/finer-one/` acompanha |
+> | `package.json` | `deploy` deixa de ser `gh-pages -d dist` |
+> | **Tudo o resto** | **não muda** — sem router, sem `redirectTo`, sem service worker, sem canonical/SEO, sem URL absoluta em `src/` |
+>
+> ## 4. O que continua a ser verdade, medido hoje
+>
+> | | |
+> |---|---|
+> | `ALLOWED_ORIGINS` de Production | `https://igororlandi999.github.io` **e** `http://localhost:5173` — sondado pelo fio; qualquer outra origem é recusada, incluindo `https://app.finerone.pt` |
+> | Chaves de storage da Finer One | `finer-one.empresa-preferida` (`AuthContext.jsx:34`) e `finerone.chat.pendingQuestion` (`chatEngine.js:30`), mais a do SDK, `sb-bysqekhcyrvtiejcupoa-auth-token` |
+> | Redirects de auth | **nenhum** — a autenticação é só palavra-passe. `detectSessionInUrl: true` existe mas não há fluxo que devolva sessão por URL |
+> | `CNAME` no `gh-pages` | **não existe** — nunca houve domínio próprio |
+> | Service worker · canonical/SEO · router | **nenhum dos três** |
+>
+> ---
+>
+> **O plano de 11 passos abaixo continua correto para a opção B.** Para a opção A, os
+> passos 1–3 (DNS, custom domain, TLS) desaparecem e o resto mantém-se.
+
 > **Estado: PLANO. Nada foi executado.** Nenhum DNS, nenhum domínio, nenhuma alteração no
 > Vercel, no Supabase ou no `gh-pages`. Escrito na sessão autónoma de **31/08/2026**.
 >
