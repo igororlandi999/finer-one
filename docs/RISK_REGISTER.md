@@ -1601,3 +1601,134 @@ as `Location` relativas resolvem-se no espaço de nomes onde se resolvem a séri
 
 `npx vercel promote finer-one-proxy-4bbi3pf7a…` — ou redeploy desse deployment. Continua a
 existir e traz o código anterior. **Não foi necessário.**
+
+---
+
+# ✅ R-07 FECHADO — 31/08/2026, 22:32 (−03:00)
+
+Um `200` do Apps Script que diz `{"error":true}` deixou de ser tratado como um `200`.
+**Em Production.**
+
+## O problema, e porque era real mesmo não sendo explorável
+
+O Apps Script **não consegue** devolver outro estado HTTP — o `ContentService` não expõe
+controlo de status. Toda a exceção dele sai como:
+
+```
+HTTP 200   { "error": true, "message": "<sanitizado>", "details": "" }
+```
+
+O BFF reencaminhava isso com `200` e `Content-Type: application/json`, porque
+`corpoEhJsonDoContrato` só provava **forma** — *"é um objeto JSON"* — e um objeto de erro
+é um objeto JSON.
+
+**O frontend já rejeitava `res.error === true`** (`blingDataService.js:1284`). Ou seja, o
+defeito não estava explorável — estava **dependente do cliente**. É outra coisa: uma
+afirmação sobre o estado de um terceiro não pode viajar como se fosse nossa, e um
+consumidor novo — uma app móvel, um script, outro proxy — **não herda a defesa de um
+cliente antigo**. Quem sabe que o upstream falhou é o BFF.
+
+## Antes e depois
+
+| | |
+|---|---|
+| **antes** | upstream `200` + `{"error":true}` → BFF **`200`**, corpo reencaminhado |
+| **depois** | upstream `200` + `{"error":true}` → BFF **`502`** |
+
+Corpo devolvido, no padrão do projeto e mais nada:
+
+```json
+{ "error": true, "code": "UPSTREAM_ERRO", "message": "A fonte de dados devolveu um erro." }
+```
+
+**A mensagem do Apps Script não atravessa a fronteira** — nem no corpo, nem no registo,
+que também não leva o endereço do upstream.
+
+## A regra, e o falso positivo que ela evita
+
+**`error === true` no TOPO, booleano estrito.** Não é *"tem a palavra error algures"*:
+
+| | |
+|---|---|
+| `{"data":[{"error":true}]}` | passa — é um item com um campo, não uma falha da resposta |
+| `{"debug":{"error":true}}` | passa — é diagnóstico, não veredito |
+| `{"error":""}` · `{"error":0}` · `{"error":null}` · `{"error":false}` | passam — valores falsos não afirmam nada |
+| `{"ok":false,"error":{...}}` | passa **de propósito** — é o **R-08**, tem outra causa (`erroAjuste_`, que só serve o `doPost`, e o BFF só faz `GET`) e não se fecha por arrasto |
+
+**Medido antes de escrever uma linha**, contra a Production real e nos quatro recursos: a
+chave `"error"` aparece **zero** vezes e os quatro corpos começam por `{"data"`.
+
+## Três causas de `502`, e continuam distinguíveis
+
+| código | causa |
+|---|---|
+| `UPSTREAM` | o upstream devolveu um estado mau (4xx/5xx) |
+| `UPSTREAM_INVALIDO` | `200` mas o corpo não é o contrato (HTML, JSON truncado) |
+| `UPSTREAM_ERRO` | `200` e o corpo **declara** erro ← **novo** |
+
+Colapsá-las num código só faria o registo dizer menos do que sabe. Há um teste que exige
+que as três continuem distintas.
+
+## Escopo: os dois endpoints
+
+Aplicado ao protegido **e** ao legado. Corrigir só o primeiro deixaria o legado a servir a
+avaria como se fosse dado — e o legado é o que serve **hoje** os números reais da Overcel,
+sem token. Partilham `analisarCorpoDoUpstream`, mas partilhar a função não prova que ambos
+a usam: há testes para cada um.
+
+`analisarCorpoDoUpstream` faz **uma** análise e devolve as duas respostas
+(`ehContrato`, `declaraErro`); `corpoEhJsonDoContrato` passa a derivar dele, com a
+semântica de sempre — para não mover uma fronteira que já tinha testes seus.
+
+## Preview → Production
+
+| | |
+|---|---|
+| **Preview** | `finer-one-proxy-k4g0u2l6e` · `c71a39d` · 22:31 · alcançado com `vercel curl`, **sem reabrir o bypass do R-B** |
+| **Production** | `dpl_4D1KbT3NEGodWWb6fx8xGpSe1UqK` (`p94sdahu1`) · 22:32:36 |
+| Deployment anterior | `dpl_EYAYpYLtspxxHAkN9dt3TsWDSn1r` (`k7d5onnjn`) — **é o rollback** |
+
+**O cenário artificial `{"error":true}` não é alcançável no Preview** sem mexer no Apps
+Script real: o BFF valida `recurso` contra a lista e devolve `400` **antes** de chamar o
+upstream, por isso nem o `RECURSO_DESCONHECIDO` lá chega. Fica coberto por injeção
+controlada nos testes — nos dois endpoints.
+
+## A prova de que o dado não mudou
+
+O endpoint legado exerce a cadeia real do Apps Script a cada pedido:
+
+```
+Production antes do R-06   595493 bytes   sha256 e9c39bd640a1ce7e9970…
+Preview R-06               595493 bytes   sha256 e9c39bd640a1ce7e9970…
+Production com R-06        595493 bytes   sha256 e9c39bd640a1ce7e9970…
+Preview R-07               595493 bytes   sha256 e9c39bd640a1ce7e9970…
+Production com R-07        595493 bytes   sha256 e9c39bd640a1ce7e9970…
+```
+
+**Byte a byte idêntico em cinco estados.** Dois endurecimentos seguidos, e o documento
+financeiro não mudou um byte.
+
+## Smoke de Production
+
+| | |
+|---|---|
+| legado | `200`, 595493 bytes |
+| protegido sem token | `401` · `OPTIONS` `204` · `HEAD` `405` |
+| CORS | `finer-one-app` ✅ · `github.io` ✅ · `localhost` recusado ✅ · estranha recusada ✅ |
+| cache (protegido autenticado) | **`private, no-store`** |
+| Frontend `finer-one-app.vercel.app` | sessão válida · Overcel com dados reais (21 valores em `R$`) · **protected 4 · legacy 0** · sem erro crítico |
+
+## Testes
+
+**295 no total.** 26 novos (`test/upstreamErroDeclarado.test.mjs`), cobrindo os dois
+endpoints. O caso latente que estava em `contratoUpstream.test.mjs:35` —
+`'{"error":true,"code":"RECURSO_DESCONHECIDO"}'` marcado como *"o Apps Script responde
+assim, com 200"* — deixou de ser uma aceitação e passou a ter guarda.
+
+**Três mutações, três mortas:** voltar a aceitar `error:true` mata 10; decidir só pelo
+status mata 9; devolver a mensagem do upstream mata o teste de não-vazamento.
+
+## Rollback
+
+Promover ou redeployar `finer-one-proxy-k7d5onnjn`. Continua a existir. **Não foi
+necessário.**
