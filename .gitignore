@@ -45,3 +45,15 @@ apps-script/.clasp.json
 # O ficheiro continua no disco e continua a funcionar. Só não é publicado.
 # ─────────────────────────────────────────────────────────────────────────────────────
 diagnostico/opexJunho.mjs
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# Ligacao local ao projeto Vercel do FRONTEND (R-32 — origem propria).
+#
+# `vercel link` escreve aqui `project.json` com o id do projeto e o da conta. Nao e
+# segredo — nao abre nada sozinho — mas e estado da MAQUINA, nao do repositorio: outra
+# pessoa a clonar isto ficaria ligada ao projeto de outra conta sem dar por isso.
+#
+# O repositorio do BFF ja tinha esta pasta e nunca a versionou. Aqui a regra faltava, e
+# este repositorio e publico.
+# ─────────────────────────────────────────────────────────────────────────────────────
+.vercel
