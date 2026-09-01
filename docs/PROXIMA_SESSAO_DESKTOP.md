@@ -1,3 +1,16 @@
+> # ✅ 31/08/2026 — R-38 FECHADO. `localhost` saiu do CORS de Production.
+>
+> `ALLOWED_ORIGINS` = `https://igororlandi999.github.io,https://finer-one-app.vercel.app`.
+> Verificado no endpoint protegido **e no legado** — era o par `localhost` + legado que
+> dava substância ao risco.
+>
+> ⚠️ **Muda o método:** o `Passo 0` do rollout (servir o `dist` em `localhost:5173` e medir
+> a rede) **já não fala com o BFF de Production**. Foi assim que o R-39 foi apanhado antes
+> de ir para o ar — arranjar o substituto **antes** de fazer falta: `vercel dev` no BFF, ou
+> medir contra a origem nova. `curl` e os testes não são afetados.
+>
+> **Antes de E4, por ordem:** cutover · **R-06** (lista de hosts no BFF) · **R-07**.
+
 > # ✅ 31/08/2026 — R-32 FECHADO. A Finer One tem origem própria.
 >
 > `https://finer-one-app.vercel.app` — projeto Vercel **separado** do BFF. O

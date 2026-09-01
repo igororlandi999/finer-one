@@ -1415,3 +1415,84 @@ O risco está fechado. Fica por fazer, **e não é urgente**:
    resolução, não disponibilidade;
 2. **cutover** do GitHub Pages para a origem nova, quando houver confiança;
 3. **só depois**: remover a origem antiga do CORS e despublicar o GitHub Pages.
+
+---
+
+# ✅ R-38 FECHADO — 31/08/2026
+
+`http://localhost:5173` saiu das origens permitidas de Production. Uma origem de
+**desenvolvimento** deixou de estar numa variável de **produção**.
+
+## A alteração
+
+```
+ANTES:  https://igororlandi999.github.io,http://localhost:5173,https://finer-one-app.vercel.app
+DEPOIS: https://igororlandi999.github.io,https://finer-one-app.vercel.app
+DIFF:   remover ",http://localhost:5173"
+```
+
+Lido do valor **real** antes e depois — não inferido. Nenhuma outra variável tocada, e a
+`ALLOWED_ORIGINS` continua **não-Sensitive**, portanto auditável.
+
+## O redeploy
+
+| | |
+|---|---|
+| Deployment de origem | `dpl_5EHxCP6rXyMmULU7599x1A7R1D5K` (`8gt9gx91f`) |
+| Deployment novo | `finer-one-proxy-4bbi3pf7a` · Ready em 11s · 22:03 (−03:00) |
+| Rollback | `dpl_HFeYpXmESePdfZk32ZKXB3ttiq76` (`81cthzdak`), o canónico de 29/08, ainda existente |
+| Método | **redeploy do deployment canónico existente**; identidade Git histórica não comprovável |
+
+Sem `vercel --prod`, sem *working tree* local, sem push, sem alteração de código.
+
+## A prova
+
+| Origem | Endpoint protegido | Endpoint legado |
+|---|---|---|
+| `https://finer-one-app.vercel.app` | **permitida** | **permitida** |
+| `https://igororlandi999.github.io` | **permitida** | — |
+| `http://localhost:5173` | **SEM `Allow-Origin`** ✅ | **SEM `Allow-Origin`** ✅ |
+| `https://atacante.example.com` | SEM `Allow-Origin` ✅ | — |
+
+**Verificou-se também no endpoint LEGADO**, e é o que mais importava: era ele que servia
+os números reais da Overcel **sem token** (R-14). Era o par `localhost` + legado que dava
+substância ao R-38, e é esse par que deixou de existir.
+
+## Comportamento além do CORS: idêntico
+
+| sonda | antes | depois |
+|---|---|---|
+| protegido sem token | 401 | 401 |
+| `OPTIONS` | 204 | 204 |
+| legado `GET` | 200 | 200 |
+| `HEAD` | 405 | 405 |
+| corpo do 401 | `UNAUTHENTICATED` | idêntico |
+
+## Smoke na origem oficial nova
+
+`https://finer-one-app.vercel.app` — sessão válida, Overcel com dados reais (21 valores em
+`R$`), **4 protegidas · 0 legado**, sem indisponibilidade, consola sem erro crítico (só os
+dois avisos de formulário pré-existentes do R-34 e o `404` do favicon).
+
+E a origem antiga **continua a funcionar**: `github.io` responde `200` e continua
+autorizada no CORS. As duas coexistem, como planeado.
+
+## A consequência, dita em voz alta
+
+**O desenvolvimento local em `localhost:5173` deixa de conseguir ler o BFF de Production
+a partir do browser.** É a fricção pretendida, não um efeito colateral.
+
+Duas coisas que isto muda no método:
+
+1. **O `Passo 0` do rollout** — servir o `dist` em `localhost:5173` e medir a rede — deixa
+   de funcionar contra o BFF de Production. Foi assim que o **R-39** foi apanhado antes de
+   ir para o ar, e por isso o substituto tem de existir antes de fazer falta:
+   **`vercel dev`** no BFF (com `ALLOWED_ORIGINS` local), ou medir contra a origem nova já
+   publicada;
+2. `curl` e os testes automatizados **não são afetados** — o CORS é uma regra que só o
+   browser aplica.
+
+## Rollback
+
+Repor `,http://localhost:5173` na variável e redeployar. Ou promover o deployment
+`8gt9gx91f`, que continua a existir com o valor anterior já compilado.
