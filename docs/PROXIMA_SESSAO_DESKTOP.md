@@ -1,3 +1,18 @@
+> # ✅ 31/08/2026 — PIPELINE DETERMINÍSTICO. Os dois achados fecharam.
+>
+> **Auto-deploy OFF** (integração Git desconectada) e **variáveis de sistema não expostas**
+> ao build. O artefacto servido volta a reproduzir-se **byte a byte** a partir do
+> repositório — provado: `sha256 60acdd73…` igual nos dois lados, e os outros cinco
+> ficheiros também.
+>
+> **A receita de reprodução** está em `RISK_REGISTER.md` §*PIPELINE DETERMINÍSTICO* —
+> precisa de `VITE_BASE=/` **como variável de ambiente**, não no `.env.local`, mais o valor
+> de `VITE_VERCEL_OBSERVABILITY_CLIENT_CONFIG` (estável, não secreto, inerte).
+>
+> **Falta, antes de E4:** apenas **revogar as sessões já emitidas** no Supabase. Substituir
+> a página do GitHub Pages **não** invalida tokens — um JWT vale até expirar. Passo a passo
+> em `RISK_REGISTER.md` §*OPÇÃO B*.
+
 > # ✅ 31/08/2026 — CUTOVER COMPLETO. Origem oficial: `https://finer-one-app.vercel.app`
 >
 > O GitHub Pages passou a ser uma **página de encaminhamento sem um único script**

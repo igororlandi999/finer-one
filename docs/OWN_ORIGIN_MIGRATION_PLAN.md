@@ -610,3 +610,103 @@ autoritativa.
 | CORS | só a origem nova |
 | **R-32** | **fechado estruturalmente** — a origem nova é exclusiva, e a antiga já não produz sessões |
 | **Pré-E4** | pendente da **revogação das sessões já emitidas**, mais a decisão sobre o auto-deploy |
+
+---
+
+# ✅ PIPELINE DETERMINÍSTICO — 31/08/2026, 23:05 (−03:00)
+
+Os dois achados da ronda anterior estão fechados.
+
+## 1 · Auto-deploy — OFF
+
+**Estado anterior, medido nos logs e não inferido:**
+
+```
+Cloning github.com/igororlandi999/finer-one (Branch: main, Commit: e45161c)
+  -> dpl_FYmGZphYc68zVtiapFrK8KfaEfio  ·  Production  ·  automático
+
+Cloning github.com/igororlandi999/finer-one (Branch: gh-pages, Commit: 04c6847)
+  -> Error: "vite: command not found" (exit 127)  ·  Preview
+```
+
+**Causa:** o `vercel link --yes` imprimiu *"Connecting GitHub repository… Connected"* e
+ligou o repositório. Não foi uma definição mudada à mão — foi a ferramenta, ao ligar a
+pasta local ao projeto.
+
+**Duas consequências, e a segunda só apareceu ao ler os logs:** um `push` em `main`
+publicava em Production; e um `push` em **`gh-pages`** — que a página de encaminhamento usa
+— gerava um **build vermelho de cada vez**, porque esse branch não tem `package.json`.
+
+**Resolvido:** integração Git **desconectada** no painel. O projeto e o histórico ficam; os
+deploys voltam a ser `vercel --prod`, exatamente como no `finer-one-proxy`. A política volta
+a valer: **publicar é uma decisão, não um efeito secundário de um push.**
+
+## 2 · Reprodutibilidade — restaurada
+
+**Causa:** o Vercel expunha as suas variáveis de sistema ao build com prefixo `VITE_VERCEL_*`,
+e a Vite inlina **tudo** o que começa por `VITE_`. Eram **19**, inlinadas duas vezes:
+**+4 414 bytes**.
+
+Não era só um problema de reprodutibilidade — **era metadado interno servido a qualquer
+visitante** de uma aplicação financeira:
+
+```
+VITE_VERCEL_DEPLOYMENT_ID · VITE_VERCEL_URL · VITE_VERCEL_GIT_COMMIT_SHA
+VITE_VERCEL_GIT_COMMIT_AUTHOR_NAME · VITE_VERCEL_GIT_COMMIT_AUTHOR_LOGIN
+VITE_VERCEL_PROJECT_ID · VITE_VERCEL_GIT_REPO_ID · VITE_VERCEL_GIT_REPO_SLUG  … +11
+```
+
+E como `DEPLOYMENT_ID` e `URL` são **únicos por deployment**, dois deploys do mesmo commit
+também nunca coincidiriam. A reprodutibilidade estava estruturalmente impossível.
+
+**Resolvido:** *"Enable access to System Environment Variables"* desligado no painel. As
+seis variáveis explícitas da Finer One ficaram intactas — verificado, **6/6, e nenhuma a
+mais**.
+
+### O que sobrou, e porque não é um problema
+
+Uma só: `VITE_VERCEL_OBSERVABILITY_CLIENT_CONFIG` — endpoints de analytics, `+640 bytes`.
+Duas coisas a tornam inofensiva:
+
+1. **é estável.** O mesmo hash (`4790bcf463235ddc`) nos deployments antes e depois da
+   alteração — é do **projeto**, não do deployment. Logo **Vercel → Vercel é determinístico**;
+2. **é inerte.** Nada no código importa `@vercel/analytics`; o smoke confirma que **nenhum
+   script de analytics é carregado**. É dado morto no bundle.
+
+## A prova
+
+Build local com as **mesmas** variáveis que o projeto tem:
+
+```
+local :  index-DmNrQQYn.js   411 779 bytes   sha256 60acdd737d06d2101ddaba3c3e77aa42…
+vercel:  index-DmNrQQYn.js   411 779 bytes   sha256 60acdd737d06d2101ddaba3c3e77aa42…
+                                             IDÊNTICO BYTE A BYTE
+```
+
+Mesmo nome de ficheiro — o hash da Vite é função do conteúdo, portanto o nome coincidir já
+é meia prova. E os outros cinco ficheiros do artefacto também: `index.html`, o CSS,
+`react`, `recharts` e o chunk lazy — **todos idênticos**.
+
+### A receita, para quem repetir
+
+```bash
+MSYS_NO_PATHCONV=1 VITE_BASE=/ VITE_VERCEL_OBSERVABILITY_CLIENT_CONFIG='<o valor do projeto>' npm run build
+```
+
+Mais as cinco variáveis do `.env.local`. O valor de observabilidade lê-se do próprio bundle
+servido — não é segredo, são endpoints.
+
+**Nota:** `VITE_BASE` tem de ser variável de ambiente **a sério**. No `.env.local` não
+funciona — a Vite carrega os `.env` para `import.meta.env`, não para `process.env`, e o
+`base` é decidido pelo processo de build.
+
+## Deployment
+
+| | |
+|---|---|
+| Novo | `dpl_DSAxFHY6RVjR7NuH5owT1fHmYTej` (`fgt7cs80i`) · 23:05 · **manual**, `vercel --prod` |
+| Anterior (rollback) | `dpl_FYmGZphYc68zVtiapFrK8KfaEfio` (`lq75pba3j`) |
+| Smoke | sessão válida · Overcel com dados reais, 21 valores em `R$` · protegidas `200`, preflights `204` · **legacy 0** · sem erro crítico |
+
+**Nada de código foi alterado.** Duas definições de painel, um deploy manual, e uma
+comparação. `main` continua em `e4e30a6`.
