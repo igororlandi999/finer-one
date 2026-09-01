@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="pt-PT">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Finer One mudou de endereço</title>
+
+    <!--
+      ─── PORQUE ESTA PÁGINA EXISTE ────────────────────────────────────────────────
+      Esta origem — https://igororlandi999.github.io — é PARTILHADA com todos os outros
+      repositórios GitHub Pages da mesma conta, e o `localStorage` é particionado por
+      ORIGEM, não por caminho. Enquanto a aplicação aqui conseguisse INICIAR SESSÃO,
+      continuava a escrever um token do Supabase numa prateleira que qualquer script de
+      um projeto vizinho consegue ler. Era o R-32.
+
+      O CORS do BFF já não autoriza esta origem, mas o CORS só governa o BROWSER: um
+      token roubado daqui funcionaria a partir de `curl`, onde não há CORS a aplicar.
+      Fechar o caminho a sério é impedir que esta origem produza sessões novas — e é
+      isso que esta página faz, por remoção.
+
+      ─── O QUE ESTA PÁGINA NÃO CARREGA, E É O PONTO ───────────────────────────────
+      Nem um script. Nem o bundle da aplicação, nem o SDK do Supabase, nem uma chamada
+      ao BFF, nem uma linha de JavaScript própria. O encaminhamento é um `meta refresh`,
+      que o browser executa sem correr código — e por isso a ausência é verificável a
+      olho, neste ficheiro, sem confiar em nenhuma promessa.
+
+      Também não há tipos de letra externos: um `<link>` para o Google Fonts seria um
+      pedido a um terceiro numa página cuja razão de ser é não fazer pedidos.
+
+      ─── ROLLBACK ─────────────────────────────────────────────────────────────────
+      A aplicação antiga está em `gh-pages 3d668e1` e reproduz-se a partir de `bd615ee`.
+      Republicar `dist/` traz tudo de volta.
+    -->
+
+    <meta http-equiv="refresh" content="4; url=https://finer-one-app.vercel.app/" />
+
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: #f6f7f9;
+        color: #0f172a;
+        font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      }
+      .cartao {
+        max-width: 30rem;
+        width: 100%;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 40px 32px;
+        text-align: center;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
+      }
+      .marca {
+        width: 48px; height: 48px;
+        margin: 0 auto 16px;
+        border-radius: 12px;
+        background: #2563eb;
+        color: #fff;
+        font-size: 24px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center;
+      }
+      h1 { margin: 0 0 4px; font-size: 1.05rem; letter-spacing: .04em; }
+      .sub { margin: 0 0 24px; font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: #94a3b8; }
+      p { margin: 0 0 24px; color: #475569; }
+      a.botao {
+        display: inline-block;
+        background: #2563eb; color: #fff;
+        padding: 12px 22px; border-radius: 9px;
+        font-weight: 600; text-decoration: none;
+        word-break: break-all;
+      }
+      a.botao:hover { background: #1d4ed8; }
+      .nota { margin: 24px 0 0; font-size: .8rem; color: #94a3b8; }
+      @media (prefers-color-scheme: dark) {
+        body { background: #0b1120; color: #e2e8f0; }
+        .cartao { background: #111827; border-color: #1f2937; }
+        p { color: #cbd5e1; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="cartao">
+      <div class="marca" aria-hidden="true">F</div>
+      <h1>FINER ONE</h1>
+      <p class="sub">Financial Intelligence PME</p>
+
+      <p>
+        A aplicação mudou de endereço. Este endereço deixou de a servir e já não permite
+        iniciar sessão.
+      </p>
+
+      <p><a class="botao" href="https://finer-one-app.vercel.app/">finer-one-app.vercel.app</a></p>
+
+      <p class="nota">
+        É encaminhado automaticamente em poucos segundos.
+        Atualize os seus favoritos para o endereço novo.
+      </p>
+    </main>
+  </body>
+</html>
