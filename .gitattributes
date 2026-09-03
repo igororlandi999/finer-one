@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────────────
+# FINAIS DE LINHA — medido, não suposto.
+#
+# Este repositório não tinha `.gitattributes`. Em Windows, com `core.autocrlf=true`
+# (o default do Git for Windows), um CLONE LIMPO recebia CRLF — enquanto a árvore de
+# trabalho onde o código foi escrito tinha LF. As blobs sempre foram LF; só o CHECKOUT
+# divergia. E isso chegava para partir o clone:
+#
+#   medido em 2026-09-03, clone novo de origin/main, `npm ci && npm test`:
+#     15 testes a falhar, 100 ficheiros -> 2384 testes em vez de 2408
+#
+#     scripts/supabase-check.test.js       SyntaxError: Invalid or unexpected token
+#     scripts/check-data-pipeline.test.js  SyntaxError — nem chegava a ser lido
+#     apps-script/snapshotIntegridade      o fatiador de funções procura uma linha que
+#                                          seja exatamente `}`; com CRLF é `}\r`, a
+#                                          fatia passa o fim da função e engole a
+#                                          seguinte
+#
+#   o MESMO clone, reconvertido para LF: 2408/2408.
+#
+# Vários testes deste projeto leem o código-fonte como TEXTO e afirmam coisas sobre ele
+# (os de `apps-script/` carregam o ficheiro real com `new Function`; os de `scripts/`
+# leem o `.mjs`). Para esses, o final de linha não é cosmético — é dado de entrada.
+#
+# `text=auto` deixa o Git detetar binários sozinho; `eol=lf` fixa o checkout. Não muda
+# uma única blob: o que já está no repositório sempre foi LF.
+# ─────────────────────────────────────────────────────────────────────────────────────
+
+* text=auto eol=lf
+
+# Binários — explícitos, para não depender só da deteção automática.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.pdf   binary
+*.docx  binary
+*.zip   binary

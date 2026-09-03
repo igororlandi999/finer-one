@@ -256,6 +256,12 @@ Depois preencher, com valores tirados dos painéis (**não** de memória):
 | `VITE_SUPABASE_ANON_KEY` | Supabase → Settings → API Keys → *publishable / anon* | (do painel) |
 | `VITE_PROTECTED_DATA_TRANSPORT` | — | `true` |
 
+> ⚠️ **O `.env.local` tem de existir ANTES de correr os testes**, e não só antes do
+> `npm run dev`. Sem `VITE_API_BASE_URL`, **14 testes falham** —
+> `src/services/authorizedApi.test.js` (8) e `coverageWriteClient.test.js` (6) — com
+> `Sem backend configurado (VITE_API_BASE_URL vazio)`. Medido num clone limpo a
+> 2026-09-03. Não é uma avaria: é o suite a exigir configuração.
+
 ### 4. Correr o frontend
 
 ```bash
@@ -317,6 +323,50 @@ Já existiam antes deste checkpoint; nenhuma foi introduzida por ele.
 | 5 | **Ficheiro-lixo versionado** com um nome partido — `, payables, cashflow and operational alerts`. É o *output* de um `git diff --stat` redirecionado por engano. Inofensivo, mas está no repositório. **Não foi removido de propósito**: apagar um ficheiro versionado é destrutivo e não pertence a uma sessão de checkpoint. | raiz do repo |
 | 6 | **Dois ZIPs históricos versionados** — `handoff-fase4.zip` (101 KB) e `fase5-complemento.zip` (18 KB). Já estão no histórico; removê-los agora não recupera espaço. Deixados como estão. | raiz do repo |
 | 7 | **`finer-one-site` diverge do remoto.** Ver a nota no fim deste ficheiro. | repo separado |
+| 8 | **`npm audit` reporta vulnerabilidades** nas dependências de desenvolvimento (visto no `npm ci` do clone de verificação). Não foi tocado: `npm audit fix --force` traz *breaking changes* e não pertence a uma sessão de checkpoint. | `package.json` |
+
+---
+
+## Prova de reprodutibilidade — feita, não presumida
+
+A 2026-09-03 os dois repositórios foram **clonados de raiz a partir do GitHub**, para um
+diretório limpo, e reconstruídos do zero. Não é uma opinião sobre o estado: é a medição.
+
+| Passo | Resultado |
+|---|---|
+| `git clone` dos dois repos | ✅ |
+| `HANDOFF`, `docs/sql/*.sql`, `.env.example` presentes no clone | ✅ |
+| `finer-one-proxy` — `npm test`, sem instalar nada | ✅ **295/295** |
+| `finer-one` — `npm ci` a partir do lockfile | ✅ |
+| `finer-one` — `npm run build` sem `.env.local` | ✅ |
+| `finer-one` — `npm test` no clone **tal como veio** | ❌ **15 a falhar**, e só 2384 testes em vez de 2408 |
+| `finer-one` — `npm test` depois das duas correções abaixo | ✅ **2408/2408** |
+
+O clone falhou por **duas** razões, ambas encontradas e ambas fechadas:
+
+**1. Finais de linha (CORRIGIDO neste checkpoint).**
+O repositório não tinha `.gitattributes`. Em Windows, com o `core.autocrlf=true` que o
+Git for Windows põe por omissão, um clone limpo recebia **CRLF** — enquanto a árvore onde
+o código foi escrito tem LF. As *blobs* sempre foram LF; só o **checkout** divergia.
+
+Vários testes deste projeto leem o código-fonte **como texto** e afirmam coisas sobre ele.
+Para esses, o final de linha é dado de entrada, não cosmética:
+
+- `scripts/supabase-check.test.js` e `scripts/check-data-pipeline.test.js` — nem chegavam
+  a ser lidos: `SyntaxError: Invalid or unexpected token`. São os 24 testes em falta;
+- `apps-script/snapshotIntegridade.test.js` — o fatiador de funções procura uma linha que
+  seja exatamente `}`; com CRLF é `}\r`, a fatia passa o fim da função e engole a seguinte.
+
+Foi adicionado um `.gitattributes` com `* text=auto eol=lf`. **Não muda uma única blob** —
+verificado: `git add --renormalize .` é um no-op neste repositório.
+
+**2. `.env.local` em falta (documentado, não corrigível por commit).**
+Os restantes 14 (`authorizedApi.test.js` 8, `coverageWriteClient.test.js` 6) exigem
+`VITE_API_BASE_URL`. É configuração local por desenho — nunca pode ser versionada. Está
+no passo 3 dos §*Passos no notebook*, com o aviso de que tem de vir **antes** do `npm test`.
+
+Com as duas fechadas, um clone limpo dá **2408/2408** e um build verde. Ou seja: **sim,
+o ambiente reconstrói-se a partir do GitHub mais as credenciais dos painéis.**
 
 ---
 
