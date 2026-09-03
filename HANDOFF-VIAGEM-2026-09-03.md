@@ -412,8 +412,8 @@ a partir dos **painéis dos serviços**; as duas exceções estão marcadas.
 | `.vercel/project.json` (ambos os repos) | só neste PC (ignorado) | `vercel link` — reconstrói-se sozinho |
 | Sessão do `clasp` / login Google | só neste PC | `clasp login` |
 | `diagnostico/despesas_snapshot.json` | só neste PC (ignorado — **dados financeiros reais**) | regenerável com `diagnostico/_dumpSnapshots.mjs`. **Não versionar.** |
-| ⚠️ `diagnostico/opexJunho.mjs` | só neste PC (ignorado — números reais da Overcel, incluindo pró-labore) | **só existe aqui.** É a referência da reconciliação de 2026-06. Se fizer falta, copiar por canal privado (pen, drive privado). **Nunca versionar.** |
-| ⚠️ `finer-one-foundation/`, `finer-one-codigo-minimo/` | só neste PC, **não são repositórios git** | rascunhos antigos (9 e 6 ficheiros), aparentemente superados por `finer-one`. Se tiverem valor, copiar à mão. |
+| ⚠️ `diagnostico/opexJunho.mjs` | só neste PC (ignorado — números reais da Overcel, incluindo pró-labore) | **só existe aqui.** É a referência da reconciliação de 2026-06. Copiar por canal privado (pen, drive privado). **Nunca versionar** — os três repos foram verificados e são **públicos**. Ver §*Auditoria de desligamento*. |
+| ✅ `finer-one-foundation/`, `finer-one-codigo-minimo/` | só neste PC, não são repositórios git | **auditados a 2026-09-03: integralmente obsoletos. Não levar.** Ver §*Auditoria de desligamento*. |
 
 ### Nota sobre `finer-one-site`
 
@@ -427,6 +427,89 @@ Para não perder nada e não tocar em `origin/main`, a lineagem local foi empurr
 **intacta** para a branch `backup/desktop-2026-09-03`
 (`f8c57a8`, em `igororlandi999/finer-one-site`). Nada foi fundido, reposto nem apagado —
 a decisão de aproveitar, ou descartar, fica para ti.
+
+---
+
+## Auditoria de desligamento — 2026-09-03
+
+Segunda passagem, feita depois do checkpoint, para fechar os três pontos que tinham
+ficado em aberto. Conclusões **medidas**, não presumidas.
+
+### `diagnostico/opexJunho.mjs` — o único item que sobra
+
+- 17 245 bytes, 398 linhas, `sha256 6fd8e430…`, de 2026-08-13.
+- É um diagnóstico **read-only da Microfase 5C**: audita a divergência da OPEX de
+  `2026-06` contra uma referência manual e sonda o `classifyPayable` real em vez de o
+  reimplementar. Não escreve, não faz rede.
+- **Não é necessário para continuar o desenvolvimento.** Nada versionado o importa —
+  as únicas referências a ele em `origin/main` são a regra do `.gitignore` e este
+  handoff. Não entra em nenhum teste, build ou script.
+- **O que é insubstituível são 12 números**, no bloco `REFERENCIA_MANUAL`, inseridos à
+  mão. Verificado: **0 dos 12 aparecem em qualquer documento versionado**, e a
+  reconciliação não está escrita em `docs/`. Não são deriváveis do repositório.
+- **Três cópias, todas neste mesmo computador**, e todas byte a byte idênticas:
+  `finer-one/diagnostico/opexJunho.mjs`, `finer-one - Copia/opexJunho.mjs`,
+  `Downloads/opexJunho.mjs` (mais uma dentro de `finer-one-handoff-limpo.zip`).
+  Cópias no mesmo disco não são redundância contra a perda do disco.
+- **Mecanismo privado já configurado neste PC: não há um que funcione.** O OneDrive está
+  ligado à conta (a pasta existe, as variáveis de ambiente estão postas), mas o processo
+  **não está a correr**, a pasta tem 16 ficheiros e nada sincronizado desde 2026-08-11.
+  Não há `gh` CLI, nem Google Drive, nem Dropbox.
+- Os três repositórios foram testados sem credenciais e respondem: **`finer-one`,
+  `finer-one-bff` e `finer-one-site` são PÚBLICOS.** A regra do `.gitignore` está certa.
+
+### `finer-one-site` — preservado
+
+Duas histórias sem ancestral comum. A local (`f8c57a8`, 2026-08-07, 2 commits) foi
+empurrada intacta para **`backup/desktop-2026-09-03`** — confirmado no remoto, hash igual
+ao HEAD local. `origin/main` (`19f094b`) não foi tocado. Sem segredos, sem `.env`
+versionado, árvore limpa. O projeto **continua vivo na arquitetura**: é o site
+institucional, com domínio próprio configurado no remoto.
+
+### `finer-one-foundation/` e `finer-one-codigo-minimo/` — obsoletos, não levar
+
+**Categoria A — integralmente superados.**
+
+`finer-one-foundation/` (9 ficheiros, todos de 2026-06-12) é o *drop* original do Plano
+Plus, com um `INTEGRACAO.md` que é a lista de instruções para copiar aqueles ficheiros
+para `src/`. **Essa cópia foi feita e evoluiu:** cada contraparte no repo é várias vezes
+maior (`blingDataService.js` 4,9 KB → 83 KB; `diagnosticsEngine.js` 2,8 KB → 24,9 KB).
+Os quatro símbolos sem correspondência exata foram **renomeados**, não perdidos:
+`buildAlerts` → `buildSalesAlerts`/`buildFinancialAlerts`/`buildExpenseAlerts`;
+`buildDiagnostics` → `buildSalesDiagnostics`/`buildFinancialDiagnostic`;
+`countByLevel` → `severityCounts`; `buildFinerDataset` absorvido no `blingDataService`.
+O `salesFallback.js` é dado sintético («Cliente ABC, Lda»), já coberto por
+`src/data/mockData.js`.
+
+`finer-one-codigo-minimo/` (6 ficheiros, 2026-06-01) é só andaime de build, **sem `src/`**:
+três ficheiros idênticos aos do repo e três numa versão anterior (`vite.config.js` antes
+do `resolveBase`, `package.json` sem Supabase nem Vitest).
+
+### Varredura final de `VS Code/`
+
+- **Certificados / chaves:** nenhum, em nenhum projeto Finer One.
+- **SQL:** só o versionado em `docs/sql/` (3 ficheiros).
+- `finer-one-website/` e `Documents/finer-one-feedback-socios/`: **vazios** (0 ficheiros).
+- `finer-one - Copia/`: não é uma cópia de trabalho — 112 ficheiros apagados e 10 soltos
+  na raiz, de 2026-07-21 a 2026-08-14. **Cinco são blobs exatos do histórico** do repo
+  (commits `9401c3f`, `e9ff144`, `21b6895`). Dos outros dois, `blingDataService.test.js`
+  tem **0 linhas** que nunca tenham existido num commit, e `blingDataService.js` tem
+  **2** — uma assinatura com parâmetro por omissão e um comentário de fim de linha, de
+  uma arquitetura de transporte anónimo (`apiGet("pedidos/vendas")`) que foi
+  deliberadamente substituída pelo transporte protegido. Nada exclusivo.
+- `finer-one-backup-antes-etapa1/`: `a2175a4`, o commit inicial de 2026-06-12, contido em
+  `origin/main`.
+- **ZIPs** (`finer-one.zip`, `finer-one - Copia*.zip`, `finer-one-handoff*.zip`,
+  `finer-one-clean.zip`): instantâneos de 2026-06-12 a 2026-08-18, todos anteriores ao
+  HEAD atual e de um repositório cujo histórico está inteiro no GitHub. O único curado
+  (`finer-one-handoff-limpo.zip`, 97 entradas) contém `src/` mais os dois ficheiros
+  `diagnostico/` já ignorados. Nada a salvar.
+
+> Outros projetos em `VS Code/` (overseas, overcode, overdiet, centraldosparafusos…) têm
+> trabalho por commitar, e `ml-dashboard-overwine` tem duas branches sem upstream. **Não
+> são Finer One** e ficaram fora desta auditoria — mas ficam registados aqui.
+
+---
 
 ### Cópias antigas do repo principal (sem risco)
 
