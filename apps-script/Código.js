@@ -255,14 +255,10 @@ function doGet(e) {
   try {
     var p = (e && e.parameter) ? e.parameter : {};
 
+    /* CALLBACK OAuth. Só dispara com `code` presente — nenhum dos quatro recursos o
+     * envia, portanto esta guarda não os pode alcançar. Ver serveOauthCallback_. */
     if (p.code) {
-      return jsonOut_({
-        oauth: true,
-        message: 'Authorization code recebido. Copie o valor de "code", grave na Script ' +
-          'Property BLING_AUTH_CODE e rode exchangeAuthorizationCode_().',
-        code: p.code,
-        state: p.state || null
-      });
+      return serveOauthCallback_(p);
     }
 
     if (p.recurso === 'despesas') {
@@ -355,7 +351,26 @@ function buildAuthUrl_() {
   var redirect = getProp_('BLING_REDIRECT_URI');
   if (!clientId || !redirect) throw new Error('Rode setCredentials_() primeiro.');
 
-  var state = 'finerone_' + Date.now();
+  /* STATE — deixa de ser decorativo.
+   *
+   * Era 'finerone_' + Date.now(): gerado, enviado, ecoado de volta e nunca verificado.
+   * Enquanto a troca do code era manual, isso passava: havia um humano a olhar para o
+   * callback antes de agir. A partir do momento em que o callback troca sozinho, essa
+   * verificação humana desaparece — e o Web App é ANYONE_ANONYMOUS.
+   *
+   * Sem validar o state, qualquer pessoa que alcance a URL de /exec com um `?code=` seu
+   * faria este script trocar o code DELA por tokens e guardá-los: as leituras passariam
+   * a vir da conta Bling do atacante. Não é fuga de dados — é substituição da fonte
+   * financeira, que é pior, porque parece funcionar.
+   *
+   * Passa a ser aleatório (getUuid, não o relógio), guardado, com prazo, e de uso único.
+   */
+  var state = Utilities.getUuid();
+  setProps_({
+    BLING_OAUTH_STATE: state,
+    BLING_OAUTH_STATE_AT: String(Date.now())
+  });
+
   var url = BLING_AUTHORIZE +
     '?response_type=code' +
     '&client_id=' + encodeURIComponent(clientId) +
@@ -370,18 +385,153 @@ function buildAuthUrl_() {
 /* ====================================================================================
  * 4) exchangeAuthorizationCode_() — troca o code inicial por tokens.
  * ==================================================================================== */
+/* ====================================================================================
+ * TROCA DO AUTHORIZATION CODE.
+ *
+ * O code do Bling vive SESSENTA SEGUNDOS ("o prazo para realizar esta requisição é de
+ * 1 minuto", documentação oficial). O caminho manual — copiar do callback, abrir as
+ * propriedades do script, colar, guardar, voltar ao editor, executar — não cabe nesse
+ * orçamento: três tentativas, três `invalid_grant / has expired`, a última já provada
+ * com um code novo e limpo por impressão digital.
+ *
+ * Por isso o núcleo passa a receber o code por ARGUMENTO. Quem o tem primeiro é o
+ * callback, e é lá que a troca acontece, sem humano no meio.
+ * ==================================================================================== */
+function trocarCodePorTokens_(code) {
+  /* .trim(): o valor podia vir de uma colagem manual. Um espaço invisível dava um
+   * invalid_grant indistinguível de um code expirado — e passámos uma sessão a
+   * perseguir exatamente essa ambiguidade. */
+  var limpo = String(code === null || code === undefined ? '' : code).trim();
+  if (!limpo) throw new Error('Authorization code ausente.');
+
+  var json = postToken_({ grant_type: 'authorization_code', code: limpo });
+  saveTokens_(json);
+  safeLog_('Tokens salvos com sucesso (access/refresh guardados; nao exibidos).');
+}
+
+/* Caminho MANUAL, mantido como recurso de recurso. Já não é o caminho normal — o
+ * callback trata disso — mas continua a funcionar se alguém precisar dele. */
 function exchangeAuthorizationCode_() {
   var code = getProp_('BLING_AUTH_CODE');
   if (!code) {
     throw new Error('Grave a Script Property BLING_AUTH_CODE com o code antes de rodar.');
   }
 
-  var json = postToken_({ grant_type: 'authorization_code', code: code });
-  saveTokens_(json);
+  trocarCodePorTokens_(code);
 
   PropertiesService.getScriptProperties().deleteProperty('BLING_AUTH_CODE');
+}
 
-  safeLog_('Tokens iniciais salvos com sucesso (access/refresh guardados; nao exibidos).');
+/* ====================================================================================
+ * CALLBACK OAuth — o Bling redireciona para cá com ?code=&state=, e a troca acontece
+ * aqui, no mesmo instante. Latência humana: zero.
+ *
+ * ORDEM DAS GUARDAS, e porquê esta ordem:
+ *   1) LOCK      — duas execuções simultâneas do mesmo callback não podem trocar o
+ *                  mesmo code duas vezes.
+ *   2) STATE     — recusa um callback que este script não pediu. Antes de tocar no code.
+ *   3) MARCA     — o code é marcado (por HASH) ANTES da troca. Um refresh do browser ou
+ *                  um re-pedido da mesma URL não reenvia o code.
+ *   4) TROCA     — só aqui o code sai daqui para o Bling.
+ *
+ * A marca vem antes da troca de propósito. O Bling revoga o utilizador quando um code
+ * válido é usado duas vezes ("por medidas de segurança o usuário vinculado ao code terá
+ * o seu acesso revogado"). Marcar depois deixaria essa janela aberta a um duplo clique.
+ *
+ * A resposta ao browser é sempre uma mensagem. Nunca o code, nunca os tokens.
+ * ==================================================================================== */
+var OAUTH_STATE_TTL_MS = 15 * 60 * 1000;  // prazo para concluir a autorização
+var OAUTH_MARCA_TTL_S = 600;              // memória anti-reenvio do mesmo code
+
+function serveOauthCallback_(p) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+  } catch (e) {
+    return jsonOut_({ oauth: true, ok: false, erro: 'OCUPADO',
+      message: 'Outra autorizacao esta em curso. Tente novamente.' });
+  }
+
+  try {
+    if (!estadoOAuthCorresponde_(p.state, getProp_('BLING_OAUTH_STATE'),
+                                 Number(getProp_('BLING_OAUTH_STATE_AT') || 0),
+                                 Date.now(), OAUTH_STATE_TTL_MS)) {
+      safeLog_('Callback OAuth RECUSADO: state ausente, desconhecido ou fora de prazo.');
+      return jsonOut_({ oauth: true, ok: false, erro: 'STATE_INVALIDO',
+        message: 'Pedido de autorizacao nao reconhecido. Gere uma nova URL com runBuildAuthUrl.' });
+    }
+
+    var marca = 'oauth_' + oauthSha256Hex_(p.code).slice(0, 32);
+    var cache = CacheService.getScriptCache();
+    if (cache.get(marca)) {
+      safeLog_('Callback OAuth ignorado: este code ja foi processado.');
+      return jsonOut_({ oauth: true, ok: false, erro: 'CODE_JA_PROCESSADO',
+        message: 'Este pedido ja foi processado. Nao recarregue esta pagina.' });
+    }
+    cache.put(marca, '1', OAUTH_MARCA_TTL_S);
+
+    trocarCodePorTokens_(p.code);
+
+    /* State de uso único: consumido só depois de a troca resultar. */
+    PropertiesService.getScriptProperties().deleteProperty('BLING_OAUTH_STATE');
+    PropertiesService.getScriptProperties().deleteProperty('BLING_OAUTH_STATE_AT');
+
+    safeLog_('Callback OAuth concluido com sucesso. Tokens renovados.');
+    return jsonOut_({ oauth: true, ok: true,
+      message: 'Autorizacao concluida. Pode fechar esta pagina.' });
+
+  } catch (e) {
+    var c = oauthClassificarErro_(e);
+    safeLog_('Callback OAuth falhou: ' + c.erro + ' (HTTP ' + c.httpStatus + ').');
+    return jsonOut_({ oauth: true, ok: false, erro: c.erro, httpStatus: c.httpStatus,
+      message: 'Nao foi possivel concluir a autorizacao. Gere uma nova URL e repita.' });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* PURA. O state recebido tem de existir, bater exatamente com o guardado e estar dentro
+ * do prazo. Ausência de qualquer um dos lados é recusa — nunca "deixa passar". */
+function estadoOAuthCorresponde_(recebido, guardado, guardadoEmMs, agoraMs, ttlMs) {
+  if (!recebido || !guardado) return false;
+  if (String(recebido) !== String(guardado)) return false;
+  if (!guardadoEmMs || guardadoEmMs <= 0) return false;
+  var idade = agoraMs - guardadoEmMs;
+  if (idade < 0) return false;              // relógio a andar para trás: recusa
+  return idade <= ttlMs;
+}
+
+/* PURA. Classificação segura do erro da troca. O corpo cru NUNCA sai daqui: numa falha
+ * de postToken_ ele traz a resposta do Bling. */
+function oauthClassificarErro_(e) {
+  var msg = (e && e.message) ? String(e.message) : '';
+  var m = msg.match(/HTTP (\d+)/);
+  var status = m ? Number(m[1]) : null;
+
+  var codigo;
+  if (/already been used|has already/i.test(msg)) codigo = 'CODE_JA_USADO_UTILIZADOR_REVOGADO';
+  else if (/has expired|expired/i.test(msg)) codigo = 'CODE_EXPIRADO';
+  else if (/invalid_client/i.test(msg)) codigo = 'CREDENCIAIS_INVALIDAS';
+  else if (/Empresa inativa/i.test(msg)) codigo = 'EMPRESA_INATIVA';
+  else if (/invalid_grant/i.test(msg)) codigo = 'GRANT_INVALIDO';
+  else if (/Authorization code ausente/i.test(msg)) codigo = 'CODE_AUSENTE';
+  else codigo = 'ERRO';
+
+  return { erro: codigo, httpStatus: status };
+}
+
+/* SHA-256 em hexadecimal. Serve só para MARCAR um code sem o guardar: o que fica em
+ * cache é o hash, nunca o code. Nome prefixado para não colidir com o homónimo do
+ * ficheiro de diagnóstico temporário — no Apps Script todos os ficheiros partilham o
+ * mesmo espaço global, e um nome repetido é substituído em silêncio. */
+function oauthSha256Hex_(s) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(s));
+  var hex = '';
+  for (var i = 0; i < bytes.length; i++) {
+    var b = (bytes[i] + 256) % 256;
+    hex += (b < 16 ? '0' : '') + b.toString(16);
+  }
+  return hex;
 }
 
 /* ====================================================================================
@@ -1223,4 +1373,8 @@ function runEncontrarIdPedidoPorNumero() {
   Logger.log("numero = " + pedido.numero);
   Logger.log("id = " + pedido.id);
   Logger.log(JSON.stringify(pedido, null, 2));
+}
+
+function runExchangeAuthorizationCode() {
+  return exchangeAuthorizationCode_();
 }
